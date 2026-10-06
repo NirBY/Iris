@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from app.api import alerts, auth, instances, jobs, messages, system
+from app.api import alerts, auth, instances, jobs, messages, stats, system
 from app.api import settings as settings_api
 from app.config import get_settings
 from app.db.engine import make_engine, make_session_factory
@@ -87,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(messages.router)
     app.include_router(jobs.router)
     app.include_router(alerts.router)
+    app.include_router(stats.router)
     app.include_router(settings_api.router)
     app.include_router(webhooks.router)
 
