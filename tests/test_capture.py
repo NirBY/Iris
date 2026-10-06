@@ -9,6 +9,13 @@ import pytest
 from app import main
 
 
+def _assert_saved(tmp_path: Path) -> None:
+    (f,) = tmp_path.glob("*-kid-a.json")
+    saved = json.loads(f.read_text())
+    assert saved["signature_valid"] is True
+    assert saved["body"]["text"] == "שלום"
+
+
 async def test_capture_stores_payload_and_checks_signature(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -20,7 +27,4 @@ async def test_capture_stores_payload_and_checks_signature(
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         r = await c.post("/webhooks/kid-a", content=raw, headers={"X-OpenWA-Signature": sig})
     assert r.json() == {"ok": True}
-    (f,) = tmp_path.glob("*-kid-a.json")
-    saved = json.loads(f.read_text())
-    assert saved["signature_valid"] is True
-    assert saved["body"]["text"] == "שלום"
+    _assert_saved(tmp_path)
