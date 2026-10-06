@@ -100,3 +100,47 @@ export interface ReviewPage {
   page: number
   page_size: number
 }
+
+export interface Stats {
+  messages_today: number
+  messages_7d: number
+  alerts_by_status: Record<string, number>
+  alerts_by_delivery: Record<string, number>
+  review_queue: number
+  jobs_by_status: Record<string, number>
+  queue_depth: number
+  failed_jobs: number
+  delivery_configured: boolean
+  instances: number
+  silent_instances: number
+}
+
+export interface Chat {
+  id: number
+  wa_chat_id: string
+  name: string | null
+  is_group: boolean
+  kids: Kid[]
+  message_count: number
+  alert_count: number
+  last_message_at: string | null
+}
+
+export interface Job {
+  id: number
+  type: string
+  status: string
+  attempts: number
+  max_attempts: number
+  last_error: string | null
+  message_id: number | null
+  created_at: string
+}
+
+export interface ThresholdRow {
+  category: string
+  low: number
+  high: number
+  default_low: number
+  default_high: number
+}

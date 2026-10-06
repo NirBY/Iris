@@ -20,7 +20,9 @@ export function Layout() {
             ['/alerts', 'Alerts'],
             ['/review', 'Review'],
             ['/messages', 'Messages'],
+            ['/chats', 'Chats'],
             ['/instances', 'Instances'],
+            ['/jobs', 'Jobs'],
             ['/settings', 'Settings'],
           ].map(([to, label]) => (
             <NavLink

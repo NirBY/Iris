@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Highlight } from '../components/Highlight'
 import { Failure, MessageBody, VerdictBadge } from '../components/MessageBody'
 import { typeIcon } from '../lib/icons'
@@ -23,6 +23,8 @@ export function Messages() {
     to: '',
   })
   const [page, setPage] = useState(1)
+  const [searchParams] = useSearchParams()
+  const chatId = searchParams.get('chat')
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 300)
@@ -31,6 +33,7 @@ export function Messages() {
 
   const params = new URLSearchParams({ page: String(page), page_size: '25' })
   if (debouncedQ) params.set('q', debouncedQ)
+  if (chatId) params.set('chat_id', chatId)
   for (const [k, v] of Object.entries(filters)) {
     if (!v) continue
     params.set(k, k === 'from' || k === 'to' ? new Date(v).toISOString() : v)
