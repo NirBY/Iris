@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     admin_password: str | None = None
     data_dir: Path = Path("/data")
     port: int = 8080
-    workers: int = Field(default=3, ge=1)
+    workers: int = Field(default=3, ge=0)  # 0 disables the pool (tests)
     log_level: str = "INFO"
     log_json: bool = False
 

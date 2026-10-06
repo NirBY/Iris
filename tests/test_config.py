@@ -6,7 +6,8 @@ from pydantic import ValidationError
 from app.config import Settings
 
 
-def test_defaults_and_slash_strip() -> None:
+def test_defaults_and_slash_strip(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("IRIS_WORKERS")
     s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert s.public_base_url == "http://localhost:8080"
     assert s.workers == 3
