@@ -37,8 +37,10 @@ async def download(
     except MediaTooLarge as exc:
         raise MediaSkipped(f"media too large ({exc.size} bytes)") from exc
     except OpenWAError as exc:
-        if exc.status in (400, 404, 410):  # gone from OpenWA: retrying cannot help
-            raise PermanentError("media is no longer available in OpenWA") from exc
+        if exc.status in (400, 404, 410):  # OpenWA has no copy: retrying cannot help
+            raise PermanentError(
+                "OpenWA has no stored media for this message (check its inbound media storage)"
+            ) from exc
         if exc.status in (401, 403):
             raise PermanentError("OpenWA rejected the API key") from exc
         raise TransientError(f"OpenWA media download failed: {exc.message}") from exc
