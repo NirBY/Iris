@@ -62,6 +62,23 @@ async def _in_scope(db: AsyncSession, msg: IncomingMessage) -> bool:
 
 
 async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: IncomingMessage) -> str:
+    # The message hash is identical for everyone who sees the message, but in a DIRECT chat each
+    # monitored session sees the other party under its own chat id. So dedupe on the hash alone:
+    # a message between two monitored kids is one message with two receipts, not two copies.
+    existing = (
+        await db.execute(select(Message).where(Message.wa_message_id == msg.wa_message_id).limit(1))
+    ).scalar_one_or_none()
+    if existing is not None:
+        if await db.get(ChatInstance, (existing.chat_id, inst_id)) is None:
+            db.add(ChatInstance(chat_id=existing.chat_id, instance_id=inst_id))
+        if await db.get(MessageReceipt, (existing.id, inst_id)) is None:
+            db.add(MessageReceipt(message_id=existing.id, instance_id=inst_id))
+        if msg.from_me and not existing.from_me:
+            # The sender's own session reported it: the author is a monitored kid.
+            existing.from_me, existing.sender_name = True, kid_name
+        await db.commit()
+        return "duplicate"
+
     chat = (
         await db.execute(select(Chat).where(Chat.wa_chat_id == msg.wa_chat_id))
     ).scalar_one_or_none()
@@ -73,19 +90,6 @@ async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: Incomi
         chat.name = msg.sender_name  # direct chat: named after the other party
     if await db.get(ChatInstance, (chat.id, inst_id)) is None:
         db.add(ChatInstance(chat_id=chat.id, instance_id=inst_id))
-
-    existing = (
-        await db.execute(
-            select(Message).where(
-                Message.chat_id == chat.id, Message.wa_message_id == msg.wa_message_id
-            )
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        if await db.get(MessageReceipt, (existing.id, inst_id)) is None:
-            db.add(MessageReceipt(message_id=existing.id, instance_id=inst_id))
-        await db.commit()
-        return "duplicate"
 
     media: dict[str, Any] | None = None
     if msg.media:

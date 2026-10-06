@@ -236,3 +236,49 @@ async def test_concurrent_deliveries_of_same_new_group_message(app_client: Any) 
     assert sorted([r1.json()["result"], r2.json()["result"]]) == ["accepted", "duplicate"]
     assert await count(app_client, Message) == 1 and await count(app_client, MessageReceipt) == 2
     assert await count(app_client, Job) == 1
+
+
+def _received_view_of(fixture: str) -> bytes:
+    """The same message as the OTHER monitored session sees it: same hash, other chat id."""
+    body = json.loads(fx(fixture))
+    d = body["data"]
+    h = d["id"].rsplit("_", 1)[1]
+    d.update(
+        id=f"false_111111111111111@lid_{h}",
+        chatId="111111111111111@lid",
+        from_="111111111111111@lid",
+        fromMe=False,
+        contact={"pushName": "Noa", "name": "Noa"},
+    )
+    d["from"] = d.pop("from_")
+    return json.dumps(body).encode()
+
+
+async def test_message_between_two_monitored_kids_is_one_message_with_two_receipts(
+    app_client: Any,
+) -> None:
+    _, t1 = await make_instance(app_client, "Noa")
+    _, t2 = await make_instance(app_client, "Dan")
+    # Dan's session receives it first, then Noa's session reports having sent it.
+    assert (await post(app_client, t2, _received_view_of("text_sent_he"))).json()[
+        "result"
+    ] == "accepted"
+    assert (await post(app_client, t1, fx("text_sent_he"))).json()["result"] == "duplicate"
+    assert await count(app_client, Message) == 1 and await count(app_client, MessageReceipt) == 2
+    assert await count(app_client, Job) == 1  # classified once, so it can alert only once
+    async with app_client.app.state.session_factory() as s:
+        m = (await s.execute(select(Message))).scalar_one()
+        assert m.from_me is True and m.sender_name == "Noa"  # author resolved to the sending kid
+        assert await count(app_client, ChatInstance) == 2  # both kids linked to the chat
+    listing = (await app_client.get("/api/messages")).json()["items"]
+    assert [k["kid_name"] for k in listing[0]["kids"]] == ["Noa", "Dan"]
+
+
+async def test_sender_view_first_then_receiver_view_is_also_one_message(app_client: Any) -> None:
+    _, t1 = await make_instance(app_client, "Noa")
+    _, t2 = await make_instance(app_client, "Dan")
+    await post(app_client, t1, fx("text_sent_he"))
+    assert (await post(app_client, t2, _received_view_of("text_sent_he"))).json()[
+        "result"
+    ] == "duplicate"
+    assert await count(app_client, Message) == 1 and await count(app_client, MessageReceipt) == 2
