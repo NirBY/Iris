@@ -128,7 +128,9 @@ async def search_messages(
 ) -> MessagePage:
     conds: list[ColumnElement[bool]] = []
     snippets: dict[int, str] = {}
-    if q and (match := fts_query(q)):
+    if q and not fts_query(q):
+        conds.append(Message.id.in_([]))  # punctuation-only search matches nothing
+    elif q and (match := fts_query(q)):
         rows = await db.execute(
             text(
                 "SELECT rowid, snippet(messages_fts, -1, :a, :b, '…', 14) FROM messages_fts "
@@ -137,7 +139,7 @@ async def search_messages(
             {"a": MARK_START, "b": MARK_END, "m": match, "lim": _FTS_LIMIT},
         )
         snippets = {int(r[0]): str(r[1]) for r in rows}
-        conds.append(Message.id.in_(snippets.keys()))
+        conds.append(Message.id.in_(list(snippets)))
     if instance_id is not None:
         conds.append(
             Message.id.in_(

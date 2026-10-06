@@ -1,6 +1,7 @@
 """Thin OpenWA REST client (X-API-Key auth). Keep all OpenWA endpoint shapes here."""
 
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -37,18 +38,22 @@ class OpenWAClient:
         except httpx.HTTPError as exc:
             raise OpenWAError(None, f"OpenWA unreachable: {exc.__class__.__name__}") from exc
         if r.status_code >= 400:
+            # Only a plain "message" string is surfaced, never raw upstream bodies.
+            detail = f"HTTP {r.status_code}"
             try:
-                detail = r.json().get("message", r.text)
+                body = r.json()
+                if isinstance(body, dict) and isinstance(body.get("message"), str):
+                    detail = body["message"][:200]
             except ValueError:
-                detail = r.text
-            raise OpenWAError(r.status_code, str(detail)[:300])
+                pass
+            raise OpenWAError(r.status_code, detail)
         return r.json() if r.content else None
 
     async def register_webhook(self, session_id: str, url: str, secret: str) -> str:
         """Create a webhook for the session and return its id."""
         data = await self._request(
             "POST",
-            f"/api/sessions/{session_id}/webhooks",
+            f"/api/sessions/{quote(session_id, safe='')}/webhooks",
             json={"url": url, "events": WEBHOOK_EVENTS, "secret": secret, "retryCount": 3},
         )
         body = data.get("data", data) if isinstance(data, dict) else {}
@@ -57,6 +62,6 @@ class OpenWAClient:
     async def send_text(self, session_id: str, chat_id: str, text: str) -> None:
         await self._request(
             "POST",
-            f"/api/sessions/{session_id}/messages/send-text",
+            f"/api/sessions/{quote(session_id, safe='')}/messages/send-text",
             json={"chatId": chat_id, "text": text},
         )

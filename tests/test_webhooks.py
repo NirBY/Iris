@@ -135,7 +135,7 @@ async def test_own_alert_text_skipped_on_sender_instance(app_client: Any) -> Non
     async with app_client.app.state.session_factory() as s:
         await set_setting(s, "alerts.sender_instance_id", iid)
     body = json.loads(fx("text_sent_he"))
-    body["data"]["body"] = "⚠️ Iris alert\nKid: Noa"
+    body["data"]["body"] = "⚠️ Iris alert\nKid: Noa\nOpen: http://localhost:8080/alerts/7"
     r = await post(app_client, token, json.dumps(body).encode())
     assert r.json() == {"result": "skipped"}
 
@@ -163,3 +163,67 @@ async def test_oversized_body_413(app_client: Any) -> None:
     _, token = await make_instance(app_client)
     r = await post(app_client, token, b"x" * (25 * 1024 * 1024 + 1))
     assert r.status_code == 413
+
+
+async def test_alert_prefix_without_our_link_is_still_classified(app_client: Any) -> None:
+    iid, token = await make_instance(app_client)
+    async with app_client.app.state.session_factory() as s:
+        await set_setting(s, "alerts.sender_instance_id", iid)
+    body = json.loads(fx("text_sent_he"))
+    body["data"]["body"] = "⚠️ Iris alert (typed by a kid)"
+    r = await post(app_client, token, json.dumps(body).encode())
+    assert r.json() == {"result": "accepted"}
+
+
+async def test_signature_mandatory_after_iris_registers_webhook(app_client: Any) -> None:
+    import httpx
+    import respx
+
+    iid, token = await make_instance(app_client)
+    await app_client.patch(f"/api/instances/{iid}", json={"openwa_api_key": "k"})
+    with respx.mock:
+        respx.post("https://wa.x/api/sessions/s/webhooks").mock(
+            return_value=httpx.Response(201, json={"id": "w"})
+        )
+        assert (await app_client.post(f"/api/instances/{iid}/register-webhook")).status_code == 200
+    raw = fx("text_received_mixed")
+    assert (await post(app_client, token, raw)).status_code == 401  # unsigned is rejected now
+    good = (
+        "sha256="
+        + hmac.new(webhook_secret(get_settings(), token).encode(), raw, hashlib.sha256).hexdigest()
+    )
+    assert (await post(app_client, token, raw, **{"x-openwa-signature": good})).status_code == 200
+    # Rotation invalidates the registered secret, so unsigned deliveries are accepted again
+    # until the webhook is re-registered.
+    new = (
+        (await app_client.post(f"/api/instances/{iid}/rotate-token"))
+        .json()["webhook_url"]
+        .rsplit("/", 1)[1]
+    )
+    assert (await post(app_client, new, fx("text_sent_he"))).status_code == 200
+
+
+async def test_streamed_body_without_content_length_is_capped(app_client: Any) -> None:
+    _, token = await make_instance(app_client)
+
+    async def chunks() -> Any:
+        for _ in range(26):
+            yield b"x" * (1024 * 1024)
+
+    r = await app_client.post(f"/webhooks/{token}", content=chunks())
+    assert r.status_code == 413
+
+
+async def test_concurrent_deliveries_of_same_new_group_message(app_client: Any) -> None:
+    import asyncio
+
+    _, t1 = await make_instance(app_client, "Noa")
+    _, t2 = await make_instance(app_client, "Dan")
+    r1, r2 = await asyncio.gather(
+        post(app_client, t1, fx("group_text_received")),
+        post(app_client, t2, fx("group_text_received")),
+    )
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert sorted([r1.json()["result"], r2.json()["result"]]) == ["accepted", "duplicate"]
+    assert await count(app_client, Message) == 1 and await count(app_client, MessageReceipt) == 2
+    assert await count(app_client, Job) == 1

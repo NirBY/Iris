@@ -65,3 +65,49 @@ async def test_register_webhook_success_and_private_address_hint(app_client) -> 
 @pytest.mark.parametrize("bad", [{"kid_name": ""}, {}])
 async def test_create_validation(app_client, bad) -> None:  # type: ignore[no-untyped-def]
     assert (await app_client.post("/api/instances", json=bad)).status_code == 422
+
+
+async def test_base_url_validation(app_client) -> None:  # type: ignore[no-untyped-def]
+    for bad in ("ftp://x", "not a url", "http://169.254.169.254/latest", "http://0.0.0.0"):
+        r = await app_client.post("/api/instances", json={**BODY, "openwa_base_url": bad})
+        assert r.status_code == 422, bad
+    ok = await app_client.post(
+        "/api/instances", json={**BODY, "openwa_base_url": "http://192.168.0.5:2785"}
+    )
+    assert ok.status_code == 201  # private LAN addresses are legitimate OpenWA hosts
+
+
+async def test_changing_base_url_requires_reentering_key(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    url = f"/api/instances/{out['id']}"
+    r = await app_client.patch(url, json={"openwa_base_url": "https://evil.example"})
+    assert r.status_code == 422
+    r = await app_client.patch(
+        url, json={"openwa_base_url": "https://new.example", "openwa_api_key": "k2"}
+    )
+    assert r.status_code == 200 and r.json()["openwa_base_url"] == "https://new.example"
+
+
+@respx.mock
+async def test_upstream_error_text_not_reflected_and_odd_json_survives(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    route = respx.post("https://wa.example.com/api/sessions/sess-1/webhooks")
+    route.mock(return_value=httpx.Response(500, text="SECRET INTERNAL BODY"))
+    r = await app_client.post(f"/api/instances/{out['id']}/register-webhook")
+    assert r.status_code == 502 and "SECRET" not in r.text
+    route.mock(return_value=httpx.Response(500, json=["not", "a", "dict"]))
+    assert (
+        await app_client.post(f"/api/instances/{out['id']}/register-webhook")
+    ).status_code == 502
+
+
+@respx.mock
+async def test_session_id_is_path_quoted(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (
+        await app_client.post("/api/instances", json={**BODY, "openwa_instance_id": "../admin"})
+    ).json()
+    route = respx.post(url__regex=r"https://wa\.example\.com/api/sessions/.*/webhooks").mock(
+        return_value=httpx.Response(201, json={"id": "w"})
+    )
+    await app_client.post(f"/api/instances/{out['id']}/register-webhook")
+    assert route.calls.last.request.url.raw_path.startswith(b"/api/sessions/..%2Fadmin/webhooks")

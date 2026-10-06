@@ -37,12 +37,17 @@ def _id_digits(wa_id: str | None) -> str | None:
     return m.group(1) if m else None
 
 
-async def _is_alert_loop(db: AsyncSession, inst: Instance, msg: IncomingMessage) -> bool:
+async def _is_alert_loop(
+    db: AsyncSession, inst: Instance, msg: IncomingMessage, public_base_url: str
+) -> bool:
     """Skip Iris's own alerts so they are never classified (and never alert again)."""
     sender_id = await get_setting(db, "alerts.sender_instance_id")
     if sender_id != inst.id:
         return False
-    if msg.from_me and (msg.text or "").startswith(ALERT_PREFIX):
+    text = msg.text or ""
+    # Iris's own alert: prefix AND its alert link, so a stray "⚠️ Iris alert" typed by a kid
+    # on the sender session is still classified.
+    if msg.from_me and text.startswith(ALERT_PREFIX) and f"{public_base_url}/alerts/" in text:
         return True
     recipient = _id_digits(await get_setting(db, "alerts.recipient"))
     return recipient is not None and recipient == _id_digits(msg.wa_chat_id)
@@ -55,7 +60,7 @@ async def _in_scope(db: AsyncSession, msg: IncomingMessage) -> bool:
     return bool(await get_setting(db, key))
 
 
-async def _store(db: AsyncSession, inst: Instance, msg: IncomingMessage) -> str:
+async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: IncomingMessage) -> str:
     chat = (
         await db.execute(select(Chat).where(Chat.wa_chat_id == msg.wa_chat_id))
     ).scalar_one_or_none()
@@ -65,8 +70,8 @@ async def _store(db: AsyncSession, inst: Instance, msg: IncomingMessage) -> str:
         await db.flush()
     if chat.name is None and not msg.is_group and not msg.from_me:
         chat.name = msg.sender_name  # direct chat: named after the other party
-    if await db.get(ChatInstance, (chat.id, inst.id)) is None:
-        db.add(ChatInstance(chat_id=chat.id, instance_id=inst.id))
+    if await db.get(ChatInstance, (chat.id, inst_id)) is None:
+        db.add(ChatInstance(chat_id=chat.id, instance_id=inst_id))
 
     existing = (
         await db.execute(
@@ -76,8 +81,8 @@ async def _store(db: AsyncSession, inst: Instance, msg: IncomingMessage) -> str:
         )
     ).scalar_one_or_none()
     if existing is not None:
-        if await db.get(MessageReceipt, (existing.id, inst.id)) is None:
-            db.add(MessageReceipt(message_id=existing.id, instance_id=inst.id))
+        if await db.get(MessageReceipt, (existing.id, inst_id)) is None:
+            db.add(MessageReceipt(message_id=existing.id, instance_id=inst_id))
         await db.commit()
         return "duplicate"
 
@@ -85,7 +90,7 @@ async def _store(db: AsyncSession, inst: Instance, msg: IncomingMessage) -> str:
         wa_message_id=msg.wa_message_id,
         chat_id=chat.id,
         sender_wa_id=msg.sender_wa_id,
-        sender_name=inst.kid_name if msg.from_me else msg.sender_name,
+        sender_name=kid_name if msg.from_me else msg.sender_name,
         from_me=msg.from_me,
         type=msg.type,
         text=msg.text,
@@ -95,7 +100,7 @@ async def _store(db: AsyncSession, inst: Instance, msg: IncomingMessage) -> str:
     )
     db.add(message)
     await db.flush()
-    db.add(MessageReceipt(message_id=message.id, instance_id=inst.id))
+    db.add(MessageReceipt(message_id=message.id, instance_id=inst_id))
     media: dict[str, Any] | None = None
     if msg.media:
         media = {
@@ -108,15 +113,36 @@ async def _store(db: AsyncSession, inst: Instance, msg: IncomingMessage) -> str:
     db.add(
         Job(
             type="process_message",
-            payload={"message_id": message.id, "instance_id": inst.id, "media": media},
+            payload={"message_id": message.id, "instance_id": inst_id, "media": media},
         )
     )
-    try:
-        await db.commit()
-    except IntegrityError:  # a concurrent delivery from another instance won the race
-        await db.rollback()
-        return await _store(db, inst, msg)
+    await db.commit()
     return "accepted"
+
+
+async def _store(db: AsyncSession, inst_id: int, kid_name: str, msg: IncomingMessage) -> str:
+    """Store a message; two instances racing on the same new chat/message retry as duplicates."""
+    for _ in range(3):
+        try:
+            return await _store_once(db, inst_id, kid_name, msg)
+        except IntegrityError:
+            await db.rollback()  # the other delivery won: the retry then sees its rows
+    raise HTTPException(status_code=503, detail="could not store message")
+
+
+async def _read_capped(request: Request) -> bytes:
+    """Read the body with a running cap, so chunked requests cannot buffer unbounded data."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+        raise HTTPException(status_code=413)
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_BODY_BYTES:
+            raise HTTPException(status_code=413)
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @router.post("/webhooks/{token}")
@@ -130,18 +156,16 @@ async def receive(
         await db.execute(select(Instance).where(Instance.webhook_token == token))
     ).scalar_one_or_none()
     # Unknown or disabled: same 404, so the response never reveals which.
-    if inst is None or not hmac.compare_digest(inst.webhook_token, token) or not inst.enabled:
+    if inst is None or not inst.enabled:
         raise HTTPException(status_code=404)
-    logger.debug("webhook for instance {} (token {}...)", inst.id, token[:6])
+    inst_id, kid_name = inst.id, inst.kid_name
+    logger.debug("webhook for instance {} (token {}...)", inst_id, token[:6])
 
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
-        raise HTTPException(status_code=413)
-    raw = await request.body()
-    if len(raw) > MAX_BODY_BYTES:
-        raise HTTPException(status_code=413)
+    raw = await _read_capped(request)
 
     sig = request.headers.get("x-openwa-signature")
+    if sig is None and inst.signature_required:
+        raise HTTPException(status_code=401, detail="signature required")
     if sig is not None:
         expected = (
             "sha256="
@@ -155,14 +179,16 @@ async def receive(
         msg = parse_event(body) if isinstance(body, dict) else None
     except (ValueError, PayloadError) as exc:
         # 200 so OpenWA does not retry a payload we can never parse.
-        logger.warning("unparseable webhook for instance {}: {}", inst.id, exc.__class__.__name__)
+        logger.warning("unparseable webhook for instance {}: {}", inst_id, exc.__class__.__name__)
         return {"result": "rejected"}
 
     inst.last_webhook_at = datetime.now(UTC)
     if msg is None:
         await db.commit()
         return {"result": "ignored"}
-    if await _is_alert_loop(db, inst, msg) or not await _in_scope(db, msg):
+    if await _is_alert_loop(db, inst, msg, settings.public_base_url) or not await _in_scope(
+        db, msg
+    ):
         await db.commit()
         return {"result": "skipped"}
-    return {"result": await _store(db, inst, msg)}
+    return {"result": await _store(db, inst_id, kid_name, msg)}

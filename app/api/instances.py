@@ -2,9 +2,11 @@
 
 import hashlib
 import hmac
+import ipaddress
 import secrets
 from datetime import datetime
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -29,6 +31,20 @@ Cfg = Annotated[Settings, Depends(get_settings)]
 def webhook_secret(settings: Settings, token: str) -> str:
     """Per-instance HMAC secret for OpenWA's X-OpenWA-Signature, derived (not stored)."""
     return hmac.new(settings.key_bytes, b"webhook:" + token.encode(), hashlib.sha256).hexdigest()
+
+
+def validate_base_url(url: str) -> str:
+    """http(s) only, with a host. Link-local/metadata addresses are never valid OpenWA targets."""
+    parts = urlsplit(url.strip())
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise HTTPException(status_code=422, detail="OpenWA base URL must be http(s) with a host")
+    try:
+        ip = ipaddress.ip_address(parts.hostname)
+    except ValueError:
+        ip = None
+    if ip is not None and (ip.is_link_local or ip.is_unspecified or ip.is_multicast):
+        raise HTTPException(status_code=422, detail="OpenWA base URL address is not allowed")
+    return url.strip().rstrip("/")
 
 
 class InstanceIn(BaseModel):
@@ -95,7 +111,7 @@ async def create_instance(body: InstanceIn, db: DB, settings: Cfg) -> InstanceOu
     inst = Instance(
         kid_name=body.kid_name,
         phone_number=body.phone_number,
-        openwa_base_url=body.openwa_base_url.rstrip("/"),
+        openwa_base_url=validate_base_url(body.openwa_base_url),
         openwa_instance_id=body.openwa_instance_id,
         openwa_api_key_enc=encrypt(settings.key_bytes, body.openwa_api_key)
         if body.openwa_api_key
@@ -122,8 +138,14 @@ async def update_instance(
     key = data.pop("openwa_api_key", None)
     if key:  # empty/absent means "leave unchanged": secrets are write-only in the API
         inst.openwa_api_key_enc = encrypt(settings.key_bytes, key)
-    if "openwa_base_url" in data and data["openwa_base_url"]:
-        data["openwa_base_url"] = data["openwa_base_url"].rstrip("/")
+    if data.get("openwa_base_url"):
+        new_url = validate_base_url(data["openwa_base_url"])
+        if new_url != inst.openwa_base_url and not key:
+            # The stored key must never be sent to a different host without re-entering it.
+            raise HTTPException(
+                status_code=422, detail="Re-enter the API key when changing the base URL"
+            )
+        data["openwa_base_url"] = new_url
     for field, value in data.items():
         if value is not None or field == "phone_number":
             setattr(inst, field, value)
@@ -141,6 +163,9 @@ async def delete_instance(instance_id: int, db: DB) -> None:
 async def rotate_token(instance_id: int, db: DB, settings: Cfg) -> InstanceOut:
     inst = await _get(db, instance_id)
     inst.webhook_token = secrets.token_urlsafe(32)  # the old URL stops working immediately
+    inst.signature_required = (
+        False  # the secret is derived from the token: re-register to sign again
+    )
     await db.commit()
     return to_out(inst, settings)
 
@@ -168,4 +193,6 @@ async def register_webhook(instance_id: int, db: DB, settings: Cfg) -> dict[str,
         raise HTTPException(status_code=502, detail=f"OpenWA: {exc.message}{hint}") from exc
     finally:
         await client.aclose()
+    inst.signature_required = True
+    await db.commit()
     return {"webhook_id": webhook_id}

@@ -90,3 +90,8 @@ async def test_detail_and_context(app_client: Any) -> None:
 async def test_messages_require_auth(app_client: Any) -> None:
     app_client.cookies.clear()
     assert (await app_client.get("/api/messages")).status_code == 401
+
+
+async def test_punctuation_only_query_matches_nothing(app_client: Any) -> None:
+    await seed(app_client)
+    assert (await app_client.get("/api/messages", params={"q": '"*()'})).json()["total"] == 0
