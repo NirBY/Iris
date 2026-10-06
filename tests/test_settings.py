@@ -111,3 +111,17 @@ async def test_cloudflare_test_button_transcribes_bundled_silence(app_client: An
 async def test_alert_test_not_implemented_yet_and_unknown_target(app_client: Any) -> None:
     assert (await app_client.post("/api/settings/test/alert")).status_code == 501
     assert (await app_client.post("/api/settings/test/nope")).status_code == 422
+
+
+async def test_alert_settings_defaults_and_validation(app_client: Any) -> None:
+    s = (await app_client.get("/api/settings")).json()
+    assert s["alerts.cooldown_minutes"] == 10 and s["alerts.timezone"] == "Asia/Jerusalem"
+    assert s["alerts.alert_on_review"] is False
+    for bad in (
+        {"alerts.timezone": "Mars/Base"},
+        {"alerts.cooldown_minutes": -1},
+        {"alerts.alert_on_review": "yes"},
+    ):
+        assert (await app_client.put("/api/settings", json={"settings": bad})).status_code == 422
+    ok = {"alerts.timezone": "Europe/London", "alerts.cooldown_minutes": 0}
+    assert (await app_client.put("/api/settings", json={"settings": ok})).status_code == 200
