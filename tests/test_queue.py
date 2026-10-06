@@ -107,3 +107,41 @@ async def test_manual_retry_of_dead_job(factory: async_sessionmaker[AsyncSession
         assert await queue.retry_job(db, jid) is True
         assert await queue.retry_job(db, jid) is False  # now queued, not retryable again
         assert (await db.execute(select(Job.status).where(Job.id == jid))).scalar_one() == "queued"
+
+
+async def test_stale_job_out_of_attempts_is_dead_lettered(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    jid = await _job(factory)
+    async with factory() as db:
+        await db.execute(
+            update(Job)
+            .where(Job.id == jid)
+            .values(
+                status="running",
+                attempts=5,
+                locked_at=(datetime.now(UTC) - timedelta(minutes=30)).replace(tzinfo=None),
+            )
+        )
+        await db.commit()
+    assert await queue.recover_stale(factory) == 1
+    j = await _status(factory, jid)
+    assert j.status == "dead" and j.last_error
+
+
+def test_backoff_clamps_hostile_retry_after() -> None:
+    assert queue.backoff_for(1, retry_after=10**12) == timedelta(seconds=3600)
+    assert queue.backoff_for(0) == timedelta(seconds=5)  # attempt 0 must not index backwards
+
+
+async def test_has_active_job_blocks_duplicate_retry(
+    factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with factory() as db:
+        dead = await queue.enqueue(db, "process_message", {"message_id": 7})
+        await db.execute(update(Job).where(Job.id == dead).values(status="dead"))
+        await db.commit()
+        assert not await queue.has_active_job(db, 7)
+        await queue.enqueue(db, "process_message", {"message_id": 7})
+        assert await queue.has_active_job(db, 7) and not await queue.has_active_job(db, 8)
+        assert await queue.retry_job(db, dead) is False  # a queued job for message 7 exists

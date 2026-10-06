@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import Job, Message
@@ -89,8 +89,8 @@ async def ack(factory: async_sessionmaker[AsyncSession], job_id: int) -> None:
 
 
 def backoff_for(attempt: int, retry_after: float | None = None) -> timedelta:
-    base = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS)) - 1]
-    return timedelta(seconds=max(base, retry_after or 0))
+    base = BACKOFF_SECONDS[min(max(attempt, 1), len(BACKOFF_SECONDS)) - 1]
+    return timedelta(seconds=max(base, min(retry_after or 0, 3600)))
 
 
 async def fail(
@@ -130,16 +130,42 @@ async def fail(
 
 
 async def recover_stale(factory: async_sessionmaker[AsyncSession]) -> int:
-    """On startup: jobs left 'running' by a crashed process go back to the queue."""
+    """Jobs left 'running' by a crashed process go back to the queue, or are dead-lettered once
+    they have used all their attempts (so a job that kills the process cannot loop forever)."""
     async with factory() as db:
         cutoff = _naive(_now() - STALE_LOCK)
-        res = await db.execute(
-            update(Job)
-            .where(Job.status == "running", Job.locked_at < cutoff)
-            .values(status="queued", locked_at=None)
+        stale = (
+            (await db.execute(select(Job).where(Job.status == "running", Job.locked_at < cutoff)))
+            .scalars()
+            .all()
         )
+        for job in stale:
+            if job.attempts >= job.max_attempts:
+                job.status, job.locked_at, job.last_error = "dead", None, "worker crashed or hung"
+                mid = job.payload.get("message_id")
+                if isinstance(mid, int):
+                    await db.execute(
+                        update(Message).where(Message.id == mid).values(status="failed")
+                    )
+            else:
+                job.status, job.locked_at = "queued", None
         await db.commit()
-        return int(res.rowcount)  # type: ignore[attr-defined]
+        return len(stale)
+
+
+async def has_active_job(db: AsyncSession, message_id: int) -> bool:
+    """True if a queued or running job already targets this message."""
+    n = (
+        await db.execute(
+            select(func.count())
+            .select_from(Job)
+            .where(
+                Job.status.in_(["queued", "running"]),
+                func.json_extract(Job.payload, "$.message_id") == message_id,
+            )
+        )
+    ).scalar_one()
+    return int(n) > 0
 
 
 async def retry_job(db: AsyncSession, job_id: int) -> bool:
@@ -147,6 +173,9 @@ async def retry_job(db: AsyncSession, job_id: int) -> bool:
     job = await db.get(Job, job_id)
     if job is None or job.status not in ("failed", "dead"):
         return False
+    mid = job.payload.get("message_id")
+    if isinstance(mid, int) and await has_active_job(db, mid):
+        return False  # another job for this message is already waiting or running
     job.status, job.attempts, job.last_error, job.run_after = "queued", 0, None, _naive(_now())
     message_id = job.payload.get("message_id")
     if isinstance(message_id, int):

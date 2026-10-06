@@ -55,15 +55,18 @@ def _int_range(lo: int, hi: int) -> Callable[[Any], int]:
     return check
 
 
+def _opt_secret(v: Any) -> str | None:
+    return None if v is None or v == "" else _str(v)  # empty/null clears the secret
+
+
 def _thresholds(v: Any) -> dict[str, Any]:
     if not isinstance(v, dict):
         raise ValueError("must be an object of {category: {low, high}}")
-    validate_thresholds(v)
-    return v
+    return {c: {"low": lo, "high": hi} for c, (lo, hi) in validate_thresholds(v).items()}
 
 
 REGISTRY: dict[str, Spec] = {
-    "openai.api_key": Spec(None, _str, secret=True),
+    "openai.api_key": Spec(None, _opt_secret, secret=True),
     "classification.model": Spec("omni-moderation-latest", _str),
     "classification.thresholds": Spec({}, _thresholds),
     "classification.context_window_size": Spec(8, _int_range(1, 20)),
@@ -105,11 +108,16 @@ async def set_setting(
     """Validate and store. Secrets need `key_bytes` and are encrypted before storage."""
     spec = _spec(key)
     clean = spec.validate(value)
+    row = await db.get(Setting, key)
     if spec.secret:
         if key_bytes is None:
             raise ValueError("secret settings need an encryption key")
+        if clean is None:  # clearing a secret removes it
+            if row is not None:
+                await db.delete(row)
+                await db.commit()
+            return
         clean = encrypt(key_bytes, clean)
-    row = await db.get(Setting, key)
     if row is None:
         db.add(Setting(key=key, value=clean, is_secret=spec.secret))
     else:

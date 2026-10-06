@@ -25,6 +25,9 @@ async def test_failed_jobs_listed_and_retryable(app_client: Any) -> None:
 async def test_reprocess_enqueues_and_blocks_redacted(app_client: Any) -> None:
     _, token = await make_instance(app_client)
     await post(app_client, token, fx("text_received_mixed"))
+    async with app_client.app.state.session_factory() as s:
+        await s.execute(update(Job).values(status="done"))  # the ingest job has finished
+        await s.commit()
     assert (await app_client.post("/api/messages/1/reprocess")).status_code == 200
     async with app_client.app.state.session_factory() as s:
         assert len((await s.execute(select(Job))).scalars().all()) == 2

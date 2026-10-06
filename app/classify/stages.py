@@ -47,6 +47,8 @@ class StageResult:
 
 class Stage(Protocol):
     name: str
+    # Stages that refine an earlier result (like context) only run after an inconclusive one.
+    needs_inconclusive: bool
 
     async def run(self, message: Message, ctx: StageContext) -> StageResult | None:
         """Return None when the stage does not apply to this message."""
@@ -84,6 +86,7 @@ async def _moderate(
 
 class ModerationStage:
     name = "moderation"
+    needs_inconclusive = False
 
     async def run(self, message: Message, ctx: StageContext) -> StageResult | None:
         body = message_body(message)
@@ -109,6 +112,7 @@ def build_context_input(previous: list[Message], target: Message) -> str:
 
 class ContextStage:
     name = "context"
+    needs_inconclusive = True
 
     async def run(self, message: Message, ctx: StageContext) -> StageResult | None:
         cutoff = message.sent_at - ctx.context_max_age

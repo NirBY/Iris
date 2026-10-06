@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Chat, Classification, Instance, Job, Message, MessageReceipt
 from app.deps import get_db
+from app.jobs.queue import has_active_job
 from app.security.auth import current_user
 
 router = APIRouter(prefix="/api/messages", tags=["messages"], dependencies=[Depends(current_user)])
@@ -259,6 +260,8 @@ async def reprocess_message(message_id: int, db: DB) -> dict[str, bool]:
     m, _ = await _load(db, message_id)
     if m.redacted:
         raise HTTPException(status_code=409, detail="Redacted messages cannot be reprocessed")
+    if await has_active_job(db, m.id):
+        raise HTTPException(status_code=409, detail="Already queued or running")
     m.status, m.verdict = "pending", None
     db.add(Job(type="process_message", payload={"message_id": m.id}))
     await db.commit()

@@ -1,6 +1,7 @@
 """OpenAI Moderation client (free endpoint, rate limited)."""
 
 import contextlib
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -49,7 +50,9 @@ class ModerationClient:
         if r.status_code == 429 or r.status_code >= 500:
             retry_after: float | None = None
             with contextlib.suppress(ValueError):
-                retry_after = float(r.headers.get("retry-after", ""))
+                parsed = float(r.headers.get("retry-after", ""))
+                if math.isfinite(parsed):
+                    retry_after = min(max(parsed, 0.0), 3600.0)
             raise TransientError(f"moderation HTTP {r.status_code}", retry_after=retry_after)
         if r.status_code >= 400:
             # 400 bad input, 401/403 bad key: retrying cannot help until fixed.

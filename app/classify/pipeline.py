@@ -25,6 +25,10 @@ async def run_pipeline(
 ) -> PipelineOutcome:
     out = PipelineOutcome(verdict="review")
     for stage in stages:
+        if stage.needs_inconclusive and not (
+            out.results and out.results[-1].band == "inconclusive"
+        ):
+            continue
         result = await stage.run(message, ctx)
         if result is None:
             continue

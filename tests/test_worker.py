@@ -182,3 +182,48 @@ async def test_worker_pool_processes_webhook_job_end_to_end(app_client: Any) -> 
         await pool.stop()
     assert pool.alive == 0
     await deps.providers.aclose()
+
+
+@respx.mock
+async def test_failing_harmful_hook_does_not_fail_the_message(app_client: Any) -> None:
+    deps, token = await setup(app_client)
+
+    async def boom(*_: Any) -> None:
+        raise RuntimeError("alert service down")
+
+    deps.on_harmful = boom
+    respx.post(URL).mock(return_value=mod_response(violence=0.95))
+    await post(app_client, token, fx("text_received_mixed"))
+    assert await drain(deps) == ["done"]
+    m, _ = await message_and_job(app_client)
+    assert m.status == "done" and m.verdict == "harmful"
+    await deps.providers.aclose()
+
+
+async def test_database_busy_is_retried_not_failed(app_client: Any) -> None:
+    from sqlalchemy.exc import OperationalError
+
+    deps, token = await setup(app_client)
+    await post(app_client, token, fx("text_received_mixed"))
+
+    async def locked(*_: Any) -> None:
+        raise OperationalError("stmt", {}, Exception("database is locked"))
+
+    job = await queue.claim(deps.session_factory)
+    assert job and await run_one(job, deps, {"process_message": locked}) == "queued"
+
+
+async def test_reprocess_blocked_while_job_active(app_client: Any) -> None:
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx("text_received_mixed"))  # creates a queued job
+    assert (await app_client.post("/api/messages/1/reprocess")).status_code == 409
+
+
+async def test_provider_key_rotation_keeps_old_client_until_close() -> None:
+    p = Providers()
+    a = p.moderation("k1")
+    assert p.moderation("k1") is a
+    b = p.moderation("k2")
+    assert b is not a and not a._client.is_closed  # in-flight requests may still use it
+    await p.aclose()
+    assert a._client.is_closed and b._client.is_closed

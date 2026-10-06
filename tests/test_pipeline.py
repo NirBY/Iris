@@ -149,3 +149,13 @@ def test_context_input_truncates_oldest_lines_and_redacts() -> None:
     assert "A: [redacted]" in out
     img = Message(sender_name="A", type="image", text=None)
     assert build_context_input([img], target) == "A: [image]\n>>> T: now"
+
+
+async def test_context_stage_never_runs_for_empty_message(db: AsyncSession) -> None:
+    """An empty message must not be judged by its (possibly harmful) neighbours."""
+    msgs = await chat_with(db, [("A", "something awful", 0), ("B", "", 1)])
+    msgs[1].text = None
+    mod = FakeModerator({"violence": 0.99})
+    with pytest.raises(ValueError):
+        await run_pipeline(msgs[1], ctx(db, mod))
+    assert mod.inputs == []

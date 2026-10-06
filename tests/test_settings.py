@@ -51,3 +51,12 @@ async def test_thresholds_validated(app_client: Any) -> None:
 async def test_settings_require_auth(app_client: Any) -> None:
     app_client.cookies.clear()
     assert (await app_client.get("/api/settings")).status_code == 401
+
+
+async def test_secret_can_be_cleared_and_thresholds_are_normalised(app_client: Any) -> None:
+    await app_client.put("/api/settings", json={"settings": {"openai.api_key": "sk-1"}})
+    r = await app_client.put("/api/settings", json={"settings": {"openai.api_key": ""}})
+    assert r.json()["openai.api_key"] == {"set": False}
+    t = {"classification.thresholds": {"violence": {"low": "0.3", "high": 0.8}}}
+    r = await app_client.put("/api/settings", json={"settings": t})
+    assert r.json()["classification.thresholds"] == {"violence": {"low": 0.3, "high": 0.8}}

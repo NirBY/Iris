@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 
 from loguru import logger
+from sqlalchemy.exc import OperationalError
 
 from app.jobs import queue
 from app.jobs.handlers import Deps, process_message
@@ -26,6 +27,10 @@ async def run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler] = HA
             factory, job, str(exc), transient=True, retry_after=exc.retry_after
         )
         logger.warning("job {} transient failure ({}): -> {}", job.id, exc, status)
+        return status
+    except OperationalError as exc:  # e.g. "database is locked": worth retrying
+        status = await queue.fail(factory, job, "database busy", transient=True)
+        logger.warning("job {} database error ({}): -> {}", job.id, exc.__class__.__name__, status)
         return status
     except PermanentError as exc:
         logger.warning("job {} failed: {}", job.id, exc)
@@ -51,6 +56,8 @@ class WorkerPool:
         if recovered:
             logger.info("recovered {} stale jobs", recovered)
         self._tasks = [asyncio.create_task(self._loop(i)) for i in range(self._size)]
+        if self._size:
+            self._tasks.append(asyncio.create_task(self._maintenance()))
 
     async def stop(self) -> None:
         for t in self._tasks:
@@ -60,11 +67,20 @@ class WorkerPool:
 
     @property
     def alive(self) -> int:
-        return sum(1 for t in self._tasks if not t.done())
+        return sum(1 for t in self._tasks[: self._size] if not t.done())
 
     @property
     def size(self) -> int:
         return self._size
+
+    async def _maintenance(self) -> None:
+        """Re-queue jobs whose worker vanished (not only at startup)."""
+        while True:
+            await asyncio.sleep(60)
+            try:
+                await queue.recover_stale(self._deps.session_factory)
+            except Exception:
+                logger.exception("stale job recovery failed")
 
     async def _loop(self, n: int) -> None:
         while True:

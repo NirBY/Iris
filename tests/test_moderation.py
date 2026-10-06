@@ -56,3 +56,12 @@ async def test_network_error_and_garbage_are_transient() -> None:
     respx.post(URL).mock(return_value=httpx.Response(200, json={"results": []}))
     with pytest.raises(TransientError):
         await ModerationClient("k").moderate("m", "x")
+
+
+@respx.mock
+@pytest.mark.parametrize("header", ["inf", "nan", "-5", "1e999"])
+async def test_hostile_retry_after_is_clamped(header: str) -> None:
+    respx.post(URL).mock(return_value=httpx.Response(429, headers={"retry-after": header}))
+    with pytest.raises(TransientError) as e:
+        await ModerationClient("k").moderate("m", "x")
+    assert e.value.retry_after is None or 0 <= e.value.retry_after <= 3600

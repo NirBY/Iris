@@ -99,4 +99,9 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             [r.stage for r in outcome.results],
         )
         if outcome.verdict == "harmful":
-            await deps.on_harmful(db, message, outcome)
+            try:
+                await deps.on_harmful(db, message, outcome)
+            except Exception:
+                # Classification is done and committed: a failing hook must not mark the message
+                # failed or re-run the pipeline. Alert delivery has its own retry (milestone 5).
+                logger.exception("harmful hook failed for message {}", message.id)
