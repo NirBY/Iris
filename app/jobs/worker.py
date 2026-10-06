@@ -1,6 +1,7 @@
 """Worker pool: N asyncio tasks pulling jobs from the DB queue."""
 
 import asyncio
+import shutil
 from collections.abc import Awaitable, Callable
 
 from loguru import logger
@@ -52,6 +53,8 @@ class WorkerPool:
         self._tasks: list[asyncio.Task[None]] = []
 
     async def start(self) -> None:
+        # Single process: nothing can be running yet, so any leftover temp media is from a crash.
+        await asyncio.to_thread(shutil.rmtree, self._deps.data_dir / "tmp", True)
         recovered = await queue.recover_stale(self._deps.session_factory)
         if recovered:
             logger.info("recovered {} stale jobs", recovered)

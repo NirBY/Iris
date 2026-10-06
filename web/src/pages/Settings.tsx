@@ -113,7 +113,8 @@ export function Settings() {
     setMsg(null)
     try {
       await api('/api/settings', { method: 'PUT', body: JSON.stringify({ settings: changes }) })
-      setEdit({})
+      // Only the saved keys leave the draft: other unsaved edits survive (e.g. after "Clear").
+      setEdit((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !(k in changes))))
       await qc.invalidateQueries({ queryKey: ['settings'] })
       setMsg('Saved.')
     } catch (e) {
