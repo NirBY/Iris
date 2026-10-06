@@ -3,6 +3,7 @@
 Never calls external APIs: all slow work happens in the job workers.
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -16,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.alerts import ALERT_PREFIX
+from app.alerts.format import is_own_alert
 from app.api.instances import webhook_secret
 from app.config import Settings, get_settings
 from app.db.models import Chat, ChatInstance, Instance, Job, Message, MessageReceipt
@@ -25,6 +26,9 @@ from app.openwa.payloads import IncomingMessage, PayloadError, parse_event
 from app.settings_store import get_setting
 
 router = APIRouter()
+# One process: serialising the lookup+insert makes cross-instance dedupe race-free even for
+# direct chats, where the two copies of a message live in different chat rows.
+_STORE_LOCK = asyncio.Lock()
 
 # Media is normally referenced, but OpenWA inlines small files as base64.
 MAX_BODY_BYTES = 25 * 1024 * 1024
@@ -38,17 +42,19 @@ def _id_digits(wa_id: str | None) -> str | None:
 
 
 async def _is_alert_loop(
-    db: AsyncSession, inst: Instance, msg: IncomingMessage, public_base_url: str
+    db: AsyncSession, inst: Instance, msg: IncomingMessage, key_bytes: bytes
 ) -> bool:
-    """Skip Iris's own alerts so they are never classified (and never alert again)."""
+    """Skip Iris's own alerts so they are never classified (and never alert again).
+
+    Recognised by the HMAC-signed link in the text, on ANY instance: the alert recipient may
+    itself be a monitored number. A look-alike typed by someone else has no valid signature.
+    """
+    if is_own_alert(msg.text or "", key_bytes):
+        logger.info("instance {} skipped one of Iris's own alert messages", inst.id)
+        return True
     sender_id = await get_setting(db, "alerts.sender_instance_id")
     if sender_id != inst.id:
         return False
-    text = msg.text or ""
-    # Iris's own alert: prefix AND its alert link, so a stray "⚠️ Iris alert" typed by a kid
-    # on the sender session is still classified.
-    if msg.from_me and text.startswith(ALERT_PREFIX) and f"{public_base_url}/alerts/" in text:
-        return True
     recipient = _id_digits(await get_setting(db, "alerts.recipient"))
     return recipient is not None and recipient == _id_digits(msg.wa_chat_id)
 
@@ -61,6 +67,23 @@ async def _in_scope(db: AsyncSession, msg: IncomingMessage) -> bool:
 
 
 async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: IncomingMessage) -> str:
+    # The message hash is identical for everyone who sees the message, but in a DIRECT chat each
+    # monitored session sees the other party under its own chat id. So dedupe on the hash alone:
+    # a message between two monitored kids is one message with two receipts, not two copies.
+    existing = (
+        await db.execute(select(Message).where(Message.wa_message_id == msg.wa_message_id).limit(1))
+    ).scalar_one_or_none()
+    if existing is not None:
+        if await db.get(ChatInstance, (existing.chat_id, inst_id)) is None:
+            db.add(ChatInstance(chat_id=existing.chat_id, instance_id=inst_id))
+        if await db.get(MessageReceipt, (existing.id, inst_id)) is None:
+            db.add(MessageReceipt(message_id=existing.id, instance_id=inst_id))
+        if msg.from_me and not existing.from_me:
+            # The sender's own session reported it: the author is a monitored kid.
+            existing.from_me, existing.sender_name = True, kid_name
+        await db.commit()
+        return "duplicate"
+
     chat = (
         await db.execute(select(Chat).where(Chat.wa_chat_id == msg.wa_chat_id))
     ).scalar_one_or_none()
@@ -72,19 +95,6 @@ async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: Incomi
         chat.name = msg.sender_name  # direct chat: named after the other party
     if await db.get(ChatInstance, (chat.id, inst_id)) is None:
         db.add(ChatInstance(chat_id=chat.id, instance_id=inst_id))
-
-    existing = (
-        await db.execute(
-            select(Message).where(
-                Message.chat_id == chat.id, Message.wa_message_id == msg.wa_message_id
-            )
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        if await db.get(MessageReceipt, (existing.id, inst_id)) is None:
-            db.add(MessageReceipt(message_id=existing.id, instance_id=inst_id))
-        await db.commit()
-        return "duplicate"
 
     media: dict[str, Any] | None = None
     if msg.media:
@@ -121,7 +131,8 @@ async def _store(db: AsyncSession, inst_id: int, kid_name: str, msg: IncomingMes
     """Store a message; two instances racing on the same new chat/message retry as duplicates."""
     for _ in range(3):
         try:
-            return await _store_once(db, inst_id, kid_name, msg)
+            async with _STORE_LOCK:
+                return await _store_once(db, inst_id, kid_name, msg)
         except IntegrityError:
             await db.rollback()  # the other delivery won: the retry then sees its rows
     raise HTTPException(status_code=503, detail="could not store message")
@@ -183,9 +194,7 @@ async def receive(
     if msg is None:
         await db.commit()
         return {"result": "ignored"}
-    if await _is_alert_loop(db, inst, msg, settings.public_base_url) or not await _in_scope(
-        db, msg
-    ):
+    if await _is_alert_loop(db, inst, msg, settings.key_bytes) or not await _in_scope(db, msg):
         await db.commit()
         return {"result": "skipped"}
     return {"result": await _store(db, inst_id, kid_name, msg)}

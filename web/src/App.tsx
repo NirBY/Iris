@@ -1,11 +1,14 @@
 import { Route, Routes } from 'react-router-dom'
 import { Layout } from './Layout'
 import { useMe } from './lib/auth'
+import { AlertDetail } from './pages/AlertDetail'
+import { Alerts } from './pages/Alerts'
 import { Dashboard } from './pages/Dashboard'
 import { Instances } from './pages/Instances'
 import { Login } from './pages/Login'
 import { MessageContext } from './pages/MessageContext'
 import { Messages } from './pages/Messages'
+import { Review } from './pages/Review'
 import { Settings } from './pages/Settings'
 
 export function App() {
@@ -16,6 +19,9 @@ export function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
+        <Route path="alerts" element={<Alerts />} />
+        <Route path="alerts/:id" element={<AlertDetail />} />
+        <Route path="review" element={<Review />} />
         <Route path="messages" element={<Messages />} />
         <Route path="messages/:id" element={<MessageContext />} />
         <Route path="instances" element={<Instances />} />

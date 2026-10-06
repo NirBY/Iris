@@ -10,6 +10,11 @@ const settings = {
   'transcription.cloudflare_account_id': null,
   'transcription.cloudflare_api_token': { set: false },
   'transcription.cloudflare_model': '@cf/openai/whisper-large-v3-turbo',
+  'alerts.sender_instance_id': null,
+  'alerts.recipient': null,
+  'alerts.cooldown_minutes': 10,
+  'alerts.alert_on_review': false,
+  'alerts.timezone': 'Asia/Jerusalem',
 }
 
 function renderPage() {
@@ -20,7 +25,9 @@ function renderPage() {
       calls.push({ url, body: init?.body as string | undefined })
       const body = url.startsWith('/api/settings/test')
         ? { ok: true, detail: 'OpenAI Moderation answered' }
-        : settings
+        : url.startsWith('/api/instances')
+          ? []
+          : settings
       return new Response(JSON.stringify(body), { status: 200 })
     }),
   )
@@ -43,6 +50,20 @@ test('never shows the saved key, and blank secret is not sent on save', async ()
 
 test('test button reports the result', async () => {
   renderPage()
-  await userEvent.click(await screen.findByRole('button', { name: 'Test' }))
+  await userEvent.click((await screen.findAllByRole('button', { name: 'Test' }))[0])
   expect(await screen.findByText(/OpenAI Moderation answered/)).toBeInTheDocument()
+})
+
+test('alert settings are sent with the right types', async () => {
+  const calls = renderPage()
+  const cooldown = await screen.findByLabelText(/Cooldown per chat/)
+  await userEvent.clear(cooldown)
+  await userEvent.type(cooldown, '30')
+  await userEvent.click(screen.getByLabelText(/Also alert on items needing review/))
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const put = calls.find((c) => c.url === '/api/settings' && c.body)
+  expect(JSON.parse(put!.body!).settings).toEqual({
+    'alerts.cooldown_minutes': 30,
+    'alerts.alert_on_review': true,
+  })
 })

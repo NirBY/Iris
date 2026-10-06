@@ -1,7 +1,9 @@
+import json
 from typing import Any
 
 from sqlalchemy import select
 
+from app.alerts.format import is_own_alert
 from app.config import get_settings
 from app.db.models import Setting
 from app.settings_store import get_secret, get_setting
@@ -106,6 +108,56 @@ async def test_cloudflare_test_button_transcribes_bundled_silence(app_client: An
     assert missing["ok"] is False and "required" in missing["detail"]
 
 
-async def test_alert_test_not_implemented_yet_and_unknown_target(app_client: Any) -> None:
-    assert (await app_client.post("/api/settings/test/alert")).status_code == 501
+async def test_alert_test_button_sends_a_real_message_with_entered_values(app_client: Any) -> None:
+    import httpx
+    import respx
+
+    inst = (
+        await app_client.post(
+            "/api/instances",
+            json={
+                "kid_name": "Alerts",
+                "openwa_base_url": "https://wa.x",
+                "openwa_instance_id": "snd",
+                "openwa_api_key": "owa",
+            },
+        )
+    ).json()
+    url = "https://wa.x/api/sessions/snd/messages/send-text"
+    with respx.mock:
+        route = respx.post(url).mock(return_value=httpx.Response(201, json={}))
+        r = await app_client.post(
+            "/api/settings/test/alert",
+            json={"sender_instance_id": inst["id"], "recipient": "+972501234567"},
+        )
+        assert r.json() == {"ok": True, "detail": "Test message sent"}
+        sent = route.calls.last.request
+        assert sent.headers["x-api-key"] == "owa"
+        assert b"972501234567@c.us" in sent.content
+        text = json.loads(sent.content)["text"]
+        assert "Alert delivery is working" in text and is_own_alert(text, get_settings().key_bytes)
+        route.mock(return_value=httpx.Response(400, json={"message": "Session is not active"}))
+        bad = (
+            await app_client.post(
+                "/api/settings/test/alert",
+                json={"sender_instance_id": inst["id"], "recipient": "972501234567"},
+            )
+        ).json()
+        assert bad["ok"] is False and "not active" in bad["detail"] and "running" in bad["detail"]
+    nothing = (await app_client.post("/api/settings/test/alert")).json()
+    assert nothing["ok"] is False and "sender" in nothing["detail"]
     assert (await app_client.post("/api/settings/test/nope")).status_code == 422
+
+
+async def test_alert_settings_defaults_and_validation(app_client: Any) -> None:
+    s = (await app_client.get("/api/settings")).json()
+    assert s["alerts.cooldown_minutes"] == 10 and s["alerts.timezone"] == "Asia/Jerusalem"
+    assert s["alerts.alert_on_review"] is False
+    for bad in (
+        {"alerts.timezone": "Mars/Base"},
+        {"alerts.cooldown_minutes": -1},
+        {"alerts.alert_on_review": "yes"},
+    ):
+        assert (await app_client.put("/api/settings", json={"settings": bad})).status_code == 422
+    ok = {"alerts.timezone": "Europe/London", "alerts.cooldown_minutes": 0}
+    assert (await app_client.put("/api/settings", json={"settings": ok})).status_code == 200

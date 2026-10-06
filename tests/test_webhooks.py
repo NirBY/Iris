@@ -130,14 +130,33 @@ async def test_alert_loop_chat_skipped(app_client: Any) -> None:
     assert r.json() == {"result": "skipped"} and await count(app_client, Message) == 0
 
 
-async def test_own_alert_text_skipped_on_sender_instance(app_client: Any) -> None:
-    iid, token = await make_instance(app_client)
-    async with app_client.app.state.session_factory() as s:
-        await set_setting(s, "alerts.sender_instance_id", iid)
-    body = json.loads(fx("text_sent_he"))
-    body["data"]["body"] = "⚠️ Iris alert\nKid: Noa\nOpen: http://localhost:8080/alerts/7"
-    r = await post(app_client, token, json.dumps(body).encode())
-    assert r.json() == {"result": "skipped"}
+def signed_alert_text(alert_id: int = 7) -> str:
+    from app.alerts.format import with_signed_link
+
+    return with_signed_link(
+        "⚠️ Iris alert\nKid: Noa", "http://localhost:8080", get_settings().key_bytes, alert_id
+    )
+
+
+async def test_own_signed_alert_skipped_on_any_instance(app_client: Any) -> None:
+    """The recipient may itself be a monitored number, so the guard is not tied to the sender."""
+    _, token = await make_instance(app_client)
+    for fixture in ("text_sent_he", "text_received_mixed"):
+        body = json.loads(fx(fixture))
+        body["data"]["body"] = signed_alert_text()
+        r = await post(app_client, token, json.dumps(body).encode())
+        assert r.json() == {"result": "skipped"}
+    assert await count(app_client, Message) == 0
+
+
+async def test_lookalike_alert_with_bad_signature_is_still_classified(app_client: Any) -> None:
+    """Someone typing the alert format must not be able to dodge monitoring."""
+    _, token = await make_instance(app_client)
+    body = json.loads(fx("text_received_mixed"))
+    body["data"]["body"] = "⚠️ Iris alert\nOpen: http://localhost:8080/alerts/7?s=0000000000000000"
+    assert (await post(app_client, token, json.dumps(body).encode())).json() == {
+        "result": "accepted"
+    }
 
 
 async def test_alert_recipient_on_other_instance_not_skipped(app_client: Any) -> None:
@@ -163,16 +182,6 @@ async def test_oversized_body_413(app_client: Any) -> None:
     _, token = await make_instance(app_client)
     r = await post(app_client, token, b"x" * (25 * 1024 * 1024 + 1))
     assert r.status_code == 413
-
-
-async def test_alert_prefix_without_our_link_is_still_classified(app_client: Any) -> None:
-    iid, token = await make_instance(app_client)
-    async with app_client.app.state.session_factory() as s:
-        await set_setting(s, "alerts.sender_instance_id", iid)
-    body = json.loads(fx("text_sent_he"))
-    body["data"]["body"] = "⚠️ Iris alert (typed by a kid)"
-    r = await post(app_client, token, json.dumps(body).encode())
-    assert r.json() == {"result": "accepted"}
 
 
 async def test_signature_mandatory_after_iris_registers_webhook(app_client: Any) -> None:
@@ -227,3 +236,59 @@ async def test_concurrent_deliveries_of_same_new_group_message(app_client: Any) 
     assert sorted([r1.json()["result"], r2.json()["result"]]) == ["accepted", "duplicate"]
     assert await count(app_client, Message) == 1 and await count(app_client, MessageReceipt) == 2
     assert await count(app_client, Job) == 1
+
+
+def _received_view_of(fixture: str) -> bytes:
+    """The same message as the OTHER monitored session sees it: same hash, other chat id."""
+    body = json.loads(fx(fixture))
+    d = body["data"]
+    h = d["id"].rsplit("_", 1)[1]
+    d.update(
+        id=f"false_111111111111111@lid_{h}",
+        chatId="111111111111111@lid",
+        from_="111111111111111@lid",
+        fromMe=False,
+        contact={"pushName": "Noa", "name": "Noa"},
+    )
+    d["from"] = d.pop("from_")
+    return json.dumps(body).encode()
+
+
+async def test_message_between_two_monitored_kids_is_one_message_with_two_receipts(
+    app_client: Any,
+) -> None:
+    _, t1 = await make_instance(app_client, "Noa")
+    _, t2 = await make_instance(app_client, "Dan")
+    # Dan's session receives it first, then Noa's session reports having sent it.
+    assert (await post(app_client, t2, _received_view_of("text_sent_he"))).json()[
+        "result"
+    ] == "accepted"
+    assert (await post(app_client, t1, fx("text_sent_he"))).json()["result"] == "duplicate"
+    assert await count(app_client, Message) == 1 and await count(app_client, MessageReceipt) == 2
+    assert await count(app_client, Job) == 1  # classified once, so it can alert only once
+    async with app_client.app.state.session_factory() as s:
+        m = (await s.execute(select(Message))).scalar_one()
+        assert m.from_me is True and m.sender_name == "Noa"  # author resolved to the sending kid
+        assert await count(app_client, ChatInstance) == 2  # both kids linked to the chat
+    listing = (await app_client.get("/api/messages")).json()["items"]
+    assert [k["kid_name"] for k in listing[0]["kids"]] == ["Noa", "Dan"]
+
+
+async def test_sender_view_first_then_receiver_view_is_also_one_message(app_client: Any) -> None:
+    _, t1 = await make_instance(app_client, "Noa")
+    _, t2 = await make_instance(app_client, "Dan")
+    await post(app_client, t1, fx("text_sent_he"))
+    assert (await post(app_client, t2, _received_view_of("text_sent_he"))).json()[
+        "result"
+    ] == "duplicate"
+    assert await count(app_client, Message) == 1 and await count(app_client, MessageReceipt) == 2
+
+
+async def test_real_alert_link_pasted_under_other_text_is_still_classified(app_client: Any) -> None:
+    _, token = await make_instance(app_client)
+    link = signed_alert_text().split("\n\nOpen: ")[1]
+    body = json.loads(fx("text_received_mixed"))
+    body["data"]["body"] = f"⚠️ Iris alert\nI will hurt you\n\nOpen: {link}"
+    assert (await post(app_client, token, json.dumps(body).encode())).json() == {
+        "result": "accepted"
+    }

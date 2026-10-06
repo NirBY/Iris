@@ -18,6 +18,7 @@ dependencies = [
   "argon2-cffi",
   "itsdangerous",
   "prometheus-client",
+  "tzdata>=2026.5",
 ]
 
 [dependency-groups]

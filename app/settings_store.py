@@ -70,6 +70,17 @@ def _thresholds(v: Any) -> dict[str, Any]:
     return {c: {"low": lo, "high": hi} for c, (lo, hi) in validate_thresholds(v).items()}
 
 
+def _timezone(v: Any) -> str:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    name = _str(v)
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
+        raise ValueError("unknown timezone (use an IANA name like Asia/Jerusalem)") from exc
+    return name
+
+
 def _choice(*options: str) -> Callable[[Any], str]:
     def check(v: Any) -> str:
         if v not in options:
@@ -99,6 +110,9 @@ REGISTRY: dict[str, Spec] = {
     "scope.monitor_groups": Spec(True, _bool),
     "alerts.sender_instance_id": Spec(None, _opt_int),
     "alerts.recipient": Spec(None, _opt_str),
+    "alerts.cooldown_minutes": Spec(10, _int_range(0, 1440)),
+    "alerts.alert_on_review": Spec(False, _bool),
+    "alerts.timezone": Spec("Asia/Jerusalem", _timezone),
 }
 
 
