@@ -1,4 +1,9 @@
-"""Alert message text (spec 9.2) and the signed alert link."""
+"""Alert message text (spec 9.2) and the body-bound signed alert link.
+
+The link's signature covers the alert id AND the whole message body above it, so a valid
+signature validates only the exact text it was made for. A kid cannot paste a harmful message
+under a copied link, nor reuse the signature of one alert on different text.
+"""
 
 import hashlib
 import hmac
@@ -11,26 +16,32 @@ from app.alerts import ALERT_PREFIX
 
 MAX_QUOTE = 500
 WITHHELD = "Content withheld (sexual content). Review the chat directly."
-_LINK_RE = re.compile(r"/alerts/(\d+)\?s=([0-9a-f]{12})")
+# The link must be the LAST line: anything typed after it would not be covered by the signature.
+_LINK_RE = re.compile(r"\n\nOpen: \S*/alerts/(\d+)\?s=([0-9a-f]{16})\Z")
 
 
-def alert_signature(key: bytes, alert_id: int) -> str:
-    return hmac.new(key, f"alert:{alert_id}".encode(), hashlib.sha256).hexdigest()[:12]
+def alert_signature(key: bytes, alert_id: int, body: str) -> str:
+    digest = hashlib.sha256(body.encode()).hexdigest()
+    return hmac.new(key, f"alert:{alert_id}:{digest}".encode(), hashlib.sha256).hexdigest()[:16]
 
 
-def alert_link(base_url: str, key: bytes, alert_id: int) -> str:
-    return f"{base_url}/alerts/{alert_id}?s={alert_signature(key, alert_id)}"
+def alert_link(base_url: str, key: bytes, alert_id: int, body: str) -> str:
+    return f"{base_url}/alerts/{alert_id}?s={alert_signature(key, alert_id, body)}"
+
+
+def with_signed_link(body: str, base_url: str, key: bytes, alert_id: int) -> str:
+    return f"{body}\n\nOpen: {alert_link(base_url, key, alert_id, body)}"
 
 
 def is_own_alert(text: str, key: bytes) -> bool:
-    """True only for text carrying a valid signed link: an alert typed by someone else
-    (even one copying the format) fails this, so it cannot be used to dodge monitoring."""
+    """True only for the exact text Iris produced: prefix, body, and a signature over that body."""
     if not text.startswith(ALERT_PREFIX):
         return False
-    return any(
-        hmac.compare_digest(sig, alert_signature(key, int(aid)))
-        for aid, sig in _LINK_RE.findall(text)
-    )
+    m = _LINK_RE.search(text)
+    if m is None:
+        return False
+    body = text[: m.start()]
+    return hmac.compare_digest(m.group(2), alert_signature(key, int(m.group(1)), body))
 
 
 def make_quote(message_type: str, text: str | None, transcript: str | None) -> str:
@@ -60,11 +71,10 @@ class AlertFacts:
     max_score: float
     sent_at: datetime
     quote: str | None  # None when redacted
-    link: str
     more_suppressed: int = 0
 
 
-def format_alert(f: AlertFacts, timezone: str) -> str:
+def format_alert(f: AlertFacts, timezone: str, base_url: str, key: bytes) -> str:
     when = f.sent_at
     if when.tzinfo is None:
         when = when.replace(tzinfo=ZoneInfo("UTC"))  # stored as naive UTC
@@ -81,9 +91,7 @@ def format_alert(f: AlertFacts, timezone: str) -> str:
         f"Time: {local.strftime('%d/%m %H:%M')}",
         "",
         WITHHELD if f.quote is None else f'"{f.quote}"',
-        "",
     ]
     if f.more_suppressed:
-        lines += [f"+{f.more_suppressed} more alerts in this chat since last notification", ""]
-    lines.append(f"Open: {f.link}")
-    return "\n".join(lines)
+        lines += ["", f"+{f.more_suppressed} more alerts in this chat since last notification"]
+    return with_signed_link("\n".join(lines), base_url, key, f.alert_id)

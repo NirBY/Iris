@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts import ALERT_PREFIX
 from app.alerts.delivery import recipient_chat_id
-from app.alerts.format import alert_link
+from app.alerts.format import with_signed_link
 from app.classify.moderation import ModerationClient
 from app.config import Settings, get_settings
 from app.db.models import Instance
@@ -138,10 +138,14 @@ async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
         await client.send_text(
             sender.openwa_instance_id,
             recipient_chat_id(recipient),
-            # Signed like a real alert, so Iris recognises (and skips) it if it comes back through
-            # a monitored session instead of classifying its own test message.
-            f"{ALERT_PREFIX} (test)\nAlert delivery is working.\n\n"
-            f"Open: {alert_link(cfg.public_base_url, cfg.key_bytes, 0)}",
+            # Signed like a real alert (the signature covers this exact text), so Iris skips it
+            # if it comes back through a monitored session rather than classifying it.
+            with_signed_link(
+                f"{ALERT_PREFIX} (test)\nAlert delivery is working.",
+                cfg.public_base_url,
+                cfg.key_bytes,
+                0,
+            ),
         )
     except OpenWAError as exc:
         hint = " (is the OpenWA session running?)" if exc.status == 400 else ""

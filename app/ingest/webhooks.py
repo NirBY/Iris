@@ -3,6 +3,7 @@
 Never calls external APIs: all slow work happens in the job workers.
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -25,6 +26,9 @@ from app.openwa.payloads import IncomingMessage, PayloadError, parse_event
 from app.settings_store import get_setting
 
 router = APIRouter()
+# One process: serialising the lookup+insert makes cross-instance dedupe race-free even for
+# direct chats, where the two copies of a message live in different chat rows.
+_STORE_LOCK = asyncio.Lock()
 
 # Media is normally referenced, but OpenWA inlines small files as base64.
 MAX_BODY_BYTES = 25 * 1024 * 1024
@@ -46,6 +50,7 @@ async def _is_alert_loop(
     itself be a monitored number. A look-alike typed by someone else has no valid signature.
     """
     if is_own_alert(msg.text or "", key_bytes):
+        logger.info("instance {} skipped one of Iris's own alert messages", inst.id)
         return True
     sender_id = await get_setting(db, "alerts.sender_instance_id")
     if sender_id != inst.id:
@@ -126,7 +131,8 @@ async def _store(db: AsyncSession, inst_id: int, kid_name: str, msg: IncomingMes
     """Store a message; two instances racing on the same new chat/message retry as duplicates."""
     for _ in range(3):
         try:
-            return await _store_once(db, inst_id, kid_name, msg)
+            async with _STORE_LOCK:
+                return await _store_once(db, inst_id, kid_name, msg)
         except IntegrityError:
             await db.rollback()  # the other delivery won: the retry then sees its rows
     raise HTTPException(status_code=503, detail="could not store message")

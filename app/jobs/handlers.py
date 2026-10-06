@@ -12,7 +12,7 @@ from loguru import logger
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.alerts.service import alert_on_harmful, alert_on_review
+from app.alerts.service import alert_on_harmful, alert_on_review, needs_redaction, redact_message
 from app.classify.pipeline import PipelineOutcome, run_pipeline
 from app.classify.stages import StageContext
 from app.classify.thresholds import effective_thresholds
@@ -217,6 +217,15 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             return
         message.verdict = outcome.verdict
         message.status = "done"
+        if outcome.results:
+            last = outcome.results[-1]
+            if needs_redaction(message.type, last.high_categories, last.flagged_categories):
+                # Withhold now, in the same commit as the verdict: a message awaiting review (or
+                # with alerts off) must not sit in the DB, search index or portal unredacted.
+                redact_message(message)
+                logger.warning(
+                    "message {} redacted at classification; content withheld", message.id
+                )
         await db.commit()
         logger.info(
             "message {} classified: type={} verdict={} stages={}",

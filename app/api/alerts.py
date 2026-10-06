@@ -112,8 +112,11 @@ async def list_alerts(
         conds.append(Message.chat_id == chat_id)
     if category:
         conds.append(
-            exists(text("1 FROM json_each(alerts.categories) WHERE json_each.value = :cat")).params(
-                cat=category
+            and_(
+                text(
+                    "EXISTS (SELECT 1 FROM json_each(alerts.categories) "
+                    "WHERE json_each.value = :cat)"
+                ).bindparams(cat=category)
             )
         )
     if from_:

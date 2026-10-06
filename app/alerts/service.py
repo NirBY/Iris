@@ -23,6 +23,16 @@ def should_redact(message_type: str, categories: list[str]) -> bool:
     return "sexual/minors" in categories or (message_type in MEDIA_TYPES and "sexual" in categories)
 
 
+def needs_redaction(message_type: str, high: list[str], low: list[str]) -> bool:
+    """Decide at classification time, before anything is shown or alerted.
+
+    `sexual/minors` is withheld from the LOW threshold up: the parent is better served by an
+    over-cautious "review the chat directly" than by Iris storing or showing such material.
+    Sexual imagery is withheld at the high threshold, as in the spec.
+    """
+    return "sexual/minors" in low or should_redact(message_type, high)
+
+
 def redact_message(message: Message) -> None:
     """Withhold the content: row keeps metadata only; FTS blanks itself via the update trigger."""
     message.text = REDACTED
@@ -63,7 +73,7 @@ async def create_alert(db: AsyncSession, message: Message, scores: dict[str, flo
     ordered = sorted((scores or {"manual review": 0.0}).items(), key=lambda kv: kv[1], reverse=True)
     categories = [c for c, _ in ordered]
     chat = await db.get(Chat, message.chat_id)
-    redact = should_redact(message.type, categories)
+    redact = message.redacted or should_redact(message.type, categories)
     if redact:
         redact_message(message)
         quote = None

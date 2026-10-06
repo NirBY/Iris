@@ -1,13 +1,13 @@
 """deliver_alert job: send one alert over WhatsApp via the configured sender instance."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from sqlalchemy import Select, func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.alerts.format import AlertFacts, alert_link, format_alert
+from app.alerts.format import AlertFacts, format_alert
 from app.db.models import Alert, Chat, Instance, Message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
 from app.openwa.client import OpenWAClient, OpenWAError
@@ -37,14 +37,8 @@ def _chat_alerts(chat_id: int, alert_id: int) -> "Select[Any]":
     )
 
 
-async def build_facts(
-    db: AsyncSession,
-    alert: Alert,
-    message: Message,
-    chat: Chat | None,
-    key: bytes,
-    base_url: str,
-    more_suppressed: int = 0,
+def build_facts(
+    alert: Alert, message: Message, chat: Chat | None, more_suppressed: int = 0
 ) -> AlertFacts:
     return AlertFacts(
         alert_id=alert.id,
@@ -57,12 +51,21 @@ async def build_facts(
         max_score=alert.max_score,
         sent_at=message.sent_at,
         quote=alert.quote,
-        link=alert_link(base_url, key, alert.id),
         more_suppressed=more_suppressed,
     )
 
 
+# One process, one delivery decision at a time: the cooldown check and the send must not
+# interleave across workers, or two alerts in one chat would both go out.
+_DELIVERY_LOCK = asyncio.Lock()
+
+
 async def deliver_alert(job: ClaimedJob, deps: "Deps") -> None:
+    async with _DELIVERY_LOCK:
+        await _deliver(job, deps)
+
+
+async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
     alert_id = job.payload.get("alert_id")
     force = bool(job.payload.get("force"))  # manual resend ignores the cooldown
     if not isinstance(alert_id, int):
@@ -120,10 +123,8 @@ async def deliver_alert(job: ClaimedJob, deps: "Deps") -> None:
             )
 
         timezone = str(await get_setting(db, "alerts.timezone"))
-        facts = await build_facts(
-            db, alert, message, chat, deps.key_bytes, deps.public_base_url, more_suppressed=more
-        )
-        text = format_alert(facts, timezone)
+        facts = build_facts(alert, message, chat, more_suppressed=more)
+        text = format_alert(facts, timezone, deps.public_base_url, deps.key_bytes)
         client = OpenWAClient(
             sender.openwa_base_url, decrypt(deps.key_bytes, sender.openwa_api_key_enc)
         )

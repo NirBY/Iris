@@ -131,10 +131,10 @@ async def test_alert_loop_chat_skipped(app_client: Any) -> None:
 
 
 def signed_alert_text(alert_id: int = 7) -> str:
-    from app.alerts.format import alert_link
+    from app.alerts.format import with_signed_link
 
-    return "⚠️ Iris alert\nKid: Noa\n\nOpen: " + alert_link(
-        "http://localhost:8080", get_settings().key_bytes, alert_id
+    return with_signed_link(
+        "⚠️ Iris alert\nKid: Noa", "http://localhost:8080", get_settings().key_bytes, alert_id
     )
 
 
@@ -153,7 +153,7 @@ async def test_lookalike_alert_with_bad_signature_is_still_classified(app_client
     """Someone typing the alert format must not be able to dodge monitoring."""
     _, token = await make_instance(app_client)
     body = json.loads(fx("text_received_mixed"))
-    body["data"]["body"] = "⚠️ Iris alert\nOpen: http://localhost:8080/alerts/7?s=000000000000"
+    body["data"]["body"] = "⚠️ Iris alert\nOpen: http://localhost:8080/alerts/7?s=0000000000000000"
     assert (await post(app_client, token, json.dumps(body).encode())).json() == {
         "result": "accepted"
     }
@@ -282,3 +282,13 @@ async def test_sender_view_first_then_receiver_view_is_also_one_message(app_clie
         "result"
     ] == "duplicate"
     assert await count(app_client, Message) == 1 and await count(app_client, MessageReceipt) == 2
+
+
+async def test_real_alert_link_pasted_under_other_text_is_still_classified(app_client: Any) -> None:
+    _, token = await make_instance(app_client)
+    link = signed_alert_text().split("\n\nOpen: ")[1]
+    body = json.loads(fx("text_received_mixed"))
+    body["data"]["body"] = f"⚠️ Iris alert\nI will hurt you\n\nOpen: {link}"
+    assert (await post(app_client, token, json.dumps(body).encode())).json() == {
+        "result": "accepted"
+    }
