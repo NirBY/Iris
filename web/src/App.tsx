@@ -2,7 +2,10 @@ import { Route, Routes } from 'react-router-dom'
 import { Layout } from './Layout'
 import { useMe } from './lib/auth'
 import { Dashboard } from './pages/Dashboard'
+import { Instances } from './pages/Instances'
 import { Login } from './pages/Login'
+import { MessageContext } from './pages/MessageContext'
+import { Messages } from './pages/Messages'
 
 export function App() {
   const { data: me, isLoading } = useMe()
@@ -12,6 +15,9 @@ export function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
+        <Route path="messages" element={<Messages />} />
+        <Route path="messages/:id" element={<MessageContext />} />
+        <Route path="instances" element={<Instances />} />
       </Route>
     </Routes>
   )
