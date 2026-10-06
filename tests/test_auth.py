@@ -77,3 +77,15 @@ async def test_change_password(client: httpx.AsyncClient) -> None:
     client.cookies.clear()
     assert (await _login(client)).status_code == 401
     assert (await _login(client, "new-password-1")).status_code == 200
+
+
+async def test_password_change_revokes_old_session(client: httpx.AsyncClient) -> None:
+    await _login(client)
+    old = client.cookies["iris_session"]
+    await client.post(
+        "/api/auth/password",
+        json={"current_password": "correct-horse", "new_password": "new-password-1"},
+    )
+    client.cookies.clear()
+    client.cookies.set("iris_session", old)
+    assert (await client.get("/api/auth/me")).status_code == 401
