@@ -18,9 +18,10 @@ async def client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[httpx.AsyncCl
     get_settings.cache_clear()
     await asyncio.to_thread(upgrade_head)
     app = main.create_app()
-    async with app.router.lifespan_context(app), httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as c:
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as c,
+    ):
         yield c
 
 
