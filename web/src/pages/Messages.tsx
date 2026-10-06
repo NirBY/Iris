@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Highlight } from '../components/Highlight'
-import { MessageBody, VerdictBadge } from '../components/MessageBody'
+import { Failure, MessageBody, VerdictBadge } from '../components/MessageBody'
 import { typeIcon } from '../lib/icons'
 import { api } from '../lib/api'
 import { dateTime } from '../lib/format'
@@ -147,11 +147,12 @@ export function Messages() {
                   · {m.sender_name ?? '?'}
                   {m.from_me ? ' (kid)' : ''}
                 </span>
-                <VerdictBadge verdict={m.verdict} />
+                <VerdictBadge m={m} />
               </span>
               <span className="text-sm">
                 {m.snippet ? <Highlight snippet={m.snippet} /> : <MessageBody m={m} />}
               </span>
+              <Failure m={m} />
             </Link>
           </li>
         ))}
