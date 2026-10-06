@@ -41,7 +41,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await bootstrap_admin(session, settings)
     providers = Providers()
     pool = WorkerPool(
-        Deps(app.state.session_factory, providers, settings.key_bytes), settings.workers
+        Deps(app.state.session_factory, providers, settings.key_bytes, settings.data_dir),
+        settings.workers,
     )
     app.state.workers = pool
     await pool.start()

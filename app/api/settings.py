@@ -1,15 +1,19 @@
 """/api/settings: flat key map; secrets are write-only."""
 
-from typing import Annotated, Any
+from pathlib import Path
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.classify.moderation import ModerationClient
 from app.config import Settings, get_settings
 from app.deps import get_db
+from app.jobs.queue import PermanentError, TransientError
 from app.security.auth import current_user
-from app.settings_store import REGISTRY, all_settings, set_setting
+from app.settings_store import REGISTRY, all_settings, get_secret, get_setting, set_setting
+from app.transcription.cloudflare import CloudflareTranscriber
 
 router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(current_user)])
 
@@ -45,3 +49,65 @@ async def update_settings(
     for key, value in body.settings.items():
         await set_setting(db, key, value, cfg.key_bytes)
     return await all_settings(db)
+
+
+SILENCE = Path(__file__).resolve().parent.parent / "assets" / "silence.wav"
+
+
+class TestRequest(BaseModel):
+    """Values entered in the form but not saved yet; blank fields fall back to the saved ones."""
+
+    api_key: str | None = None
+    account_id: str | None = None
+    api_token: str | None = None
+    model: str | None = None
+
+
+class TestResult(BaseModel):
+    ok: bool
+    detail: str
+
+
+@router.post("/test/{target}")
+async def test_provider(
+    target: Literal["openai", "cloudflare", "alert"],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    cfg: Annotated[Settings, Depends(get_settings)],
+    body: TestRequest | None = None,
+) -> TestResult:
+    body = body or TestRequest()
+    try:
+        if target == "openai":
+            key = body.api_key or await get_secret(db, "openai.api_key", cfg.key_bytes)
+            if not key:
+                return TestResult(ok=False, detail="No OpenAI API key set")
+            client = ModerationClient(key)
+            try:
+                model = str(await get_setting(db, "classification.model"))
+                await client.moderate(model, "Hello, this is a connection test.")
+            finally:
+                await client.aclose()
+            return TestResult(ok=True, detail="OpenAI Moderation answered")
+        if target == "cloudflare":
+            account = body.account_id or await get_setting(
+                db, "transcription.cloudflare_account_id"
+            )
+            token = body.api_token or await get_secret(
+                db, "transcription.cloudflare_api_token", cfg.key_bytes
+            )
+            model = body.model or str(await get_setting(db, "transcription.cloudflare_model"))
+            if not account or not token:
+                return TestResult(
+                    ok=False, detail="Cloudflare account ID and API token are required"
+                )
+            cf = CloudflareTranscriber(account, token, model)
+            try:
+                await cf.transcribe(SILENCE, "audio/wav")  # a bundled 1-second silent clip
+            finally:
+                await cf.aclose()
+            return TestResult(ok=True, detail="Cloudflare Workers AI transcribed the test clip")
+    except (PermanentError, TransientError) as exc:
+        return TestResult(ok=False, detail=str(exc))  # messages are static, never secrets
+    raise HTTPException(
+        status_code=501, detail="Alert delivery test arrives with the alerts milestone"
+    )

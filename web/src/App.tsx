@@ -6,6 +6,7 @@ import { Instances } from './pages/Instances'
 import { Login } from './pages/Login'
 import { MessageContext } from './pages/MessageContext'
 import { Messages } from './pages/Messages'
+import { Settings } from './pages/Settings'
 
 export function App() {
   const { data: me, isLoading } = useMe()
@@ -18,6 +19,7 @@ export function App() {
         <Route path="messages" element={<Messages />} />
         <Route path="messages/:id" element={<MessageContext />} />
         <Route path="instances" element={<Instances />} />
+        <Route path="settings" element={<Settings />} />
       </Route>
     </Routes>
   )

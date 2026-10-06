@@ -65,7 +65,23 @@ def _thresholds(v: Any) -> dict[str, Any]:
     return {c: {"low": lo, "high": hi} for c, (lo, hi) in validate_thresholds(v).items()}
 
 
+def _choice(*options: str) -> Callable[[Any], str]:
+    def check(v: Any) -> str:
+        if v not in options:
+            raise ValueError(f"must be one of: {', '.join(options)}")
+        return str(v)
+
+    return check
+
+
 REGISTRY: dict[str, Spec] = {
+    "transcription.provider": Spec("openai", _choice("openai", "cloudflare")),
+    "transcription.openai_model": Spec(
+        "gpt-4o-mini-transcribe", _choice("gpt-4o-mini-transcribe", "whisper-1")
+    ),
+    "transcription.cloudflare_account_id": Spec(None, _opt_str),
+    "transcription.cloudflare_api_token": Spec(None, _opt_secret, secret=True),
+    "transcription.cloudflare_model": Spec("@cf/openai/whisper-large-v3-turbo", _str),
     "openai.api_key": Spec(None, _opt_secret, secret=True),
     "classification.model": Spec("omni-moderation-latest", _str),
     "classification.thresholds": Spec({}, _thresholds),

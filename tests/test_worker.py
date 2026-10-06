@@ -148,14 +148,6 @@ async def test_rate_limit_requeues_with_retry_after(app_client: Any) -> None:
     await deps.providers.aclose()
 
 
-async def test_media_messages_are_skipped_for_now(app_client: Any) -> None:
-    deps, token = await setup(app_client)
-    await post(app_client, token, fx("image_caption_sent"))
-    assert await drain(deps) == ["done"]
-    m, _ = await message_and_job(app_client)
-    assert m.status == "skipped" and m.verdict is None
-
-
 async def test_unknown_job_type_fails_permanently(app_client: Any) -> None:
     deps, _ = await setup(app_client)
     async with deps.session_factory() as s:

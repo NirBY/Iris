@@ -1,5 +1,7 @@
 """Thin OpenWA REST client (X-API-Key auth). Keep all OpenWA endpoint shapes here."""
 
+import asyncio
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -16,6 +18,12 @@ class OpenWAError(Exception):
         super().__init__(message)
         self.status = status
         self.message = message
+
+
+class MediaTooLarge(Exception):
+    def __init__(self, size: int) -> None:
+        super().__init__(f"media is {size} bytes")
+        self.size = size
 
 
 class OpenWAClient:
@@ -65,3 +73,36 @@ class OpenWAClient:
             f"/api/sessions/{quote(session_id, safe='')}/messages/send-text",
             json={"chatId": chat_id, "text": text},
         )
+
+    async def download_media(
+        self, session_id: str, chat_id: str, message_ref: str, dest: Path, max_bytes: int
+    ) -> str:
+        """Stream a message's media to `dest` and return the real Content-Type.
+
+        Raises MediaTooLarge past `max_bytes` (the partial file is removed) and OpenWAError
+        otherwise. The webhook's mimetype can be wrong; the response header is authoritative.
+        """
+        path = (
+            f"/api/sessions/{quote(session_id, safe='')}/messages/"
+            f"{quote(chat_id, safe='')}/{quote(message_ref, safe='')}/media"
+        )
+        try:
+            async with self._client.stream("GET", path) as r:
+                if r.status_code >= 400:
+                    raise OpenWAError(r.status_code, f"HTTP {r.status_code}")
+                declared = r.headers.get("content-length")
+                if declared and declared.isdigit() and int(declared) > max_bytes:
+                    raise MediaTooLarge(int(declared))
+                size = 0
+                with dest.open("wb") as fh:
+                    async for chunk in r.aiter_bytes():
+                        size += len(chunk)
+                        if size > max_bytes:
+                            raise MediaTooLarge(size)
+                        fh.write(chunk)
+                return str(r.headers.get("content-type", "application/octet-stream"))
+        except httpx.HTTPError as exc:
+            raise OpenWAError(None, f"OpenWA unreachable: {exc.__class__.__name__}") from exc
+        except MediaTooLarge:
+            await asyncio.to_thread(dest.unlink, True)
+            raise

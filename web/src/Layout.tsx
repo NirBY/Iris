@@ -19,6 +19,7 @@ export function Layout() {
             ['/', 'Dashboard'],
             ['/messages', 'Messages'],
             ['/instances', 'Instances'],
+            ['/settings', 'Settings'],
           ].map(([to, label]) => (
             <NavLink
               key={to}

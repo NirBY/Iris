@@ -30,6 +30,8 @@ class StageContext:
     thresholds: Thresholds
     context_window_size: int
     context_max_age: timedelta
+    # JPEG data URL of the message's image/sticker, when it has one.
+    image_data_url: str | None = None
 
 
 @dataclass
@@ -61,10 +63,23 @@ def message_body(m: Message) -> str:
     return "\n".join(parts)
 
 
+def _image_part(data_url: str) -> dict[str, Any]:
+    return {"type": "image_url", "image_url": {"url": data_url}}
+
+
+def build_input(text: str, image_data_url: str | None) -> tuple[str, str | list[dict[str, Any]]]:
+    """Moderation input and its kind: text, image, or text+image."""
+    if image_data_url is None:
+        return "text", text
+    if not text:
+        return "image", [_image_part(image_data_url)]
+    return "text+image", [{"type": "text", "text": text}, _image_part(image_data_url)]
+
+
 async def _moderate(
     stage: str,
     input_kind: str,
-    payload: str,
+    payload: str | list[dict[str, Any]],
     ctx: StageContext,
     context_ids: list[int] | None = None,
 ) -> StageResult:
@@ -90,9 +105,10 @@ class ModerationStage:
 
     async def run(self, message: Message, ctx: StageContext) -> StageResult | None:
         body = message_body(message)
-        if not body:
+        if not body and ctx.image_data_url is None:
             return None
-        return await _moderate(self.name, "text", body, ctx)
+        kind, payload = build_input(body, ctx.image_data_url)
+        return await _moderate(self.name, kind, payload, ctx)
 
 
 def _line(m: Message) -> str:
@@ -138,4 +154,7 @@ class ContextStage:
         if not previous:
             return None  # nothing new to learn from: the verdict stays inconclusive
         text = build_context_input(previous, message)
-        return await _moderate(self.name, "text", text, ctx, [m.id for m in previous])
+        kind, payload = build_input(
+            text, ctx.image_data_url
+        )  # the image rides along with the context
+        return await _moderate(self.name, kind, payload, ctx, [m.id for m in previous])
