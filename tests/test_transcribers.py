@@ -14,9 +14,7 @@ from app.transcription.cloudflare import CloudflareTranscriber
 from app.transcription.factory import build_transcriber
 from app.transcription.openai import OpenAITranscriber
 
-CF_URL = (
-    "https://api.cloudflare.com/client/v4/accounts/acc/ai/run/@cf/openai/whisper-large-v3-turbo"
-)
+CF_URL = "https://api.cloudflare.com/client/v4/accounts/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/ai/run/@cf/openai/whisper-large-v3-turbo"
 
 
 @pytest.fixture
@@ -89,9 +87,9 @@ async def test_cloudflare_request_shape_and_result(audio: Path) -> None:
             },
         )
     )
-    res = await CloudflareTranscriber("acc", "tok", "@cf/openai/whisper-large-v3-turbo").transcribe(
-        audio, "audio/mpeg"
-    )
+    res = await CloudflareTranscriber(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "tok", "@cf/openai/whisper-large-v3-turbo"
+    ).transcribe(audio, "audio/mpeg")
     req = route.calls.last.request
     assert req.headers["authorization"] == "Bearer tok"
     assert json.loads(req.read())["audio"] == "SUQzZmFrZWF1ZGlv"  # base64 of the file bytes
@@ -100,7 +98,9 @@ async def test_cloudflare_request_shape_and_result(audio: Path) -> None:
 
 @respx.mock
 async def test_cloudflare_errors(audio: Path) -> None:
-    t = CloudflareTranscriber("acc", "tok", "@cf/openai/whisper-large-v3-turbo")
+    t = CloudflareTranscriber(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "tok", "@cf/openai/whisper-large-v3-turbo"
+    )
     respx.post(CF_URL).mock(return_value=httpx.Response(429, headers={"retry-after": "7"}))
     with pytest.raises(TransientError) as e:
         await t.transcribe(audio, "audio/mpeg")
@@ -123,7 +123,9 @@ async def test_factory_switches_provider_without_restart(app_client: Any) -> Non
         await set_setting(db, "transcription.provider", "cloudflare")
         with pytest.raises(PermanentError):
             await build_transcriber(db, key)
-        await set_setting(db, "transcription.cloudflare_account_id", "acc")
+        await set_setting(
+            db, "transcription.cloudflare_account_id", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        )
         await set_setting(db, "transcription.cloudflare_api_token", "tok", key)
         assert (await build_transcriber(db, key)).name == "cloudflare"
     assert cloudflare.CloudflareTranscriber is CloudflareTranscriber
@@ -145,3 +147,31 @@ async def test_transcription_settings_validated_and_token_secret(app_client: Any
     )
     assert ok.json()["transcription.cloudflare_api_token"] == {"set": True}
     assert "tok-secret" not in (await app_client.get("/api/settings")).text
+
+
+@pytest.mark.parametrize(
+    ("account", "model"),
+    [
+        ("../other", "@cf/openai/whisper"),
+        ("a" * 32, "@cf/openai/whisper?x=1"),
+        ("a" * 32, "../../zones"),
+        ("a" * 31, "@cf/openai/whisper"),
+        ("a" * 32 + "#", "@cf/openai/whisper"),
+    ],
+)
+def test_cloudflare_url_cannot_be_reshaped(account: str, model: str) -> None:
+    with pytest.raises(ValueError):
+        CloudflareTranscriber(account, "tok", model)
+
+
+async def test_cloudflare_settings_reject_bad_values(app_client: Any) -> None:
+    for key, bad in (
+        ("transcription.cloudflare_account_id", "../x"),
+        ("transcription.cloudflare_model", "x?y"),
+    ):
+        r = await app_client.put("/api/settings", json={"settings": {key: bad}})
+        assert r.status_code == 422, key
+    r = await app_client.post(
+        "/api/settings/test/cloudflare", json={"account_id": "../x", "api_token": "t"}
+    )
+    assert r.json()["ok"] is False

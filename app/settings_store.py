@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.classify.thresholds import validate_thresholds
 from app.db.models import Setting
 from app.security.crypto import decrypt, encrypt
+from app.transcription.cloudflare import validate_account_id, validate_model
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,10 @@ def _int_range(lo: int, hi: int) -> Callable[[Any], int]:
     return check
 
 
+def _cf_account(v: Any) -> str | None:
+    return None if v is None or v == "" else validate_account_id(_str(v))
+
+
 def _opt_secret(v: Any) -> str | None:
     return None if v is None or v == "" else _str(v)  # empty/null clears the secret
 
@@ -90,9 +95,11 @@ REGISTRY: dict[str, Spec] = {
     "transcription.openai_model": Spec(
         "gpt-4o-mini-transcribe", _choice("gpt-4o-mini-transcribe", "whisper-1")
     ),
-    "transcription.cloudflare_account_id": Spec(None, _opt_str),
+    "transcription.cloudflare_account_id": Spec(None, _cf_account),
     "transcription.cloudflare_api_token": Spec(None, _opt_secret, secret=True),
-    "transcription.cloudflare_model": Spec("@cf/openai/whisper-large-v3-turbo", _str),
+    "transcription.cloudflare_model": Spec(
+        "@cf/openai/whisper-large-v3-turbo", lambda v: validate_model(_str(v))
+    ),
     "openai.api_key": Spec(None, _opt_secret, secret=True),
     "classification.model": Spec("omni-moderation-latest", _str),
     "classification.thresholds": Spec({}, _thresholds),

@@ -99,7 +99,7 @@ class OpenWAClient:
                         size += len(chunk)
                         if size > max_bytes:
                             raise MediaTooLarge(size)
-                        fh.write(chunk)
+                        await asyncio.to_thread(fh.write, chunk)
                 return str(r.headers.get("content-type", "application/octet-stream"))
         except httpx.HTTPError as exc:
             raise OpenWAError(None, f"OpenWA unreachable: {exc.__class__.__name__}") from exc
