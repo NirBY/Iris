@@ -1,7 +1,9 @@
+import json
 from typing import Any
 
 from sqlalchemy import select
 
+from app.alerts.format import is_own_alert
 from app.config import get_settings
 from app.db.models import Setting
 from app.settings_store import get_secret, get_setting
@@ -131,7 +133,9 @@ async def test_alert_test_button_sends_a_real_message_with_entered_values(app_cl
         assert r.json() == {"ok": True, "detail": "Test message sent"}
         sent = route.calls.last.request
         assert sent.headers["x-api-key"] == "owa"
-        assert b"972501234567@c.us" in sent.content and b"Iris test message" in sent.content
+        assert b"972501234567@c.us" in sent.content
+        text = json.loads(sent.content)["text"]
+        assert "Alert delivery is working" in text and is_own_alert(text, get_settings().key_bytes)
         route.mock(return_value=httpx.Response(400, json={"message": "Session is not active"}))
         bad = (
             await app_client.post(
