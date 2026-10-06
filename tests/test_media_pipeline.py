@@ -20,9 +20,7 @@ from tests.test_worker import mod_response
 
 MEDIA = Path(__file__).parent / "fixtures" / "media"
 MEDIA_URL = r"https://wa\.x/api/sessions/s/messages/.*/media"
-CF_URL = (
-    "https://api.cloudflare.com/client/v4/accounts/acc/ai/run/@cf/openai/whisper-large-v3-turbo"
-)
+CF_URL = "https://api.cloudflare.com/client/v4/accounts/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/ai/run/@cf/openai/whisper-large-v3-turbo"
 
 
 async def setup(c: Any) -> tuple[Deps, str]:
@@ -190,13 +188,81 @@ async def test_audio_over_duration_limit_is_skipped_without_transcribing(
 
 
 @respx.mock
-async def test_oversized_media_is_skipped(app_client: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_oversized_media_is_skipped_but_its_caption_is_still_moderated(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr("app.media.fetch.MAX_MEDIA_BYTES", 100)
     deps, token = await setup(app_client)
     serve("video_audio.mp4")
-    await post(app_client, token, fx("video_sent"))
+    respx.post(MOD_URL).mock(return_value=mod_response())
+    await post(app_client, token, fx("video_sent"))  # caption "video with speech"
     assert await run_all(deps) == ["done"]
-    assert (await the_message(app_client))[0].status == "skipped"
+    m, cls = await the_message(app_client)
+    assert m.status == "skipped" and m.verdict is None  # the video itself was never examined
+    assert mod_inputs() == ["video with speech"] and len(cls) == 1
+
+
+@respx.mock
+async def test_harmful_caption_alerts_even_when_media_is_unavailable(app_client: Any) -> None:
+    deps, token = await setup(app_client)
+    seen: list[int] = []
+
+    async def hook(_db: Any, message: Message, _outcome: Any) -> None:
+        seen.append(message.id)
+
+    deps.on_harmful = hook
+    respx.get(url__regex=MEDIA_URL).mock(return_value=httpx.Response(404))
+    respx.post(MOD_URL).mock(return_value=mod_response(violence=0.95))
+    await post(app_client, token, fx("image_caption_sent"))
+    assert await run_all(deps) == ["done"]
+    m, _ = await the_message(app_client)
+    assert m.verdict == "harmful" and m.status == "done" and seen == [m.id]
+
+
+@respx.mock
+async def test_safe_caption_with_unavailable_media_is_not_called_safe(app_client: Any) -> None:
+    deps, token = await setup(app_client)
+    respx.get(url__regex=MEDIA_URL).mock(return_value=httpx.Response(404))
+    respx.post(MOD_URL).mock(return_value=mod_response())
+    await post(app_client, token, fx("image_caption_sent"))
+    assert await run_all(deps) == ["failed"]  # visible on the Jobs page, retryable
+    m, cls = await the_message(app_client)
+    assert m.status == "failed" and m.verdict is None and len(cls) == 1
+
+
+@respx.mock
+async def test_legacy_job_payload_media_is_backfilled(app_client: Any) -> None:
+    deps, token = await setup(app_client)
+    serve("image.png")
+    respx.post(MOD_URL).mock(return_value=mod_response())
+    await post(app_client, token, fx("image_nocaption_received"))
+    async with app_client.app.state.session_factory() as s:
+        from sqlalchemy import update
+
+        from app.db.models import Job
+
+        m = (await s.execute(select(Message))).scalar_one()
+        legacy = {**m.media}
+        iid = legacy.pop("instance_id")
+        await s.execute(update(Message).values(media=None))
+        await s.execute(
+            update(Job).values(payload={"message_id": m.id, "instance_id": iid, "media": legacy})
+        )
+        await s.commit()
+    assert await run_all(deps) == ["done"]
+    assert (await the_message(app_client))[0].verdict == "safe"
+
+
+async def test_worker_start_sweeps_orphaned_temp_dirs(app_client: Any) -> None:
+    from app.jobs.worker import WorkerPool
+
+    deps, _ = await setup(app_client)
+    orphan = deps.data_dir / "tmp" / "999"
+    orphan.mkdir(parents=True)
+    (orphan / "media.bin").write_bytes(b"left behind by a crash")
+    pool = WorkerPool(deps, size=0)
+    await pool.start()
+    assert not (deps.data_dir / "tmp").exists()
 
 
 @respx.mock
@@ -238,7 +304,7 @@ async def test_switching_to_cloudflare_takes_effect_without_restart(app_client: 
         json={
             "settings": {
                 "transcription.provider": "cloudflare",
-                "transcription.cloudflare_account_id": "acc",
+                "transcription.cloudflare_account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "transcription.cloudflare_api_token": "tok",
             }
         },

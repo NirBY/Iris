@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
-import { MessageBody, VerdictBadge } from '../components/MessageBody'
+import { Failure, MessageBody, VerdictBadge } from '../components/MessageBody'
 import { typeIcon } from '../lib/icons'
 import { api } from '../lib/api'
 import { dateTime } from '../lib/format'
@@ -11,6 +11,11 @@ export function MessageContext() {
   const { data: detail } = useQuery({
     queryKey: ['message', id],
     queryFn: () => api<MessageDetail>(`/api/messages/${id}`),
+  })
+  const qc = useQueryClient()
+  const reprocess = useMutation({
+    mutationFn: () => api(`/api/messages/${id}/reprocess`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries(),
   })
   const { data: context } = useQuery({
     queryKey: ['message-context', id],
@@ -41,12 +46,27 @@ export function MessageContext() {
             <span className="text-sm">
               <MessageBody m={m} />
             </span>
-            <span>
-              <VerdictBadge verdict={m.verdict} />
+            <span className="flex flex-wrap items-center gap-2">
+              <VerdictBadge m={m} />
+              <Failure m={m} />
             </span>
           </li>
         ))}
       </ol>
+      {detail && !detail.redacted && (
+        <button
+          className="self-start rounded border px-2 py-1 text-sm"
+          onClick={() => reprocess.mutate()}
+          disabled={reprocess.isPending}
+        >
+          Reprocess
+        </button>
+      )}
+      {reprocess.error && (
+        <p role="alert" className="text-sm text-red-600">
+          {String(reprocess.error.message)}
+        </p>
+      )}
       {detail && (
         <section className="max-w-2xl">
           <h2 className="mb-2 font-medium">Classifications</h2>

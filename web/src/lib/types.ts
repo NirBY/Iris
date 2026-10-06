@@ -19,6 +19,7 @@ export interface Message {
   verdict: string | null
   redacted: boolean
   kids: Kid[]
+  failure: string | null
 }
 
 export interface MessagePage {

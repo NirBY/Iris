@@ -93,6 +93,10 @@ async def _transcribe(db: AsyncSession, deps: Deps, tmp: Path, message: Message)
     if info.duration is not None and info.duration > MAX_AUDIO_SECONDS:
         raise Skip(f"audio is {int(info.duration)}s, over the {MAX_AUDIO_SECONDS}s limit")
     await ffmpeg.extract_audio(raw, mp3)
+    if info.duration is None:  # unknown from the container: measure the extracted audio instead
+        info = await ffmpeg.probe(mp3)
+        if info.duration is not None and info.duration > MAX_AUDIO_SECONDS:
+            raise Skip(f"audio is {int(info.duration)}s, over the {MAX_AUDIO_SECONDS}s limit")
     transcriber = await build_transcriber(db, deps.key_bytes)
     try:
         result = await transcriber.transcribe(mp3, "audio/mpeg")
@@ -104,22 +108,47 @@ async def _transcribe(db: AsyncSession, deps: Deps, tmp: Path, message: Message)
     await db.commit()  # persisted before moderation, so searches and retries see it
 
 
-async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Message) -> str | None:
-    """Fetch/convert media as needed. Returns the image data URL, if any."""
-    if message.type == "text":
-        return None
-    if message.type in ("document", "other"):
-        return None  # only a caption/filename text can be moderated
-    async with job_tmpdir(deps.data_dir, job.id) as tmp:
-        if message.type in ("image", "sticker"):
-            return await _image_data_url(db, message, deps, tmp)
-        try:
+@dataclass
+class Prepared:
+    image: str | None = None
+    # Why the media could not be examined (the caption may still be). Never silently "safe".
+    problem: Exception | None = None
+
+
+async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Message) -> Prepared:
+    """Fetch/convert media as needed."""
+    if message.type in ("text", "document", "other"):
+        return Prepared()  # only text (or a caption/filename) can be moderated
+    try:
+        async with job_tmpdir(deps.data_dir, job.id) as tmp:
+            if message.type in ("image", "sticker"):
+                return Prepared(image=await _image_data_url(db, message, deps, tmp))
             await _transcribe(db, deps, tmp, message)
-        except Skip as exc:
-            if not message.text:  # a caption can still be moderated on its own
-                raise
-            logger.info("message {}: {}; moderating the caption only", message.id, exc)
-        return None
+            return Prepared()
+    except (Skip, MediaSkipped, PermanentError) as exc:
+        if not message.text:
+            raise
+        # The caption is still worth moderating: a harmful caption must never be lost
+        # just because the attachment could not be fetched, converted or transcribed.
+        logger.info("message {}: {}; moderating the caption only", message.id, exc)
+        return Prepared(problem=exc)
+
+
+def _persist(db: AsyncSession, message: Message, outcome: PipelineOutcome) -> None:
+    for r in outcome.results:
+        db.add(
+            Classification(
+                message_id=message.id,
+                stage=r.stage,
+                input_kind=r.input_kind,
+                model=r.model,
+                scores=r.scores,
+                flagged_categories=r.flagged_categories,
+                band=r.band,
+                context_message_ids=r.context_message_ids,
+                latency_ms=r.latency_ms,
+            )
+        )
 
 
 async def process_message(job: ClaimedJob, deps: Deps) -> None:
@@ -139,8 +168,13 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         await db.execute(delete(Classification).where(Classification.message_id == message.id))
         await db.commit()
 
+        legacy = job.payload.get("media")  # jobs queued before the media column existed
+        if message.media is None and isinstance(legacy, dict):
+            message.media = {**legacy, "instance_id": job.payload.get("instance_id")}
+            await db.commit()
+
         try:
-            image = await _prepare(db, job, deps, message)
+            prepared = await _prepare(db, job, deps, message)
         except (Skip, MediaSkipped) as exc:
             logger.info("message {} skipped: {}", message.id, exc)
             message.status = "skipped"
@@ -159,7 +193,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             context_max_age=timedelta(
                 hours=int(await get_setting(db, "classification.context_max_age_hours"))
             ),
-            image_data_url=image,
+            image_data_url=prepared.image,
         )
         try:
             outcome = await run_pipeline(message, ctx)
@@ -168,20 +202,16 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             await db.commit()
             return
 
-        for r in outcome.results:
-            db.add(
-                Classification(
-                    message_id=message.id,
-                    stage=r.stage,
-                    input_kind=r.input_kind,
-                    model=r.model,
-                    scores=r.scores,
-                    flagged_categories=r.flagged_categories,
-                    band=r.band,
-                    context_message_ids=r.context_message_ids,
-                    latency_ms=r.latency_ms,
-                )
-            )
+        _persist(db, message, outcome)
+        problem = prepared.problem
+        if problem is not None and outcome.verdict != "harmful":
+            # Only the caption was examined: do not present the message as classified.
+            message.verdict = None
+            message.status = "failed" if isinstance(problem, PermanentError) else "skipped"
+            await db.commit()
+            if isinstance(problem, PermanentError):
+                raise problem  # visible on the Jobs page, retryable once the cause is fixed
+            return
         message.verdict = outcome.verdict
         message.status = "done"
         await db.commit()

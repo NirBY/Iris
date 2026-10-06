@@ -100,7 +100,10 @@ async def test_provider(
                 return TestResult(
                     ok=False, detail="Cloudflare account ID and API token are required"
                 )
-            cf = CloudflareTranscriber(account, token, model)
+            try:
+                cf = CloudflareTranscriber(account, token, model)
+            except ValueError as exc:
+                return TestResult(ok=False, detail=str(exc))
             try:
                 await cf.transcribe(SILENCE, "audio/wav")  # a bundled 1-second silent clip
             finally:

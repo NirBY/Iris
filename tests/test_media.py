@@ -1,4 +1,5 @@
 import os
+import subprocess
 from pathlib import Path
 
 import httpx
@@ -108,3 +109,52 @@ async def test_download_network_error_is_transient(tmp_path: Path) -> None:
 
 def test_fixtures_are_small() -> None:
     assert sum(f.stat().st_size for f in FIX.iterdir()) < 100_000 and os.listdir(FIX)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:1,\nfile:///data/iris.db\n",
+        b"ffconcat version 1.0\nfile '/data/iris.db'\n",
+        b"plain text pretending to be a video",
+        b"",
+    ],
+)
+async def test_text_playlists_and_unknown_formats_never_reach_ffmpeg(
+    tmp_path: Path, content: bytes
+) -> None:
+    evil = tmp_path / "media.bin"
+    evil.write_bytes(content)
+    for call in (
+        ffmpeg.probe(evil),
+        ffmpeg.extract_audio(evil, tmp_path / "o.mp3"),
+        ffmpeg.image_to_jpeg(evil, tmp_path / "o.jpg"),
+    ):
+        with pytest.raises(PermanentError, match="unsupported media format"):
+            await call
+
+
+def _running(pattern: str) -> bool:
+    out = subprocess.run(["pgrep", "-af", pattern], capture_output=True, text=True).stdout
+    return bool(out.strip())
+
+
+async def test_timeout_kills_the_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ffmpeg, "_TIMEOUT", 1.0)
+    with pytest.raises(PermanentError, match="timed out"):
+        await ffmpeg._run("sleep", "37")
+    assert not _running("sleep 37")
+
+
+async def test_cancellation_kills_the_process() -> None:
+    import asyncio
+
+    task = asyncio.create_task(ffmpeg._run("sleep", "38"))
+    for _ in range(100):  # cancel only once the process really exists
+        if _running("sleep 38"):
+            break
+        await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not _running("sleep 38")

@@ -89,10 +89,8 @@ async def test_cloudflare_test_button_transcribes_bundled_silence(app_client: An
     import httpx
     import respx
 
-    url = (
-        "https://api.cloudflare.com/client/v4/accounts/acc/ai/run/@cf/openai/whisper-large-v3-turbo"
-    )
-    form = {"account_id": "acc", "api_token": "tok"}
+    url = "https://api.cloudflare.com/client/v4/accounts/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/ai/run/@cf/openai/whisper-large-v3-turbo"
+    form = {"account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "api_token": "tok"}
     with respx.mock:
         route = respx.post(url).mock(
             return_value=httpx.Response(200, json={"result": {"text": ""}})
