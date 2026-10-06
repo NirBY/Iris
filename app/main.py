@@ -10,7 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from app.api import auth, system
+from app.api import auth, instances, system
 from app.config import get_settings
 from app.db.engine import make_engine, make_session_factory
 from app.db.models import User
@@ -65,6 +65,7 @@ def create_app() -> FastAPI:
 
     app.include_router(system.router)
     app.include_router(auth.router)
+    app.include_router(instances.router)
     if os.environ.get("IRIS_CAPTURE_DIR"):  # dev-only payload capture (M2 fixtures)
         app.include_router(capture.router)
 
