@@ -1,0 +1,29 @@
+{
+  "event": "message.received",
+  "timestamp": "2026-10-06T16:41:00.710Z",
+  "sessionId": "00000000-0000-4000-8000-000000000002",
+  "idempotencyKey": "00000000-0000-4000-9000-000000000019",
+  "deliveryId": "00000000-0000-4000-9000-000000000020",
+  "data": {
+    "id": "false_111111111111111@lid_3EB0257C4B1C3DEEDBF287",
+    "from": "111111111111111@lid",
+    "to": "972500000002@c.us",
+    "chatId": "111111111111111@lid",
+    "body": "תשובה מצוטטת - quoted reply",
+    "type": "text",
+    "timestamp": 1791304860,
+    "fromMe": false,
+    "isGroup": false,
+    "kind": "individual",
+    "isStatusBroadcast": false,
+    "isLidSender": true,
+    "contact": {
+      "pushName": "Kid Tester",
+      "name": "Kid Two"
+    },
+    "quotedMessage": {
+      "id": "true_222222222222222@lid_3EB09809BE1A0882DA5F4E_out",
+      "body": "Original message to be quoted"
+    }
+  }
+}

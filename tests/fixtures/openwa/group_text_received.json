@@ -1,0 +1,26 @@
+{
+  "event": "message.received",
+  "timestamp": "2026-10-06T16:37:35.142Z",
+  "sessionId": "00000000-0000-4000-8000-000000000001",
+  "idempotencyKey": "00000000-0000-4000-9000-000000000021",
+  "deliveryId": "00000000-0000-4000-9000-000000000022",
+  "data": {
+    "id": "false_972500000099-1500000000@g.us_3A3C2592D2A166446132_333333333333333@lid",
+    "from": "972500000099-1500000000@g.us",
+    "to": "972500000001@c.us",
+    "chatId": "972500000099-1500000000@g.us",
+    "body": "הודעת בדיקה בקבוצה",
+    "type": "text",
+    "timestamp": 1791304653,
+    "fromMe": false,
+    "isGroup": true,
+    "kind": "group",
+    "isStatusBroadcast": false,
+    "author": "333333333333333@lid",
+    "isLidSender": true,
+    "contact": {
+      "pushName": "Group Member",
+      "name": "Group Member"
+    }
+  }
+}

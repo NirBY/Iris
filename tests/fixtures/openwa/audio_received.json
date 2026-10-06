@@ -1,0 +1,30 @@
+{
+  "event": "message.received",
+  "timestamp": "2026-10-06T16:39:46.358Z",
+  "sessionId": "00000000-0000-4000-8000-000000000001",
+  "idempotencyKey": "00000000-0000-4000-9000-000000000011",
+  "deliveryId": "00000000-0000-4000-9000-000000000012",
+  "data": {
+    "id": "false_222222222222222@lid_3EB041F27FFCAB1887F715",
+    "from": "222222222222222@lid",
+    "to": "972500000001@c.us",
+    "chatId": "222222222222222@lid",
+    "body": "",
+    "type": "audio",
+    "timestamp": 1791304783,
+    "fromMe": false,
+    "isGroup": false,
+    "kind": "individual",
+    "isStatusBroadcast": false,
+    "isLidSender": true,
+    "contact": {
+      "pushName": "Kid Tester",
+      "name": "Kid Tester"
+    },
+    "media": {
+      "mimetype": "audio/mpeg",
+      "omitted": true,
+      "sizeBytes": 40168
+    }
+  }
+}

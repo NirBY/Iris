@@ -39,6 +39,8 @@ class Instance(Base):
     openwa_api_key_enc: Mapped[str | None] = mapped_column(Text)
     webhook_token: Mapped[str] = mapped_column(String, unique=True, index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # True once Iris registered the webhook with an HMAC secret: signatures are then mandatory.
+    signature_required: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = _ts()
     last_webhook_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
