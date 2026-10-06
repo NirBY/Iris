@@ -1,11 +1,14 @@
 """Thin OpenWA REST client (X-API-Key auth). Keep all OpenWA endpoint shapes here."""
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 import httpx
+
+from app.metrics import record_provider
 
 # Cloudflare in front of OpenWA rejects default library User-Agents.
 _UA = "iris/1.0"
@@ -41,10 +44,14 @@ class OpenWAClient:
         await self._client.aclose()
 
     async def _request(self, method: str, path: str, **kw: Any) -> Any:
+        endpoint = path.rsplit("/", 1)[-1] if path.endswith(("send-text", "webhooks")) else "other"
+        started = time.perf_counter()
         try:
             r = await self._client.request(method, path, **kw)
         except httpx.HTTPError as exc:
+            record_provider("openwa", endpoint, "error", time.perf_counter() - started)
             raise OpenWAError(None, f"OpenWA unreachable: {exc.__class__.__name__}") from exc
+        record_provider("openwa", endpoint, str(r.status_code), time.perf_counter() - started)
         if r.status_code >= 400:
             # Only a plain "message" string is surfaced, never raw upstream bodies.
             detail = f"HTTP {r.status_code}"
@@ -86,8 +93,12 @@ class OpenWAClient:
             f"/api/sessions/{quote(session_id, safe='')}/messages/"
             f"{quote(chat_id, safe='')}/{quote(message_ref, safe='')}/media"
         )
+        started = time.perf_counter()
         try:
             async with self._client.stream("GET", path) as r:
+                record_provider(
+                    "openwa", "media", str(r.status_code), time.perf_counter() - started
+                )
                 if r.status_code >= 400:
                     raise OpenWAError(r.status_code, f"HTTP {r.status_code}")
                 declared = r.headers.get("content-length")

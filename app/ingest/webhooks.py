@@ -22,6 +22,7 @@ from app.api.instances import webhook_secret
 from app.config import Settings, get_settings
 from app.db.models import Chat, ChatInstance, Instance, Job, Message, MessageReceipt
 from app.deps import get_db
+from app.metrics import WEBHOOKS
 from app.openwa.payloads import IncomingMessage, PayloadError, parse_event
 from app.settings_store import get_setting
 
@@ -165,6 +166,7 @@ async def receive(
     ).scalar_one_or_none()
     # Unknown or disabled: same 404, so the response never reveals which.
     if inst is None or not inst.enabled:
+        WEBHOOKS.labels("unknown", "rejected").inc()
         raise HTTPException(status_code=404)
     inst_id, kid_name = inst.id, inst.kid_name
     logger.debug("webhook for instance {} (token {}...)", inst_id, token[:6])
@@ -173,6 +175,7 @@ async def receive(
 
     sig = request.headers.get("x-openwa-signature")
     if sig is None and inst.signature_required:
+        WEBHOOKS.labels(str(inst_id), "rejected").inc()
         raise HTTPException(status_code=401, detail="signature required")
     if sig is not None:
         expected = (
@@ -180,6 +183,7 @@ async def receive(
             + hmac.new(webhook_secret(settings, token).encode(), raw, hashlib.sha256).hexdigest()
         )
         if not hmac.compare_digest(sig, expected):
+            WEBHOOKS.labels(str(inst_id), "rejected").inc()
             raise HTTPException(status_code=401, detail="bad signature")
 
     try:
@@ -188,13 +192,18 @@ async def receive(
     except (ValueError, PayloadError) as exc:
         # 200 so OpenWA does not retry a payload we can never parse.
         logger.warning("unparseable webhook for instance {}: {}", inst_id, exc.__class__.__name__)
+        WEBHOOKS.labels(str(inst_id), "rejected").inc()
         return {"result": "rejected"}
 
     inst.last_webhook_at = datetime.now(UTC)
     if msg is None:
         await db.commit()
+        WEBHOOKS.labels(str(inst_id), "skipped").inc()
         return {"result": "ignored"}
     if await _is_alert_loop(db, inst, msg, settings.key_bytes) or not await _in_scope(db, msg):
         await db.commit()
+        WEBHOOKS.labels(str(inst_id), "skipped").inc()
         return {"result": "skipped"}
-    return {"result": await _store(db, inst_id, kid_name, msg)}
+    result = await _store(db, inst_id, kid_name, msg)
+    WEBHOOKS.labels(str(inst_id), result).inc()  # accepted | duplicate
+    return {"result": result}

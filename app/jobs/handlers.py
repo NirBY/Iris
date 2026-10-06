@@ -20,6 +20,7 @@ from app.db.models import Classification, Instance, Message
 from app.jobs.queue import ClaimedJob, PermanentError
 from app.media import ffmpeg
 from app.media.fetch import MAX_AUDIO_SECONDS, MediaSkipped, download, job_tmpdir
+from app.metrics import MESSAGES, STAGE_SECONDS, TRANSCRIBED_AUDIO_SECONDS
 from app.openwa.client import OpenWAClient
 from app.providers import Providers
 from app.security.crypto import decrypt
@@ -105,6 +106,8 @@ async def _transcribe(db: AsyncSession, deps: Deps, tmp: Path, message: Message)
         result = await transcriber.transcribe(mp3, "audio/mpeg")
     finally:
         await transcriber.aclose()
+    if info.duration:
+        TRANSCRIBED_AUDIO_SECONDS.labels(transcriber.name).inc(info.duration)
     if not result.text:
         raise Skip("empty transcript")
     message.transcript = result.text
@@ -139,6 +142,7 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
 
 def _persist(db: AsyncSession, message: Message, outcome: PipelineOutcome) -> None:
     for r in outcome.results:
+        STAGE_SECONDS.labels(r.stage).observe(r.latency_ms / 1000)
         db.add(
             Classification(
                 message_id=message.id,
@@ -217,6 +221,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             return
         message.verdict = outcome.verdict
         message.status = "done"
+        MESSAGES.labels(message.type, outcome.verdict).inc()
         if outcome.results:
             last = outcome.results[-1]
             if needs_redaction(message.type, last.high_categories, last.flagged_categories):

@@ -1,11 +1,13 @@
 """OpenAI audio transcription (multipart upload, language auto-detected)."""
 
 import asyncio
+import time
 from pathlib import Path
 
 import httpx
 
 from app.jobs.queue import TransientError
+from app.metrics import record_provider
 from app.transcription.base import TranscriptResult, raise_for_status
 
 URL = "https://api.openai.com/v1/audio/transcriptions"
@@ -30,6 +32,7 @@ class OpenAITranscriber:
         data = await asyncio.to_thread(path.read_bytes)
         # whisper-1 can return language and duration (verbose_json); gpt-4o models plain json only.
         fmt = "verbose_json" if self._model == "whisper-1" else "json"
+        started = time.perf_counter()
         try:
             r = await self._client.post(
                 URL,
@@ -37,7 +40,11 @@ class OpenAITranscriber:
                 files={"file": (path.name, data, mime_type)},
             )
         except httpx.HTTPError as exc:
+            record_provider("openai", "transcriptions", "error", time.perf_counter() - started)
             raise TransientError(f"transcription unreachable: {exc.__class__.__name__}") from exc
+        record_provider(
+            "openai", "transcriptions", str(r.status_code), time.perf_counter() - started
+        )
         raise_for_status("openai transcription", r)
         try:
             body = r.json()

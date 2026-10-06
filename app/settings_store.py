@@ -108,6 +108,8 @@ REGISTRY: dict[str, Spec] = {
     "scope.monitor_from_me": Spec(True, _bool),
     "scope.monitor_direct": Spec(True, _bool),
     "scope.monitor_groups": Spec(True, _bool),
+    "retention.message_days": Spec(90, _int_range(1, 3650)),
+    "retention.alert_days": Spec(365, _int_range(1, 3650)),
     "alerts.sender_instance_id": Spec(None, _opt_int),
     "alerts.recipient": Spec(None, _opt_str),
     "alerts.cooldown_minutes": Spec(10, _int_range(0, 1440)),

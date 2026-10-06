@@ -1,5 +1,6 @@
 """FastAPI app factory."""
 
+import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,7 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from app.api import alerts, auth, instances, jobs, messages, system
+from app.api import alerts, auth, instances, jobs, messages, stats, system
 from app.api import settings as settings_api
 from app.config import get_settings
 from app.db.engine import make_engine, make_session_factory
@@ -18,7 +19,9 @@ from app.ingest import webhooks
 from app.jobs.handlers import Deps
 from app.jobs.worker import WorkerPool
 from app.logging import setup_logging
+from app.metrics import render as render_metrics
 from app.providers import Providers
+from app.retention import retention_loop
 from app.security.auth import bootstrap_admin, current_user
 from app.version import VERSION
 
@@ -52,7 +55,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.workers = pool
     await pool.start()
+    cleanup = (
+        asyncio.create_task(retention_loop(app.state.session_factory)) if settings.workers else None
+    )
     yield
+    if cleanup is not None:
+        cleanup.cancel()
+        await asyncio.gather(cleanup, return_exceptions=True)
     await pool.stop()
     await providers.aclose()
     await engine.dispose()
@@ -87,8 +96,16 @@ def create_app() -> FastAPI:
     app.include_router(messages.router)
     app.include_router(jobs.router)
     app.include_router(alerts.router)
+    app.include_router(stats.router)
     app.include_router(settings_api.router)
     app.include_router(webhooks.router)
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics(request: Request) -> Response:
+        # No auth by design (Prometheus scrape): keep this port off the public internet.
+        async with request.app.state.session_factory() as db:
+            body = await render_metrics(db)
+        return Response(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
     @app.get("/api/docs", include_in_schema=False)
     async def docs(_: Annotated[User, Depends(current_user)]) -> HTMLResponse:

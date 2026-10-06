@@ -13,6 +13,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import Alert, Job, Message
+from app.metrics import ALERTS
 
 BACKOFF_SECONDS = (5, 30, 120, 600, 1800)
 STALE_LOCK = timedelta(minutes=10)
@@ -127,6 +128,11 @@ async def fail(
             )
         alert_id = job.payload.get("alert_id")
         if isinstance(alert_id, int):  # a delivery that ran out of attempts
+            alert = await db.get(Alert, alert_id)
+            if alert is not None:
+                ALERTS.labels(
+                    alert.categories[0] if alert.categories else "unknown", "failed"
+                ).inc()
             await db.execute(
                 update(Alert)
                 .where(Alert.id == alert_id)

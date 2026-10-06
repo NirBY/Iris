@@ -3,8 +3,10 @@ import { Layout } from './Layout'
 import { useMe } from './lib/auth'
 import { AlertDetail } from './pages/AlertDetail'
 import { Alerts } from './pages/Alerts'
+import { Chats } from './pages/Chats'
 import { Dashboard } from './pages/Dashboard'
 import { Instances } from './pages/Instances'
+import { Jobs } from './pages/Jobs'
 import { Login } from './pages/Login'
 import { MessageContext } from './pages/MessageContext'
 import { Messages } from './pages/Messages'
@@ -24,6 +26,8 @@ export function App() {
         <Route path="review" element={<Review />} />
         <Route path="messages" element={<Messages />} />
         <Route path="messages/:id" element={<MessageContext />} />
+        <Route path="chats" element={<Chats />} />
+        <Route path="jobs" element={<Jobs />} />
         <Route path="instances" element={<Instances />} />
         <Route path="settings" element={<Settings />} />
       </Route>

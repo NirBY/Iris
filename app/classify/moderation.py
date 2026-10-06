@@ -2,12 +2,14 @@
 
 import contextlib
 import math
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
 from app.jobs.queue import PermanentError, TransientError
+from app.metrics import record_provider
 
 URL = "https://api.openai.com/v1/moderations"
 _TIMEOUT = httpx.Timeout(30.0)
@@ -43,10 +45,13 @@ class ModerationClient:
         await self._client.aclose()
 
     async def moderate(self, model: str, input_: str | list[dict[str, Any]]) -> ModerationResult:
+        started = time.perf_counter()
         try:
             r = await self._client.post(URL, json={"model": model, "input": input_})
         except httpx.HTTPError as exc:
+            record_provider("openai", "moderations", "error", time.perf_counter() - started)
             raise TransientError(f"moderation unreachable: {exc.__class__.__name__}") from exc
+        record_provider("openai", "moderations", str(r.status_code), time.perf_counter() - started)
         if r.status_code == 429 or r.status_code >= 500:
             retry_after: float | None = None
             with contextlib.suppress(ValueError):

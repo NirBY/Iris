@@ -11,6 +11,7 @@ from app.alerts import ALERT_PREFIX
 from app.alerts.delivery import recipient_chat_id
 from app.alerts.format import with_signed_link
 from app.classify.moderation import ModerationClient
+from app.classify.thresholds import DEFAULT_THRESHOLDS, effective_thresholds
 from app.config import Settings, get_settings
 from app.db.models import Instance
 from app.deps import get_db
@@ -31,6 +32,30 @@ class SettingsUpdate(BaseModel):
 @router.get("")
 async def read_settings(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, Any]:
     return await all_settings(db)
+
+
+class ThresholdRow(BaseModel):
+    category: str
+    low: float
+    high: float
+    default_low: float
+    default_high: float
+
+
+@router.get("/thresholds")
+async def thresholds(db: Annotated[AsyncSession, Depends(get_db)]) -> list[ThresholdRow]:
+    """Effective per-category thresholds next to their defaults, for the settings table."""
+    effective = effective_thresholds(await get_setting(db, "classification.thresholds"))
+    return [
+        ThresholdRow(
+            category=cat,
+            low=low,
+            high=high,
+            default_low=DEFAULT_THRESHOLDS[cat][0],
+            default_high=DEFAULT_THRESHOLDS[cat][1],
+        )
+        for cat, (low, high) in sorted(effective.items())
+    ]
 
 
 @router.put("")
