@@ -57,3 +57,46 @@ export interface Instance {
   last_webhook_at: string | null
   created_at: string
 }
+
+export interface Alert {
+  id: number
+  message_id: number
+  chat_id: number
+  categories: string[]
+  max_score: number
+  kid_names: string[]
+  chat_name: string | null
+  sender_name: string | null
+  quote: string | null
+  redacted: boolean
+  status: string
+  delivery_status: string
+  delivery_error: string | null
+  notified_at: string | null
+  created_at: string
+}
+
+export interface AlertPage {
+  items: Alert[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface AlertDetail extends Alert {
+  message_type: string
+  sent_at: string
+  classifications: Classification[]
+}
+
+export interface ReviewItem {
+  message: Message
+  classifications: Classification[]
+}
+
+export interface ReviewPage {
+  items: ReviewItem[]
+  total: number
+  page: number
+  page_size: number
+}

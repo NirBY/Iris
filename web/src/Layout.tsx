@@ -17,6 +17,8 @@ export function Layout() {
           <span className="font-semibold">Iris</span>
           {[
             ['/', 'Dashboard'],
+            ['/alerts', 'Alerts'],
+            ['/review', 'Review'],
             ['/messages', 'Messages'],
             ['/instances', 'Instances'],
             ['/settings', 'Settings'],

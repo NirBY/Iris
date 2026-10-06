@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api, ApiError } from '../lib/api'
+import type { Instance } from '../lib/types'
 
 type Secret = { set: boolean }
 interface Values {
@@ -10,6 +11,11 @@ interface Values {
   'transcription.cloudflare_account_id': string | null
   'transcription.cloudflare_api_token': Secret
   'transcription.cloudflare_model': string
+  'alerts.sender_instance_id': number | null
+  'alerts.recipient': string | null
+  'alerts.cooldown_minutes': number
+  'alerts.alert_on_review': boolean
+  'alerts.timezone': string
 }
 interface TestResult {
   ok: boolean
@@ -98,18 +104,22 @@ export function Settings() {
   const { data } = useQuery({ queryKey: ['settings'], queryFn: () => api<Values>('/api/settings') })
   const [edit, setEdit] = useState<Record<string, string>>({})
   const [msg, setMsg] = useState<string | null>(null)
+  const { data: instances } = useQuery({
+    queryKey: ['instances'],
+    queryFn: () => api<Instance[]>('/api/instances'),
+  })
   if (!data) return null
 
   // Secrets are write-only: the API only says whether they are set, so the field starts blank.
   const get = (k: keyof Values): string => {
     if (k in edit) return edit[k]
     const v = data[k]
-    return typeof v === 'string' ? v : ''
+    return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? String(v) : ''
   }
   const set = (k: keyof Values) => (v: string) => setEdit((e) => ({ ...e, [k]: v }))
   const provider = get('transcription.provider')
 
-  async function save(changes: Record<string, string | null>) {
+  async function save(changes: Record<string, string | number | boolean | null>) {
     setMsg(null)
     try {
       await api('/api/settings', { method: 'PUT', body: JSON.stringify({ settings: changes }) })
@@ -123,18 +133,21 @@ export function Settings() {
   }
 
   function saveAll() {
-    const changes: Record<string, string | null> = {}
+    const changes: Record<string, string | number | boolean | null> = {}
     for (const [k, v] of Object.entries(edit)) {
       const isSecret = k === 'openai.api_key' || k === 'transcription.cloudflare_api_token'
       if (isSecret && v === '') continue // blank secret = keep
-      changes[k] = v
+      if (k === 'alerts.cooldown_minutes') changes[k] = Number(v)
+      else if (k === 'alerts.sender_instance_id') changes[k] = v === '' ? null : Number(v)
+      else if (k === 'alerts.alert_on_review') changes[k] = v === 'true'
+      else changes[k] = v
     }
     void save(changes)
   }
 
   return (
     <div className="flex max-w-xl flex-col gap-6">
-      <h1 className="text-xl font-semibold">Settings · Providers</h1>
+      <h1 className="text-xl font-semibold">Settings</h1>
 
       <section className="flex flex-col gap-3 rounded border border-slate-200 p-4 dark:border-slate-800">
         <h2 className="font-medium">OpenAI (moderation)</h2>
@@ -206,6 +219,65 @@ export function Settings() {
             />
           </>
         )}
+      </section>
+
+      <section className="flex flex-col gap-3 rounded border border-slate-200 p-4 dark:border-slate-800">
+        <h2 className="font-medium">Alerts</h2>
+        <Field label="Send alerts from (OpenWA instance)">
+          <select
+            className={input}
+            value={get('alerts.sender_instance_id')}
+            onChange={(e) => set('alerts.sender_instance_id')(e.target.value)}
+          >
+            <option value="">Not set</option>
+            {instances?.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.kid_name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Recipient (phone number in international format, or a chat ID)">
+          <input
+            className={input}
+            dir="ltr"
+            placeholder="972501234567"
+            value={get('alerts.recipient')}
+            onChange={(e) => set('alerts.recipient')(e.target.value)}
+          />
+        </Field>
+        <Field label="Cooldown per chat (minutes)">
+          <input
+            className={input}
+            type="number"
+            min={0}
+            max={1440}
+            value={get('alerts.cooldown_minutes')}
+            onChange={(e) => set('alerts.cooldown_minutes')(e.target.value)}
+          />
+        </Field>
+        <Field label="Time zone">
+          <input
+            className={input}
+            value={get('alerts.timezone')}
+            onChange={(e) => set('alerts.timezone')(e.target.value)}
+          />
+        </Field>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={get('alerts.alert_on_review') === 'true'}
+            onChange={(e) => set('alerts.alert_on_review')(String(e.target.checked))}
+          />
+          Also alert on items needing review
+        </label>
+        <TestButton
+          target="alert"
+          body={{
+            sender_instance_id: get('alerts.sender_instance_id') || undefined,
+            recipient: get('alerts.recipient') || undefined,
+          }}
+        />
       </section>
 
       <div className="flex items-center gap-3">
