@@ -82,6 +82,9 @@ class Message(Base):
     status: Mapped[str] = mapped_column(String, default="pending", index=True)
     verdict: Mapped[str | None] = mapped_column(String, index=True)
     redacted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # How to fetch the media from OpenWA: {instance_id, chat_id, message_ref, mimetype, ...}.
+    # Kept on the message (not only the job) so reprocessing media messages keeps working.
+    media: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
 class MessageReceipt(Base):

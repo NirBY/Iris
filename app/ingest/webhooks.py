@@ -86,6 +86,16 @@ async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: Incomi
         await db.commit()
         return "duplicate"
 
+    media: dict[str, Any] | None = None
+    if msg.media:
+        media = {
+            "instance_id": inst_id,
+            "chat_id": msg.wa_chat_id,
+            "message_ref": msg.wa_message_ref,
+            "mimetype": msg.media.mimetype,
+            "filename": msg.media.filename,
+            "size_bytes": msg.media.size_bytes,
+        }
     message = Message(
         wa_message_id=msg.wa_message_id,
         chat_id=chat.id,
@@ -97,25 +107,12 @@ async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: Incomi
         quoted_wa_message_id=msg.quoted_wa_message_id,
         sent_at=msg.sent_at,
         status="pending",
+        media=media,
     )
     db.add(message)
     await db.flush()
     db.add(MessageReceipt(message_id=message.id, instance_id=inst_id))
-    media: dict[str, Any] | None = None
-    if msg.media:
-        media = {
-            "chat_id": msg.wa_chat_id,
-            "message_ref": msg.wa_message_ref,
-            "mimetype": msg.media.mimetype,
-            "filename": msg.media.filename,
-            "size_bytes": msg.media.size_bytes,
-        }
-    db.add(
-        Job(
-            type="process_message",
-            payload={"message_id": message.id, "instance_id": inst_id, "media": media},
-        )
-    )
+    db.add(Job(type="process_message", payload={"message_id": message.id}))
     await db.commit()
     return "accepted"
 

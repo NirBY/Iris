@@ -23,6 +23,8 @@ class Transcriber(Protocol):
 
     async def transcribe(self, path: Path, mime_type: str) -> TranscriptResult: ...
 
+    async def aclose(self) -> None: ...
+
 
 def raise_for_status(provider: str, r: httpx.Response) -> None:
     """429/5xx are transient (honouring a sane Retry-After); other errors are permanent."""
