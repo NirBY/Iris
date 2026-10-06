@@ -12,6 +12,7 @@ from loguru import logger
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.alerts.service import alert_on_harmful, alert_on_review
 from app.classify.pipeline import PipelineOutcome, run_pipeline
 from app.classify.stages import StageContext
 from app.classify.thresholds import effective_thresholds
@@ -40,7 +41,9 @@ class Deps:
     providers: Providers
     key_bytes: bytes
     data_dir: Path = Path("/data")
-    on_harmful: HarmfulHook = field(default=_no_alerts_yet)
+    public_base_url: str = "http://localhost:8080"
+    on_harmful: HarmfulHook = field(default=alert_on_harmful)
+    on_review: HarmfulHook = field(default=alert_on_review)
 
 
 class Skip(Exception):
@@ -222,10 +225,11 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             outcome.verdict,
             [r.stage for r in outcome.results],
         )
-        if outcome.verdict == "harmful":
+        hook = {"harmful": deps.on_harmful, "review": deps.on_review}.get(outcome.verdict)
+        if hook is not None:
             try:
-                await deps.on_harmful(db, message, outcome)
+                await hook(db, message, outcome)
             except Exception:
                 # Classification is done and committed: a failing hook must not mark the message
-                # failed or re-run the pipeline. Alert delivery has its own retry (milestone 5).
-                logger.exception("harmful hook failed for message {}", message.id)
+                # failed or re-run the pipeline. Alert delivery has its own retry.
+                logger.exception("alert hook failed for message {}", message.id)

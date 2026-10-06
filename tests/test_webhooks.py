@@ -130,14 +130,33 @@ async def test_alert_loop_chat_skipped(app_client: Any) -> None:
     assert r.json() == {"result": "skipped"} and await count(app_client, Message) == 0
 
 
-async def test_own_alert_text_skipped_on_sender_instance(app_client: Any) -> None:
-    iid, token = await make_instance(app_client)
-    async with app_client.app.state.session_factory() as s:
-        await set_setting(s, "alerts.sender_instance_id", iid)
-    body = json.loads(fx("text_sent_he"))
-    body["data"]["body"] = "⚠️ Iris alert\nKid: Noa\nOpen: http://localhost:8080/alerts/7"
-    r = await post(app_client, token, json.dumps(body).encode())
-    assert r.json() == {"result": "skipped"}
+def signed_alert_text(alert_id: int = 7) -> str:
+    from app.alerts.format import alert_link
+
+    return "⚠️ Iris alert\nKid: Noa\n\nOpen: " + alert_link(
+        "http://localhost:8080", get_settings().key_bytes, alert_id
+    )
+
+
+async def test_own_signed_alert_skipped_on_any_instance(app_client: Any) -> None:
+    """The recipient may itself be a monitored number, so the guard is not tied to the sender."""
+    _, token = await make_instance(app_client)
+    for fixture in ("text_sent_he", "text_received_mixed"):
+        body = json.loads(fx(fixture))
+        body["data"]["body"] = signed_alert_text()
+        r = await post(app_client, token, json.dumps(body).encode())
+        assert r.json() == {"result": "skipped"}
+    assert await count(app_client, Message) == 0
+
+
+async def test_lookalike_alert_with_bad_signature_is_still_classified(app_client: Any) -> None:
+    """Someone typing the alert format must not be able to dodge monitoring."""
+    _, token = await make_instance(app_client)
+    body = json.loads(fx("text_received_mixed"))
+    body["data"]["body"] = "⚠️ Iris alert\nOpen: http://localhost:8080/alerts/7?s=000000000000"
+    assert (await post(app_client, token, json.dumps(body).encode())).json() == {
+        "result": "accepted"
+    }
 
 
 async def test_alert_recipient_on_other_instance_not_skipped(app_client: Any) -> None:
@@ -163,16 +182,6 @@ async def test_oversized_body_413(app_client: Any) -> None:
     _, token = await make_instance(app_client)
     r = await post(app_client, token, b"x" * (25 * 1024 * 1024 + 1))
     assert r.status_code == 413
-
-
-async def test_alert_prefix_without_our_link_is_still_classified(app_client: Any) -> None:
-    iid, token = await make_instance(app_client)
-    async with app_client.app.state.session_factory() as s:
-        await set_setting(s, "alerts.sender_instance_id", iid)
-    body = json.loads(fx("text_sent_he"))
-    body["data"]["body"] = "⚠️ Iris alert (typed by a kid)"
-    r = await post(app_client, token, json.dumps(body).encode())
-    assert r.json() == {"result": "accepted"}
 
 
 async def test_signature_mandatory_after_iris_registers_webhook(app_client: Any) -> None:

@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.alerts import ALERT_PREFIX
+from app.alerts.format import is_own_alert
 from app.api.instances import webhook_secret
 from app.config import Settings, get_settings
 from app.db.models import Chat, ChatInstance, Instance, Job, Message, MessageReceipt
@@ -38,17 +38,18 @@ def _id_digits(wa_id: str | None) -> str | None:
 
 
 async def _is_alert_loop(
-    db: AsyncSession, inst: Instance, msg: IncomingMessage, public_base_url: str
+    db: AsyncSession, inst: Instance, msg: IncomingMessage, key_bytes: bytes
 ) -> bool:
-    """Skip Iris's own alerts so they are never classified (and never alert again)."""
+    """Skip Iris's own alerts so they are never classified (and never alert again).
+
+    Recognised by the HMAC-signed link in the text, on ANY instance: the alert recipient may
+    itself be a monitored number. A look-alike typed by someone else has no valid signature.
+    """
+    if is_own_alert(msg.text or "", key_bytes):
+        return True
     sender_id = await get_setting(db, "alerts.sender_instance_id")
     if sender_id != inst.id:
         return False
-    text = msg.text or ""
-    # Iris's own alert: prefix AND its alert link, so a stray "⚠️ Iris alert" typed by a kid
-    # on the sender session is still classified.
-    if msg.from_me and text.startswith(ALERT_PREFIX) and f"{public_base_url}/alerts/" in text:
-        return True
     recipient = _id_digits(await get_setting(db, "alerts.recipient"))
     return recipient is not None and recipient == _id_digits(msg.wa_chat_id)
 
@@ -183,9 +184,7 @@ async def receive(
     if msg is None:
         await db.commit()
         return {"result": "ignored"}
-    if await _is_alert_loop(db, inst, msg, settings.public_base_url) or not await _in_scope(
-        db, msg
-    ):
+    if await _is_alert_loop(db, inst, msg, settings.key_bytes) or not await _in_scope(db, msg):
         await db.commit()
         return {"result": "skipped"}
     return {"result": await _store(db, inst_id, kid_name, msg)}

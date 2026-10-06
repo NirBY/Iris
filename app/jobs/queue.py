@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import Job, Message
+from app.db.models import Alert, Job, Message
 
 BACKOFF_SECONDS = (5, 30, 120, 600, 1800)
 STALE_LOCK = timedelta(minutes=10)
@@ -124,6 +124,13 @@ async def fail(
         if isinstance(message_id, int):
             await db.execute(
                 update(Message).where(Message.id == message_id).values(status="failed")
+            )
+        alert_id = job.payload.get("alert_id")
+        if isinstance(alert_id, int):  # a delivery that ran out of attempts
+            await db.execute(
+                update(Alert)
+                .where(Alert.id == alert_id)
+                .values(delivery_status="failed", delivery_error=error[:500])
             )
         await db.commit()
         return status
