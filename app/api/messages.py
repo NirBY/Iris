@@ -45,6 +45,7 @@ class MessageOut(BaseModel):
     verdict: str | None
     redacted: bool
     kids: list[KidRef]
+    failure: str | None  # why processing failed (latest failed/dead job), else null
 
 
 class MessagePage(BaseModel):
@@ -92,7 +93,29 @@ async def _kids(db: AsyncSession, ids: list[int]) -> dict[int, list[KidRef]]:
     return out
 
 
-def _to_out(m: Message, chat: Chat, kids: list[KidRef], snippet: str | None = None) -> MessageOut:
+async def _failures(db: AsyncSession, messages: list[Message]) -> dict[int, str]:
+    """Latest error of failed/dead jobs, for messages that ended up `failed`."""
+    ids = [m.id for m in messages if m.status == "failed"]
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(func.json_extract(Job.payload, "$.message_id"), Job.last_error)
+        .where(
+            Job.status.in_(["failed", "dead"]),
+            func.json_extract(Job.payload, "$.message_id").in_(ids),
+        )
+        .order_by(Job.id)
+    )
+    return {int(mid): err for mid, err in rows if err}  # later jobs overwrite earlier ones
+
+
+def _to_out(
+    m: Message,
+    chat: Chat,
+    kids: list[KidRef],
+    snippet: str | None = None,
+    failure: str | None = None,
+) -> MessageOut:
     return MessageOut(
         id=m.id,
         chat_id=m.chat_id,
@@ -110,6 +133,7 @@ def _to_out(m: Message, chat: Chat, kids: list[KidRef], snippet: str | None = No
         verdict=m.verdict,
         redacted=m.redacted,
         kids=kids,
+        failure=failure,
     )
 
 
@@ -176,8 +200,12 @@ async def search_messages(
         )
     ).all()
     kids = await _kids(db, [m.id for m, _ in rows2])
+    failures = await _failures(db, [m for m, _ in rows2])
     return MessagePage(
-        items=[_to_out(m, c, kids.get(m.id, []), snippets.get(m.id)) for m, c in rows2],
+        items=[
+            _to_out(m, c, kids.get(m.id, []), snippets.get(m.id), failures.get(m.id))
+            for m, c in rows2
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -207,7 +235,12 @@ async def get_message(message_id: int, db: DB) -> MessageDetail:
             .order_by(Classification.id)
         )
     ).scalars()
-    base = _to_out(m, chat, (await _kids(db, [m.id])).get(m.id, []))
+    base = _to_out(
+        m,
+        chat,
+        (await _kids(db, [m.id])).get(m.id, []),
+        failure=(await _failures(db, [m])).get(m.id),
+    )
     return MessageDetail(
         **base.model_dump(),
         classifications=[ClassificationOut.model_validate(c, from_attributes=True) for c in cls],
@@ -251,7 +284,8 @@ async def message_context(
     )
     window = sorted([*before, m, *after], key=lambda x: (x.sent_at, x.id))
     kids = await _kids(db, [x.id for x in window])
-    return [_to_out(x, chat, kids.get(x.id, [])) for x in window]
+    failures = await _failures(db, window)
+    return [_to_out(x, chat, kids.get(x.id, []), failure=failures.get(x.id)) for x in window]
 
 
 @router.post("/{message_id}/reprocess")

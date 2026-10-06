@@ -95,3 +95,23 @@ async def test_messages_require_auth(app_client: Any) -> None:
 async def test_punctuation_only_query_matches_nothing(app_client: Any) -> None:
     await seed(app_client)
     assert (await app_client.get("/api/messages", params={"q": '"*()'})).json()["total"] == 0
+
+
+async def test_failed_message_exposes_its_failure_reason(app_client: Any) -> None:
+    from sqlalchemy import update
+
+    from app.db.models import Job
+
+    await seed(app_client)
+    async with app_client.app.state.session_factory() as s:
+        await s.execute(update(Message).where(Message.id == 1).values(status="failed"))
+        await s.execute(
+            update(Job)
+            .where(Job.id == 1)
+            .values(status="failed", last_error="OpenWA has no stored media")
+        )
+        await s.commit()
+    one = (await app_client.get("/api/messages/1")).json()
+    assert one["status"] == "failed" and one["failure"] == "OpenWA has no stored media"
+    listed = {i["id"]: i for i in (await app_client.get("/api/messages")).json()["items"]}
+    assert listed[1]["failure"] == "OpenWA has no stored media" and listed[2]["failure"] is None
