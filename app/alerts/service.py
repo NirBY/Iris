@@ -10,6 +10,7 @@ from app.alerts.format import make_quote
 from app.classify.pipeline import PipelineOutcome
 from app.db.models import Alert, Chat, Classification, Instance, Message, MessageReceipt
 from app.jobs.queue import enqueue
+from app.metrics import ALERTS
 from app.settings_store import get_setting
 
 REDACTED = "[redacted]"
@@ -99,6 +100,7 @@ async def create_alert(db: AsyncSession, message: Message, scores: dict[str, flo
     else:
         alert.delivery_status = "failed"
         alert.delivery_error = "alert delivery not configured"
+        ALERTS.labels(categories[0], "failed").inc()
     await db.commit()
     return alert
 

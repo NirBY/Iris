@@ -10,6 +10,7 @@ from sqlalchemy import Select, func, select
 from app.alerts.format import AlertFacts, format_alert
 from app.db.models import Alert, Chat, Instance, Message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
+from app.metrics import ALERTS
 from app.openwa.client import OpenWAClient, OpenWAError
 from app.security.crypto import decrypt
 from app.settings_store import get_setting
@@ -22,6 +23,10 @@ def recipient_chat_id(recipient: str) -> str:
     """A phone number (digits, optional +) becomes `<digits>@c.us`; chat ids pass through."""
     r = recipient.strip()
     return r if "@" in r else f"{r.lstrip('+')}@c.us"
+
+
+def _top(alert: Alert) -> str:
+    return alert.categories[0] if alert.categories else "unknown"
 
 
 def _naive_utc(dt: datetime) -> datetime:
@@ -104,6 +109,7 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
             if not force and _naive_utc(last_sent.notified_at) >= window_start:
                 alert.delivery_status, alert.delivery_error = "suppressed", None
                 await db.commit()
+                ALERTS.labels(_top(alert), "suppressed").inc()
                 logger.info("alert {} suppressed by the chat cooldown", alert.id)
                 return
             more = int(
@@ -141,4 +147,5 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
         alert.delivery_status, alert.delivery_error = "sent", None
         alert.notified_at = datetime.now(UTC)
         await db.commit()
+        ALERTS.labels(_top(alert), "sent").inc()
         logger.info("alert {} delivered", alert.id)

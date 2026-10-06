@@ -18,6 +18,7 @@ from app.ingest import webhooks
 from app.jobs.handlers import Deps
 from app.jobs.worker import WorkerPool
 from app.logging import setup_logging
+from app.metrics import render as render_metrics
 from app.providers import Providers
 from app.security.auth import bootstrap_admin, current_user
 from app.version import VERSION
@@ -90,6 +91,13 @@ def create_app() -> FastAPI:
     app.include_router(stats.router)
     app.include_router(settings_api.router)
     app.include_router(webhooks.router)
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics(request: Request) -> Response:
+        # No auth by design (Prometheus scrape): keep this port off the public internet.
+        async with request.app.state.session_factory() as db:
+            body = await render_metrics(db)
+        return Response(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
     @app.get("/api/docs", include_in_schema=False)
     async def docs(_: Annotated[User, Depends(current_user)]) -> HTMLResponse:
