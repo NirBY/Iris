@@ -15,7 +15,10 @@ from app.config import get_settings
 from app.db.engine import make_engine, make_session_factory
 from app.db.models import User
 from app.ingest import webhooks
+from app.jobs.handlers import Deps
+from app.jobs.worker import WorkerPool
 from app.logging import setup_logging
+from app.providers import Providers
 from app.security.auth import bootstrap_admin, current_user
 from app.version import VERSION
 
@@ -36,7 +39,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.session_factory = make_session_factory(engine)
     async with app.state.session_factory() as session:
         await bootstrap_admin(session, settings)
+    providers = Providers()
+    pool = WorkerPool(
+        Deps(app.state.session_factory, providers, settings.key_bytes), settings.workers
+    )
+    app.state.workers = pool
+    await pool.start()
     yield
+    await pool.stop()
+    await providers.aclose()
     await engine.dispose()
 
 

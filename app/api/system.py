@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,12 +13,17 @@ router = APIRouter(prefix="/api", tags=["system"])
 
 
 @router.get("/health")
-async def health(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, str]:
+async def health(
+    request: Request, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, str | int]:
     try:
         await db.execute(text("SELECT 1"))
     except Exception as exc:
         raise HTTPException(status_code=503, detail="database unreachable") from exc
-    return {"status": "ok", "version": VERSION}
+    pool = request.app.state.workers
+    if pool.size and pool.alive < pool.size:
+        raise HTTPException(status_code=503, detail="workers not running")
+    return {"status": "ok", "version": VERSION, "workers": pool.alive}
 
 
 @router.get("/version")
