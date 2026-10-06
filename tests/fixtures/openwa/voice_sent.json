@@ -1,0 +1,26 @@
+{
+  "event": "message.sent",
+  "timestamp": "2026-10-06T16:39:39.450Z",
+  "sessionId": "00000000-0000-4000-8000-000000000001",
+  "idempotencyKey": "00000000-0000-4000-9000-000000000009",
+  "deliveryId": "00000000-0000-4000-9000-000000000010",
+  "data": {
+    "id": "true_222222222222222@lid_3EB023FB448B5DB6537BFA",
+    "from": "111111111111111@lid",
+    "to": "222222222222222@lid",
+    "chatId": "222222222222222@lid",
+    "body": "",
+    "type": "voice",
+    "timestamp": 1791304779,
+    "fromMe": true,
+    "isGroup": false,
+    "kind": "individual",
+    "isStatusBroadcast": false,
+    "isLidSender": true,
+    "media": {
+      "mimetype": "audio/ogg; codecs=opus",
+      "omitted": true,
+      "sizeBytes": 12539
+    }
+  }
+}

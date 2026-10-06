@@ -1,0 +1,30 @@
+{
+  "event": "message.received",
+  "timestamp": "2026-10-06T16:39:52.063Z",
+  "sessionId": "00000000-0000-4000-8000-000000000001",
+  "idempotencyKey": "00000000-0000-4000-9000-000000000015",
+  "deliveryId": "00000000-0000-4000-9000-000000000016",
+  "data": {
+    "id": "false_222222222222222@lid_3EB0DC5A99D7BB09288329",
+    "from": "222222222222222@lid",
+    "to": "972500000001@c.us",
+    "chatId": "222222222222222@lid",
+    "body": "",
+    "type": "sticker",
+    "timestamp": 1791304791,
+    "fromMe": false,
+    "isGroup": false,
+    "kind": "individual",
+    "isStatusBroadcast": false,
+    "isLidSender": true,
+    "contact": {
+      "pushName": "Kid Tester",
+      "name": "Kid Tester"
+    },
+    "media": {
+      "mimetype": "image/webp",
+      "omitted": true,
+      "sizeBytes": 1216
+    }
+  }
+}

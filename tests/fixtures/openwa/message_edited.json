@@ -1,0 +1,20 @@
+{
+  "event": "message.edited",
+  "timestamp": "2026-10-06T16:41:07.124Z",
+  "sessionId": "00000000-0000-4000-8000-000000000001",
+  "idempotencyKey": "00000000-0000-4000-9000-000000000025",
+  "deliveryId": "00000000-0000-4000-9000-000000000026",
+  "data": {
+    "messageId": "true_222222222222222@lid_3EB0206F7B189DBEBC16C8",
+    "chatId": "222222222222222@lid",
+    "body": "שלום! זו הודעה שנערכה",
+    "senderId": "111111111111111@lid",
+    "from": "111111111111111@lid",
+    "to": "222222222222222@lid",
+    "fromMe": true,
+    "isGroup": false,
+    "type": "text",
+    "hasMedia": false,
+    "timestamp": 1791304867
+  }
+}
