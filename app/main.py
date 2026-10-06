@@ -72,8 +72,14 @@ def create_app() -> FastAPI:
     async def spa(path: str) -> Response:
         if path.startswith(("api/", "webhooks/", "metrics")) or path in ("api", "webhooks"):
             raise HTTPException(status_code=404)
-        candidate = (STATIC_DIR / path).resolve()
-        if path and candidate.is_file() and STATIC_DIR.resolve() in candidate.parents:
+        try:
+            candidate = (STATIC_DIR / path).resolve()
+            is_asset = (
+                bool(path) and candidate.is_file() and STATIC_DIR.resolve() in candidate.parents
+            )
+        except ValueError:  # embedded NUL byte
+            raise HTTPException(status_code=404) from None
+        if is_asset:
             return FileResponse(candidate)
         index = STATIC_DIR / "index.html"
         if index.is_file():

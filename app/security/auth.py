@@ -23,6 +23,8 @@ LOGIN_MAX_FAILURES = 5
 LOGIN_WINDOW = 15 * 60
 
 _hasher = PasswordHasher()
+# Verified against when the username is unknown, so timing doesn't reveal valid usernames.
+_DUMMY_HASH = _hasher.hash("iris-dummy-password")
 
 
 def hash_password(password: str) -> str:
@@ -42,17 +44,24 @@ def _serializer(settings: Settings) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(key, salt="session")
 
 
-def make_session_token(settings: Settings, user_id: int) -> str:
-    return _serializer(settings).dumps({"uid": user_id})
+def _fingerprint(password_hash: str) -> str:
+    return hashlib.sha256(password_hash.encode()).hexdigest()[:16]
 
 
-def read_session_token(settings: Settings, token: str) -> int | None:
+def make_session_token(settings: Settings, user: User) -> str:
+    # Bound to the password hash, so changing the password revokes existing sessions.
+    return _serializer(settings).dumps({"uid": user.id, "pv": _fingerprint(user.password_hash)})
+
+
+def read_session_token(settings: Settings, token: str) -> tuple[int, str] | None:
     try:
         data = _serializer(settings).loads(token, max_age=SESSION_MAX_AGE)
     except BadSignature:
         return None
-    uid = data.get("uid") if isinstance(data, dict) else None
-    return uid if isinstance(uid, int) else None
+    if not isinstance(data, dict):
+        return None
+    uid, pv = data.get("uid"), data.get("pv")
+    return (uid, pv) if isinstance(uid, int) and isinstance(pv, str) else None
 
 
 class LoginLimiter:
@@ -95,8 +104,12 @@ async def current_user(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> User:
     token = request.cookies.get(COOKIE_NAME)
-    uid = read_session_token(settings, token) if token else None
-    user = await db.get(User, uid) if uid is not None else None
-    if user is None:
+    parsed = read_session_token(settings, token) if token else None
+    user = await db.get(User, parsed[0]) if parsed else None
+    if (
+        user is None
+        or parsed is None
+        or not hmac.compare_digest(parsed[1], _fingerprint(user.password_hash))
+    ):
         raise HTTPException(status_code=401, detail="Not authenticated")
     return user

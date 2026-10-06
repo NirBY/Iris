@@ -58,3 +58,25 @@ async def test_fts_hebrew_search_and_redaction(engine: AsyncEngine) -> None:
         )
     assert await _hits(engine, "שלום") == 0
     assert await _hits(engine, "redacted") == 0
+
+
+async def test_redacted_insert_not_indexed_and_delete_keeps_index_sound(
+    engine: AsyncEngine,
+) -> None:
+    async with engine.begin() as c:
+        await c.execute(
+            text(
+                "INSERT INTO chats(id, wa_chat_id, is_group, updated_at) VALUES (9,'c9',0,'2026-01-01')"
+            )
+        )
+        await c.execute(
+            text(
+                "INSERT INTO messages(id, wa_message_id, chat_id, type, text, from_me, redacted, status, sent_at, received_at)"
+                " VALUES (50,'r',9,'text','secretword',0,1,'done','2026-01-01','2026-01-01')"
+            )
+        )
+    assert await _hits(engine, "secretword") == 0
+    async with engine.begin() as c:
+        await c.execute(text("DELETE FROM messages WHERE id=50"))
+    async with engine.connect() as c:
+        await c.execute(text("INSERT INTO messages_fts(messages_fts) VALUES ('integrity-check')"))

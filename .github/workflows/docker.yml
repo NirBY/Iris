@@ -8,11 +8,14 @@ on:
         required: false
 
 permissions:
-  contents: write # push the version tag after a successful image push
+  contents: read
 
 jobs:
   docker:
+    if: github.ref == 'refs/heads/main' # never publish :latest from a branch
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the version tag after a successful image push
     steps:
       - uses: actions/checkout@v7
         with:

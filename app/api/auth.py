@@ -11,6 +11,7 @@ from app.config import Settings, get_settings
 from app.db.models import User
 from app.deps import get_db
 from app.security.auth import (
+    _DUMMY_HASH,
     COOKIE_NAME,
     SESSION_MAX_AGE,
     LoginLimiter,
@@ -52,13 +53,14 @@ async def login(
     user = (
         await db.execute(select(User).where(User.username == body.username))
     ).scalar_one_or_none()
-    if user is None or not verify_password(user.password_hash, body.password):
+    ok = verify_password(user.password_hash if user else _DUMMY_HASH, body.password)
+    if user is None or not ok:
         limiter.record_failure(ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     limiter.reset(ip)
     response.set_cookie(
         COOKIE_NAME,
-        make_session_token(settings, user.id),
+        make_session_token(settings, user),
         max_age=SESSION_MAX_AGE,
         httponly=True,
         samesite="strict",

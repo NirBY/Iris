@@ -57,3 +57,7 @@ async def test_spa_fallback(
     r = await client.get("/alerts/3")
     assert r.status_code == 200 and "iris" in r.text
     assert (await client.get("/../../etc/passwd")).status_code in (200, 404)
+
+
+async def test_nul_byte_path_is_404(client: httpx.AsyncClient) -> None:
+    assert (await client.get("/a%00b")).status_code in (200, 404)
