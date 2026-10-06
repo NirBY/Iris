@@ -11,6 +11,7 @@ import json
 import os
 import re
 import time
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -20,7 +21,7 @@ router = APIRouter()
 
 def _write(capture_dir: Path, label: str, record: dict[str, object]) -> None:
     capture_dir.mkdir(parents=True, exist_ok=True)
-    name = f"{int(time.time() * 1000)}-{label}.json"
+    name = f"{time.time_ns()}-{uuid.uuid4().hex[:8]}-{label}.json"
     (capture_dir / name).write_text(json.dumps(record, ensure_ascii=False, indent=2))
 
 
