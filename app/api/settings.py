@@ -7,11 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.alerts.delivery import recipient_chat_id
 from app.classify.moderation import ModerationClient
 from app.config import Settings, get_settings
+from app.db.models import Instance
 from app.deps import get_db
 from app.jobs.queue import PermanentError, TransientError
+from app.openwa.client import OpenWAClient, OpenWAError
 from app.security.auth import current_user
+from app.security.crypto import decrypt
 from app.settings_store import REGISTRY, all_settings, get_secret, get_setting, set_setting
 from app.transcription.cloudflare import CloudflareTranscriber
 
@@ -58,6 +62,8 @@ class TestRequest(BaseModel):
     """Values entered in the form but not saved yet; blank fields fall back to the saved ones."""
 
     api_key: str | None = None
+    sender_instance_id: int | None = None
+    recipient: str | None = None
     account_id: str | None = None
     api_token: str | None = None
     model: str | None = None
@@ -109,8 +115,32 @@ async def test_provider(
             finally:
                 await cf.aclose()
             return TestResult(ok=True, detail="Cloudflare Workers AI transcribed the test clip")
+        return await _test_alert(db, cfg, body)
     except (PermanentError, TransientError) as exc:
         return TestResult(ok=False, detail=str(exc))  # messages are static, never secrets
-    raise HTTPException(
-        status_code=501, detail="Alert delivery test arrives with the alerts milestone"
-    )
+
+
+async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> TestResult:
+    """Send a real WhatsApp test message with the entered (or saved) sender and recipient."""
+    sender_id = body.sender_instance_id or await get_setting(db, "alerts.sender_instance_id")
+    recipient = body.recipient or await get_setting(db, "alerts.recipient")
+    sender = await db.get(Instance, sender_id) if sender_id else None
+    if sender is None or not sender.openwa_api_key_enc:
+        return TestResult(
+            ok=False, detail="Choose an alert sender instance that has an OpenWA API key"
+        )
+    if not recipient:
+        return TestResult(ok=False, detail="Enter the alert recipient (phone number or chat ID)")
+    client = OpenWAClient(sender.openwa_base_url, decrypt(cfg.key_bytes, sender.openwa_api_key_enc))
+    try:
+        await client.send_text(
+            sender.openwa_instance_id,
+            recipient_chat_id(recipient),
+            "✅ Iris test message: alert delivery is working.",
+        )
+    except OpenWAError as exc:
+        hint = " (is the OpenWA session running?)" if exc.status == 400 else ""
+        return TestResult(ok=False, detail=f"OpenWA: {exc.message}{hint}")
+    finally:
+        await client.aclose()
+    return TestResult(ok=True, detail="Test message sent")
