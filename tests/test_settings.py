@@ -161,3 +161,20 @@ async def test_alert_settings_defaults_and_validation(app_client: Any) -> None:
         assert (await app_client.put("/api/settings", json={"settings": bad})).status_code == 422
     ok = {"alerts.timezone": "Europe/London", "alerts.cooldown_minutes": 0}
     assert (await app_client.put("/api/settings", json={"settings": ok})).status_code == 200
+
+
+async def test_thresholds_endpoint_shows_effective_values_and_defaults(app_client: Any) -> None:
+    rows = {r["category"]: r for r in (await app_client.get("/api/settings/thresholds")).json()}
+    assert (
+        len(rows) == 13
+        and rows["sexual/minors"]["low"] == 0.05
+        and rows["sexual/minors"]["high"] == 0.30
+    )
+    await app_client.put(
+        "/api/settings",
+        json={"settings": {"classification.thresholds": {"violence": {"low": 0.4, "high": 0.9}}}},
+    )
+    rows = {r["category"]: r for r in (await app_client.get("/api/settings/thresholds")).json()}
+    assert (rows["violence"]["low"], rows["violence"]["high"]) == (0.4, 0.9)
+    assert (rows["violence"]["default_low"], rows["violence"]["default_high"]) == (0.2, 0.7)
+    assert rows["hate"]["low"] == rows["hate"]["default_low"]
