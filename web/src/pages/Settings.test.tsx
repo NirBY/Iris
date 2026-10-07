@@ -308,3 +308,15 @@ test('says plainly that videos are not kept', async () => {
   await userEvent.click(screen.getByRole('switch', { name: 'Keep media' }))
   expect(await screen.findByText(/Videos are not kept at all/)).toBeInTheDocument()
 })
+
+test('the account tab has a switch that remembers "show content by default" on this browser', async () => {
+  renderPage()
+  await userEvent.click(await screen.findByRole('tab', { name: 'Account' }))
+  const sw = await screen.findByRole('switch', { name: 'Show content by default' })
+  expect(sw).not.toBeChecked()
+  await userEvent.click(sw)
+  expect(sw).toBeChecked()
+  expect(localStorage.getItem('iris-show-content')).toBe('1')
+  await userEvent.click(sw)
+  expect(localStorage.getItem('iris-show-content')).toBeNull()
+})
