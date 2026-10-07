@@ -58,6 +58,8 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
   system, and the whole portal passes an automated accessibility scan (keyboard, contrast, screen readers).
 - **Sexual content safety rule.** Content involving minors, or sexual imagery, is withheld entirely: it is
   not stored, not searchable, not shown and not forwarded. The alert says to review the chat directly.
+- **Hidden until you look.** Stored content (message text, alert quotes, kept media) is hidden by default and
+  shown with an eye button.
 - **Keep the media if you want to (off by default).** Store the photo or voice note behind an alert on
   the server's disk or in S3-compatible storage (Cloudflare R2, AWS S3, SeaweedFS, MinIO); the alert and the
   dashboard link to it.
@@ -322,6 +324,29 @@ you and saffron arcs are messages Iris could not decide. Below it, **Needs atten
 needs you or needs fixing (unread alerts, items to review, undelivered alerts, failed jobs, phones that never
 reported) with a button for each, and the **activity chart** shows 14 days of messages by verdict. Everything
 refreshes about every minute. The chart is also available as a table.
+
+### Hide and show
+
+Everything Iris has stored of a message is **hidden by default**: message text and transcripts, alert quotes,
+kept photos and voice notes, and edit history. Hidden text appears as a blurred mask that contains none of the
+real characters, and hidden media is not even requested from the server. Press the **eye** to show it and again
+to hide it. Nothing is remembered: every time you open a page it starts hidden again.
+
+![Alerts, hidden by default](assets/screenshots/alerts-hidden.png)
+
+- On lists (**Alerts**, **Messages**, the **Home** recent alerts) one **Show content** button at the top
+  reveals every row on that page.
+- On a single alert, conversation, review card or media page the button sits next to the content.
+
+| Hidden | Shown |
+|---|---|
+| ![Alert, hidden](assets/screenshots/alert-detail-hidden.png) | ![Alert, shown](assets/screenshots/alert-detail-shown.png) |
+
+**Withheld content cannot be shown, on purpose.** If a message may involve a minor in a sexual context (or is a
+sexual image, sticker or video), Iris never stores it, because keeping it could be illegal, so there is nothing
+behind the eye. The alert says what was detected and tells you to open the chat directly in WhatsApp.
+
+![A withheld alert](assets/screenshots/alert-withheld.png)
 
 ### Alerts
 
