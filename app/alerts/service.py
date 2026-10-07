@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.format import make_quote
 from app.classify.pipeline import PipelineOutcome
+from app.classify.thresholds import effective_thresholds
 from app.db.models import (
     Alert,
     Chat,
@@ -36,11 +37,38 @@ def should_redact(message_type: str, categories: list[str]) -> bool:
 def needs_redaction(message_type: str, high: list[str], low: list[str]) -> bool:
     """Decide at classification time, before anything is shown or alerted.
 
-    `sexual/minors` is withheld from the LOW threshold up: the parent is better served by an
-    over-cautious "review the chat directly" than by Iris storing or showing such material.
-    Sexual imagery is withheld at the high threshold, as in the spec.
+    `sexual/minors` at or above its high threshold is withheld. In the uncertain band (above low,
+    below high) the words of a TEXT or voice message are kept so the owner can read them in the
+    review queue and decide (they are withheld the moment it is confirmed harmful); anything with
+    a picture (image, sticker, video) is withheld at any band. Sexual imagery is withheld at the
+    high threshold, as in the spec.
     """
-    return "sexual/minors" in low or should_redact(message_type, high)
+    if "sexual/minors" in high:
+        return True
+    if "sexual/minors" in low and message_type in MEDIA_TYPES:
+        return True
+    return should_redact(message_type, high)
+
+
+def redact_for_alert(
+    message_type: str,
+    scores: dict[str, float],
+    thresholds: dict[str, tuple[float, float]],
+    confirmed: bool = False,
+) -> bool:
+    """The same decision when an alert is created (the scores are what triggered it).
+
+    `confirmed` is true when the owner has just marked the message harmful: an item kept for
+    review is then withheld.
+    """
+    minors = scores.get("sexual/minors")
+    if minors is not None and (
+        confirmed
+        or message_type in MEDIA_TYPES
+        or minors >= thresholds.get("sexual/minors", (0.05, 0.30))[1]
+    ):
+        return True
+    return message_type in MEDIA_TYPES and "sexual" in scores
 
 
 def redact_message(message: Message) -> None:
@@ -73,30 +101,55 @@ async def delivery_configured(db: AsyncSession) -> bool:
     )
 
 
-async def create_alert(db: AsyncSession, message: Message, scores: dict[str, float]) -> Alert:
+async def flagged_union(db: AsyncSession, message_id: int) -> set[str]:
+    """Every category any stage flagged (a later look may clear what an earlier one saw)."""
+    rows = await db.execute(
+        select(Classification.flagged_categories).where(Classification.message_id == message_id)
+    )
+    return {c for (cats,) in rows for c in cats}
+
+
+async def create_alert(
+    db: AsyncSession, message: Message, scores: dict[str, float], confirmed: bool = False
+) -> Alert:
     """Create the alert for a message (one per message) and queue its delivery.
 
     `scores` maps the triggering categories to their scores. Redaction and the alert row are
-    committed together, so withheld content can never be quoted by a half-finished alert.
+    committed together, so withheld content can never be quoted by a half-finished alert. The
+    decision looks at every stage's flags, and runs even when the alert already exists, so
+    confirming an item as harmful always withholds it.
     """
     existing = (
         await db.execute(select(Alert).where(Alert.message_id == message.id))
     ).scalar_one_or_none()
+    thresholds = effective_thresholds(await get_setting(db, "classification.thresholds"))
+    flags = await flagged_union(db, message.id)
+    seen = {**{c: 0.0 for c in flags}, **scores}  # what any stage flagged, with the best scores
+    redact = message.redacted or redact_for_alert(message.type, seen, thresholds, confirmed)
+    # Uncertain text about minors is kept for the owner to read in the portal, but it is never
+    # copied into an alert (and so never sent over WhatsApp).
+    keep_out_of_alert = redact or "sexual/minors" in seen
     if existing is not None:
+        if redact and not message.redacted:
+            redact_message(message)
+            await wipe_revisions(db, message.id)
+            await mark_purge(db, message.id)
+            existing.quote = None
+            await db.commit()
+            logger.warning("message {} redacted on confirmation; content withheld", message.id)
         return existing
 
     ordered = sorted((scores or {"manual review": 0.0}).items(), key=lambda kv: kv[1], reverse=True)
     categories = [c for c, _ in ordered]
     chat = await db.get(Chat, message.chat_id)
-    redact = message.redacted or should_redact(message.type, categories)
     if redact:
         redact_message(message)
         await wipe_revisions(db, message.id)
         await mark_purge(db, message.id)
-        quote = None
         logger.warning("message {} redacted ({}); content withheld", message.id, categories)
-    else:
-        quote = make_quote(message.type, message.text, message.transcript)
+    quote = (
+        None if keep_out_of_alert else make_quote(message.type, message.text, message.transcript)
+    )
 
     alert = Alert(
         message_id=message.id,

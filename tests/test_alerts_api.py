@@ -116,22 +116,36 @@ async def test_review_queue_resolve_safe_and_harmful(app_client: Any) -> None:
 
 
 @respx.mock
-async def test_sexual_minors_is_redacted_from_the_low_threshold_even_in_review(
+async def test_uncertain_minors_text_is_kept_for_review(
     app_client: Any,
 ) -> None:
-    """Between low (0.05) and high (0.30): inconclusive -> review, but already withheld."""
+    """Between low (0.05) and high (0.30): inconclusive -> review. The owner must be able to read it
+    to decide, so the text is kept (the portal still hides it until the eye is pressed)."""
     deps, token, _ = await setup(app_client, recipient=None)
-    secret = "BORDERLINESECRETTEXT"
+    text = "borderline words to judge"
     respx.post(MOD_URL).mock(return_value=mod_response(**{"sexual/minors": 0.12}))
-    await post(app_client, token, msg_body("text_received_mixed", "LOW1", secret))
+    await post(app_client, token, msg_body("text_received_mixed", "LOW1", text))
     await post(app_client, token, msg_body("text_received_mixed", "LOW2", "x", 3))
     await run_all(deps)
     async with app_client.app.state.session_factory() as s:
         m = (await s.execute(select(Message).order_by(Message.id))).scalars().first()
-        assert m and m.verdict == "review" and m.redacted and m.text == "[redacted]"
-    assert secret not in (await app_client.get("/api/review")).text
+        assert m and m.verdict == "review" and not m.redacted and m.text == text
+    assert text in (await app_client.get("/api/review")).text
+    assert (await app_client.get("/api/messages", params={"q": "borderline"})).json()["total"] == 1
+    await deps.providers.aclose()
+
+
+@respx.mock
+async def test_minors_at_or_above_the_high_threshold_is_withheld(app_client: Any) -> None:
+    deps, token, _ = await setup(app_client, recipient=None)
+    secret = "CLEARLYWITHHELDTEXT"
+    respx.post(MOD_URL).mock(return_value=mod_response(**{"sexual/minors": 0.30}))
+    await post(app_client, token, msg_body("text_received_mixed", "HI01", secret))
+    await run_all(deps)
+    async with app_client.app.state.session_factory() as s:
+        m = (await s.execute(select(Message))).scalar_one()
+        assert m.redacted and m.text == "[redacted]"
     assert secret not in (await app_client.get("/api/messages")).text
-    assert (await app_client.get("/api/messages", params={"q": secret})).json()["total"] == 0
     await deps.providers.aclose()
 
 

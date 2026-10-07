@@ -56,10 +56,13 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
 - **A modern, responsive portal.** A sidebar on desktop, an icon rail on tablets, and a bottom tab bar on
   phones, so an alert link opens into something you can use one-handed. Light and dark themes follow your
   system, and the whole portal passes an automated accessibility scan (keyboard, contrast, screen readers).
-- **Sexual content safety rule.** Content involving minors, or sexual imagery, is withheld entirely: it is
-  not stored, not searchable, not shown and not forwarded. The alert says to review the chat directly.
+- **Sexual content safety rule.** Content clearly involving minors, and sexual imagery, is withheld entirely: it
+  is not stored, not searchable, not shown and not forwarded. The alert says to review the chat directly. When
+  Iris is only *unsure* about a text or voice message (a low score), it keeps the words so you can read them in
+  the review queue and decide. It is never copied into an alert or sent to WhatsApp, and confirming it as harmful
+  withholds it at that moment.
 - **Hidden until you look.** Stored content (message text, alert quotes, kept media) is hidden by default and
-  shown with an eye button.
+  shown with an eye button; a switch under Settings > Account makes this browser show it by default.
 - **Keep the media if you want to (off by default).** Store the photo or voice note behind an alert on
   the server's disk or in S3-compatible storage (Cloudflare R2, AWS S3, SeaweedFS, MinIO); the alert and the
   dashboard link to it.
@@ -330,7 +333,8 @@ refreshes about every minute. The chart is also available as a table.
 Everything Iris has stored of a message is **hidden by default**: message text and transcripts, alert quotes,
 kept photos and voice notes, and edit history. Hidden text appears as a blurred mask that contains none of the
 real characters, and hidden media is not even requested from the server. Press the **eye** to show it and again
-to hide it. Nothing is remembered: every time you open a page it starts hidden again.
+to hide it. Nothing is remembered between page views, unless you turn on **Settings > Account > Show content by default**
+(kept in this browser only), which makes every page start shown; the eye still hides it.
 
 ![Alerts, hidden by default](assets/screenshots/alerts-hidden.png)
 
@@ -342,8 +346,8 @@ to hide it. Nothing is remembered: every time you open a page it starts hidden a
 |---|---|
 | ![Alert, hidden](assets/screenshots/alert-detail-hidden.png) | ![Alert, shown](assets/screenshots/alert-detail-shown.png) |
 
-**Withheld content cannot be shown, on purpose.** If a message may involve a minor in a sexual context (or is a
-sexual image, sticker or video), Iris never stores it, because keeping it could be illegal, so there is nothing
+**Withheld content cannot be shown, on purpose.** If a message clearly involves a minor in a sexual context (or is
+a sexual image, sticker or video, or an image of a possible minor), Iris never stores it, because keeping it could be illegal, so there is nothing
 behind the eye. The alert says what was detected and tells you to open the chat directly in WhatsApp.
 
 ![A withheld alert](assets/screenshots/alert-withheld.png)
@@ -391,8 +395,10 @@ highlighted and its classifications.
 
 ![Review queue](assets/screenshots/review.png)
 
-Messages that stayed inconclusive even with the surrounding chat wait here. **Mark safe** closes them;
-**Mark harmful** creates an alert.
+Messages that stayed inconclusive even with the surrounding chat wait here, with their text (hidden until you
+press the eye, or shown if you turned on **Settings > Account > Show content by default**). **Mark safe** closes
+them; **Mark harmful** creates an alert and, if the message was flagged as involving a minor, withholds its text
+from then on.
 
 ### Edited and deleted messages
 
@@ -539,9 +545,12 @@ outside, so set `IRIS_METRICS_TOKEN` or restrict `/metrics` in your reverse prox
   start-up. Only media with a recognised audio, video or image signature is passed to ffmpeg. If you do keep
   media, see [Keeping media](#keeping-media): withheld content is never kept, files are served only to a
   signed-in owner, and they expire on their own schedule.
-- **Sexual content is withheld.** If a message involves minors (from the *low* threshold up), or is a
-  sexual image, sticker or video, Iris clears its text and transcript, removes it from the search index,
-  never quotes it in an alert, and refuses to reprocess it.
+- **Sexual content is withheld.** If a message involves minors at or above the *high* threshold, or is an
+  image, sticker or video that involves minors (at any score) or is sexual, Iris clears its text and
+  transcript, removes it from the search index, never quotes it in an alert, and refuses to reprocess it. A
+  text or voice message that scores only in the uncertain band (above *low*, below *high*) is kept, hidden until
+  you press the eye, so you can judge it in the review queue; marking it **harmful** withholds it at once, and
+  marking it **safe** leaves it as it is. Kept media is never stored for any message flagged as involving minors.
 - **Retention.** Messages older than the retention window are deleted hourly, except while an alert still
   references them; alerts are deleted after their own window; finished jobs after 7 days.
 - **Alert-loop protection.** Iris recognises its own alerts by a signature over the whole alert text, so an

@@ -13,6 +13,8 @@ from app.alerts.service import (
     DELIVERY_JOB,
     create_alert,
     delivery_configured,
+    flagged_union,
+    redact_for_alert,
     scores_from_classifications,
 )
 from app.api.media import MediaOut, media_out
@@ -24,6 +26,7 @@ from app.api.messages import (
     _load,
     _to_out,
 )
+from app.classify.thresholds import effective_thresholds
 from app.config import Settings, get_settings
 from app.db.jsonq import json_array_contains
 from app.db.models import Alert, Classification, Message, MessageReceipt, StoredMedia
@@ -315,18 +318,24 @@ async def resolve_review(
     policy = str(await get_setting(db, "media.policy"))
     if body.resolution == "harmful":
         scores = await scores_from_classifications(db, m)
-        await db.commit()
-        # Before the alert is built, so its text carries the link (best effort, never fails).
-        await keep_media(
-            request.app.state.session_factory,
-            m.id,
-            list(scores),
-            cfg.key_bytes,
-            cfg.data_dir,
-            f"review-{m.id}",
-        )
-        await db.refresh(m)  # the other session may have flagged or changed it meanwhile
-        alert = await create_alert(db, m, scores)
+        thresholds = effective_thresholds(await get_setting(db, "classification.thresholds"))
+        flags = await flagged_union(db, m.id)
+        if redact_for_alert(m.type, {**{c: 0.0 for c in flags}, **scores}, thresholds, True):
+            # Withheld content: the verdict and the redaction commit together, with nothing kept.
+            alert = await create_alert(db, m, scores, confirmed=True)
+        else:
+            await db.commit()
+            # Before the alert is built, so its text carries the link (best effort, never fails).
+            await keep_media(
+                request.app.state.session_factory,
+                m.id,
+                list(scores),
+                cfg.key_bytes,
+                cfg.data_dir,
+                f"review-{m.id}",
+            )
+            await db.refresh(m)  # the other session may have flagged or changed it meanwhile
+            alert = await create_alert(db, m, scores, confirmed=True)
         alert_id = alert.id
     else:
         if not wants(policy, "safe"):

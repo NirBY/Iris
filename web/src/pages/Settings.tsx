@@ -28,6 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { api, ApiError } from '../lib/api'
 import { fileSize } from '../lib/format'
 import type { Instance, Stats, ThresholdRow } from '../lib/types'
+import { setShowContentByDefault, useShowContentByDefault } from '../lib/prefs'
 import { overridesFrom } from '../lib/thresholds'
 import { DatabaseTab } from './DatabaseTab'
 
@@ -319,46 +320,60 @@ function Account() {
       setMsg(err instanceof ApiError ? err.message : 'Could not change the password. Try again.')
     }
   }
+  const showByDefault = useShowContentByDefault()
   return (
-    <Section
-      title="Change password"
-      description="Use at least 8 characters. Changing it signs out every other browser."
-    >
-      <form onSubmit={submit} className="flex max-w-sm flex-col gap-4">
-        <Field label="Current password">
-          <Input
-            type="password"
-            autoComplete="current-password"
-            value={form.current}
-            onChange={(e) => setForm({ ...form, current: e.target.value })}
-          />
-        </Field>
-        <Field label="New password (at least 8 characters)">
-          <Input
-            type="password"
-            autoComplete="new-password"
-            value={form.next}
-            onChange={(e) => setForm({ ...form, next: e.target.value })}
-          />
-        </Field>
-        <Field label="Repeat new password">
-          <Input
-            type="password"
-            autoComplete="new-password"
-            value={form.confirm}
-            onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-          />
-        </Field>
-        {msg && (
-          <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">
-            {msg}
-          </p>
-        )}
-        <Button type="submit" variant="primary" className="self-start">
-          Change password
-        </Button>
-      </form>
-    </Section>
+    <>
+      <Section
+        title="On this browser"
+        description="Stored content (message text, alert quotes, kept photos and voice notes) is hidden until you press the eye. This applies to this browser only."
+      >
+        <Toggle
+          label="Show content by default"
+          hint="Everything starts shown, and you can still hide it with the eye. Leave it off on a shared screen."
+          checked={showByDefault}
+          onChange={setShowContentByDefault}
+        />
+      </Section>
+      <Section
+        title="Change password"
+        description="Use at least 8 characters. Changing it signs out every other browser."
+      >
+        <form onSubmit={submit} className="flex max-w-sm flex-col gap-4">
+          <Field label="Current password">
+            <Input
+              type="password"
+              autoComplete="current-password"
+              value={form.current}
+              onChange={(e) => setForm({ ...form, current: e.target.value })}
+            />
+          </Field>
+          <Field label="New password (at least 8 characters)">
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={form.next}
+              onChange={(e) => setForm({ ...form, next: e.target.value })}
+            />
+          </Field>
+          <Field label="Repeat new password">
+            <Input
+              type="password"
+              autoComplete="new-password"
+              value={form.confirm}
+              onChange={(e) => setForm({ ...form, confirm: e.target.value })}
+            />
+          </Field>
+          {msg && (
+            <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">
+              {msg}
+            </p>
+          )}
+          <Button type="submit" variant="primary" className="self-start">
+            Change password
+          </Button>
+        </form>
+      </Section>
+    </>
   )
 }
 

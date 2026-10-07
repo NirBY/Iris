@@ -100,3 +100,11 @@ test('a withheld alert never shows a media badge', async () => {
   await screen.findByText(/Content withheld/)
   expect(screen.queryByText('Photo kept')).not.toBeInTheDocument()
 })
+
+test('an alert whose text was kept out says to open it', async () => {
+  renderWithApp(<Alerts />, {
+    '/api/alerts': page([{ ...alert, quote: null }]),
+    '/api/instances': [],
+  })
+  expect(await screen.findByText(/Kept out of the alert/)).toBeInTheDocument()
+})
