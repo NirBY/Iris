@@ -23,7 +23,7 @@ import { QueryError } from '../components/QueryError'
 
 export function MessageContext() {
   const { id } = useParams()
-  const { revealed, toggle } = useReveal()
+  const { revealed, toggle } = useReveal(id)
   const qc = useQueryClient()
   const detailQuery = useQuery({
     queryKey: ['message', id],
@@ -69,16 +69,18 @@ export function MessageContext() {
             : undefined
         }
         actions={
-          detail && !detail.redacted ? (
+          detail ? (
             <>
               <RevealButton revealed={revealed} onToggle={toggle} />
-              <Button
-                variant="outline"
-                onClick={() => reprocess.mutate()}
-                disabled={reprocess.isPending}
-              >
-                <RotateCw /> Check again
-              </Button>
+              {!detail.redacted && (
+                <Button
+                  variant="outline"
+                  onClick={() => reprocess.mutate()}
+                  disabled={reprocess.isPending}
+                >
+                  <RotateCw /> Check again
+                </Button>
+              )}
             </>
           ) : undefined
         }

@@ -51,8 +51,11 @@ test('the whole conversation is hidden until the eye is pressed', async () => {
   expect(screen.getByText('the second line')).toBeInTheDocument()
 })
 
-test('a withheld message stays withheld and has no eye', async () => {
+test('a withheld message stays withheld, with no way to show it', async () => {
   page(true)
   expect(await screen.findAllByText(/withheld on purpose and never stored/)).not.toHaveLength(0)
-  expect(screen.queryByRole('button', { name: /Show content/ })).not.toBeInTheDocument()
+  // The neighbours of a withheld message are ordinary messages, so the eye is still offered.
+  expect(await screen.findByRole('button', { name: 'Show content' })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Check again/ })).not.toBeInTheDocument()
+  expect(screen.queryByText('the second line')).not.toBeInTheDocument()
 })

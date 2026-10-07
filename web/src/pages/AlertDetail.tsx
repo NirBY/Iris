@@ -36,7 +36,7 @@ function reason(e: unknown, fallback: string) {
 
 export function AlertDetail() {
   const { id } = useParams()
-  const { revealed, toggle } = useReveal()
+  const { revealed, toggle } = useReveal(id)
   const qc = useQueryClient()
   const { data: a, isError } = useQuery({
     queryKey: ['alert', id],

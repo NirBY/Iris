@@ -41,7 +41,11 @@ export function RevealableMessage({ m }: { m: Message }) {
         <MessageBody m={m} revealed={revealed} />
       </span>
       {!m.redacted && (m.text || m.transcript) && (
-        <RevealButton revealed={revealed} onToggle={toggle} />
+        <RevealButton
+          revealed={revealed}
+          onToggle={toggle}
+          context={`message from ${m.sender_name ?? 'unknown sender'}`}
+        />
       )}
     </span>
   )

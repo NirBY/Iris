@@ -18,7 +18,7 @@ const LABEL = { image: 'Photo', audio: 'Voice note', video: 'Video' } as const
 /** The page the WhatsApp alert links to: the kept file, shown after sign-in. */
 export function MediaViewer() {
   const { id } = useParams()
-  const { revealed, toggle } = useReveal()
+  const { revealed, toggle } = useReveal(id)
   const info = useQuery({
     queryKey: ['media', id],
     queryFn: () => api<MediaInfo>(`/api/media/${id}/info`),
@@ -59,7 +59,7 @@ export function MediaViewer() {
             <RevealButton
               revealed={revealed}
               onToggle={toggle}
-              label={m.kind === 'image' ? 'photo' : 'voice note'}
+              label={LABEL[m.kind].toLowerCase()}
             />
             <MediaPlayer media={m} revealed={revealed} />
           </div>

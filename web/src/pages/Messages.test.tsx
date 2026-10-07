@@ -50,10 +50,7 @@ test('renders messages with a highlighted snippet and kid names', async () => {
   expect(screen.getByText('Content hidden')).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
   expect((await screen.findByText('שלום')).tagName).toBe('MARK')
-  expect(screen.getByRole('button', { name: 'Hide content' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
+  expect(screen.getByRole('button', { name: 'Hide content' })).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'Hide content' }))
   expect(screen.queryByText('שלום')).not.toBeInTheDocument()
 })

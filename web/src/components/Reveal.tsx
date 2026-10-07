@@ -7,11 +7,14 @@ export function RevealButton({
   revealed,
   onToggle,
   label = 'content',
+  context,
   className,
 }: {
   revealed: boolean
   onToggle: () => void
   label?: string
+  /** Tells screen-reader users which item the button belongs to, e.g. "message from Dan". */
+  context?: string
   className?: string
 }) {
   const Icon = revealed ? EyeOff : Eye
@@ -20,7 +23,7 @@ export function RevealButton({
       type="button"
       variant="outline"
       size="sm"
-      aria-pressed={revealed}
+      aria-label={context ? `${revealed ? 'Hide' : 'Show'} ${label}, ${context}` : undefined}
       onClick={onToggle}
       className={className}
     >
@@ -31,7 +34,8 @@ export function RevealButton({
 
 /** Same-length placeholder for hidden text. It carries none of the real characters. */
 export function Masked({ length = 24 }: { length?: number }) {
-  const n = Math.min(Math.max(length, 6), 80)
+  // Three sizes only, so a glance cannot tell a word from a sentence by the length of the mask.
+  const n = length <= 30 ? 20 : length <= 120 ? 50 : 80
   const mask = Array.from({ length: Math.ceil(n / 5) }, () => '•••••').join(' ')
   return (
     <>

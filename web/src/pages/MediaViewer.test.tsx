@@ -81,3 +81,9 @@ test('an address that is not a number is simply "no longer kept"', async () => {
   expect(await screen.findByText('This file is no longer kept')).toBeInTheDocument()
   expect(calls.length).toBe(0)
 })
+
+test('a video is called a video, not a voice note', async () => {
+  page({ '/api/media/9/info': { ...info, kind: 'video', content_type: 'video/mp4' } })
+  expect(await screen.findByRole('button', { name: 'Show video' })).toBeInTheDocument()
+  expect(screen.getByText('Video hidden')).toBeInTheDocument()
+})
