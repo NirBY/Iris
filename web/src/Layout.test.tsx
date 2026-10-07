@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { Layout } from './Layout'
@@ -113,4 +113,40 @@ test('moves focus to the page after navigating, but not on the first load', asyn
     }),
   )
   expect(main).toHaveFocus()
+})
+
+test('a live alert shows a toast and counts in the tab title until the tab is seen again', async () => {
+  setViewport(true)
+  const sources: { listeners: Record<string, ((e: { data: string }) => void)[]> }[] = []
+  vi.stubGlobal(
+    'EventSource',
+    class {
+      listeners: Record<string, ((e: { data: string }) => void)[]> = {}
+      constructor() {
+        sources.push(this)
+      }
+      addEventListener(n: string, f: (e: { data: string }) => void) {
+        ;(this.listeners[n] ??= []).push(f)
+      }
+      close() {}
+    },
+  )
+  document.title = 'Iris'
+  renderLayout()
+  await screen.findByRole('navigation', { name: 'Main' })
+  const s = sources[sources.length - 1]!
+  act(() => s.listeners.hello![0]!({ data: '{}' }))
+  expect(await screen.findByText('Live')).toBeInTheDocument()
+  act(() => s.listeners.alert![0]!({ data: '{"id": 5}' }))
+  expect(document.title).toBe('Iris') // looking at the tab: no count
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+  act(() => s.listeners.alert![0]!({ data: '{"id": 5}' }))
+  expect(await screen.findByText('A new alert needs you')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Open' })).toBeInTheDocument()
+  expect(document.title).toBe('(1) Iris')
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+  act(() => {
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  expect(document.title).toBe('Iris')
 })

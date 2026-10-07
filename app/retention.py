@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import Alert, Chat, Job, Message
+from app.events import bus
 from app.settings_store import get_setting
 
 JOB_RETENTION = timedelta(days=7)  # finished jobs
@@ -57,6 +58,7 @@ async def run_retention(
     }
     if any(result.values()):
         logger.info("retention removed {}", result)
+        bus.publish("messages", "alerts", "jobs", "chats", "stats", "review")
     return result
 
 

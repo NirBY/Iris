@@ -2,15 +2,17 @@
 
 import asyncio
 import hmac
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, MutableMapping
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from loguru import logger
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.api import (
     alerts,
@@ -24,13 +26,18 @@ from app.api import (
     stats,
     system,
 )
+from app.api import (
+    events as events_api,
+)
 from app.api import settings as settings_api
 from app.config import get_settings
+from app.db import events_hook
 from app.db.engine import make_engine, make_session_factory
 from app.db.migrate import upgrade_head
 from app.db.models import User
 from app.db.url import DbConfigError
 from app.db.url import resolve as resolve_database
+from app.events import bus
 from app.ingest import webhooks
 from app.jobs.handlers import Deps
 from app.jobs.worker import WorkerPool
@@ -73,6 +80,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             exc.__class__.__name__,
         )
         raise
+    events_hook.install()
     engine = make_engine(config=db_config)
     app.state.engine = engine
     app.state.db_running, app.state.db_source = db_config.with_defaults(), db_source
@@ -99,9 +107,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if cleanup is not None:
         cleanup.cancel()
         await asyncio.gather(cleanup, return_exceptions=True)
+    await bus.close_all()  # end every open live stream so shutdown is not held up
     await pool.stop()
     await providers.aclose()
     await engine.dispose()
+
+
+class SecurityHeaders:
+    """Adds the security headers to every response. Pure ASGI, so streaming responses (live
+    updates) are passed through untouched and a closed connection reaches the endpoint at once."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope["path"]
+
+        async def send_with_headers(message: MutableMapping[str, Any]) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                if "Content-Security-Policy" not in headers:  # kept media sets a stricter one
+                    headers["Content-Security-Policy"] = _DOCS_CSP if path == "/api/docs" else _CSP
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["Referrer-Policy"] = "no-referrer"
+                headers["X-Frame-Options"] = "DENY"
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
 
 
 def create_app() -> FastAPI:
@@ -114,19 +149,7 @@ def create_app() -> FastAPI:
         openapi_url=None,  # served below, behind the login, like /api/docs
     )
 
-    @app.middleware("http")
-    async def security_headers(
-        request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        response = await call_next(request)
-        if "Content-Security-Policy" not in response.headers:  # kept media sets a stricter one
-            response.headers["Content-Security-Policy"] = (
-                _DOCS_CSP if request.url.path == "/api/docs" else _CSP
-            )
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["X-Frame-Options"] = "DENY"
-        return response
+    app.add_middleware(SecurityHeaders)
 
     app.include_router(system.router)
     app.include_router(auth.router)
@@ -139,6 +162,7 @@ def create_app() -> FastAPI:
     app.include_router(classify.router)
     app.include_router(database.router)
     app.include_router(media.router)
+    app.include_router(events_api.router)
     app.include_router(webhooks.router)
 
     @app.get("/metrics", include_in_schema=False)

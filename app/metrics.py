@@ -49,6 +49,9 @@ MEDIA_STORED = Counter(
     ["backend", "result"],
     registry=REGISTRY,
 )
+LIVE_CLIENTS = Gauge(
+    "iris_live_clients", "Portals currently listening for live updates", registry=REGISTRY
+)
 JOBS = Gauge("iris_jobs", "Jobs by status", ["status"], registry=REGISTRY)
 
 _JOB_STATUSES = ("queued", "running", "done", "failed", "dead")
