@@ -7,6 +7,8 @@ import { ClassificationCards } from '../components/ClassificationCards'
 import { KidStack } from '../components/KidAvatar'
 import { Failure, MessageBody, VerdictBadge } from '../components/MessageBody'
 import { MediaPlayer } from '../components/MediaPlayer'
+import { RevealButton } from '../components/Reveal'
+import { useReveal } from '../lib/useReveal'
 import { MessageFlags } from '../components/MessageFlags'
 import { revokedClass } from '../lib/revoked'
 import { PageHeader } from '../components/PageHeader'
@@ -21,6 +23,7 @@ import { QueryError } from '../components/QueryError'
 
 export function MessageContext() {
   const { id } = useParams()
+  const { revealed, toggle } = useReveal()
   const qc = useQueryClient()
   const detailQuery = useQuery({
     queryKey: ['message', id],
@@ -67,13 +70,16 @@ export function MessageContext() {
         }
         actions={
           detail && !detail.redacted ? (
-            <Button
-              variant="outline"
-              onClick={() => reprocess.mutate()}
-              disabled={reprocess.isPending}
-            >
-              <RotateCw /> Check again
-            </Button>
+            <>
+              <RevealButton revealed={revealed} onToggle={toggle} />
+              <Button
+                variant="outline"
+                onClick={() => reprocess.mutate()}
+                disabled={reprocess.isPending}
+              >
+                <RotateCw /> Check again
+              </Button>
+            </>
           ) : undefined
         }
       />
@@ -88,7 +94,7 @@ export function MessageContext() {
 
       {detail?.media && !detail.redacted && (
         <div className="flex flex-col gap-2">
-          <MediaPlayer media={detail.media} />
+          <MediaPlayer media={detail.media} revealed={revealed} />
         </div>
       )}
 
@@ -130,7 +136,7 @@ export function MessageContext() {
                 {m.sender_name ?? 'Unknown'}, {dateTime(m.sent_at)}
               </span>
               <span className="text-[15px]">
-                <MessageBody m={m} />
+                <MessageBody m={m} revealed={revealed} />
               </span>
               <span className="flex flex-wrap items-center gap-1.5 empty:hidden">
                 {isTarget && <VerdictBadge m={m} />}

@@ -5,7 +5,9 @@ import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { dateTime } from '../lib/format'
 import type { Message, MessageDetail } from '../lib/types'
+import { useReveal } from '../lib/useReveal'
 import { QueryError } from './QueryError'
+import { Concealed, RevealButton } from './Reveal'
 import { Badge } from './ui/badge'
 import { Dialog, DialogContent, DialogTrigger } from './ui/dialog'
 import { Skeleton } from './ui/skeleton'
@@ -39,6 +41,7 @@ export function MessageFlags({ m, history = false }: { m: Flagged; history?: boo
 
 function EditHistory({ m }: { m: Flagged }) {
   const [open, setOpen] = useState(false)
+  const { revealed, toggle } = useReveal()
   const detail = useQuery({
     queryKey: ['message', String(m.id)],
     queryFn: () => api<MessageDetail>(`/api/messages/${m.id}`),
@@ -68,6 +71,9 @@ function EditHistory({ m }: { m: Flagged }) {
           <QueryError what="the edit history" onRetry={() => void detail.refetch()} />
         )}
         {!d && !detail.isError && <Skeleton className="h-24" />}
+        {d && !d.redacted && (
+          <RevealButton revealed={revealed} onToggle={toggle} className="w-fit" />
+        )}
         {d && (
           <ol className="flex flex-col gap-3">
             <li className="flex flex-col gap-1 rounded-md border bg-surface-2/50 p-3">
@@ -75,7 +81,7 @@ function EditHistory({ m }: { m: Flagged }) {
               <span className="text-xs text-muted-foreground">
                 Edited {d.edited_at ? dateTime(d.edited_at) : ''}
               </span>
-              <Wording text={d.text} redacted={d.redacted} />
+              <Wording text={d.text} redacted={d.redacted} revealed={revealed} />
             </li>
             {earlier.map((r, i) => {
               const original = i === earlier.length - 1
@@ -88,7 +94,7 @@ function EditHistory({ m }: { m: Flagged }) {
                     {original ? `Sent ${dateTime(d.sent_at)}, ` : ''}replaced{' '}
                     {dateTime(r.replaced_at)}
                   </span>
-                  <Wording text={r.text} />
+                  <Wording text={r.text} revealed={revealed} />
                 </li>
               )
             })}
@@ -106,7 +112,15 @@ function EditHistory({ m }: { m: Flagged }) {
   )
 }
 
-function Wording({ text, redacted }: { text: string | null; redacted?: boolean }) {
+function Wording({
+  text,
+  redacted,
+  revealed,
+}: {
+  text: string | null
+  redacted?: boolean
+  revealed: boolean
+}) {
   if (redacted)
     return (
       <span className="inline-flex items-center gap-1.5 italic text-muted-foreground">
@@ -115,7 +129,9 @@ function Wording({ text, redacted }: { text: string | null; redacted?: boolean }
     )
   return (
     <span dir="auto" className="whitespace-pre-wrap break-words text-[15px]">
-      {text}
+      <Concealed revealed={revealed} length={text?.length}>
+        {text}
+      </Concealed>
     </span>
   )
 }

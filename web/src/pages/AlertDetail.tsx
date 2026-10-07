@@ -12,6 +12,8 @@ import {
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { MediaPlayer } from '../components/MediaPlayer'
+import { Concealed, RevealButton } from '../components/Reveal'
+import { useReveal } from '../lib/useReveal'
 import { MessageFlags } from '../components/MessageFlags'
 import { revokedClass } from '../lib/revoked'
 import { KidStack } from '../components/KidAvatar'
@@ -34,6 +36,7 @@ function reason(e: unknown, fallback: string) {
 
 export function AlertDetail() {
   const { id } = useParams()
+  const { revealed, toggle } = useReveal()
   const qc = useQueryClient()
   const { data: a, isError } = useQuery({
     queryKey: ['alert', id],
@@ -111,21 +114,39 @@ export function AlertDetail() {
       {a.redacted ? (
         <div className="flex items-start gap-3 rounded-lg border bg-surface p-5">
           <ShieldOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
-          <p>
-            The content is withheld because it may involve a minor in a sexual context. Iris does
-            not store or show it. Review the chat directly in WhatsApp.
-          </p>
+          <div className="flex flex-col gap-2">
+            <p className="font-medium">Withheld on purpose, so there is nothing to show</p>
+            <p>
+              Iris detected {a.categories.join(', ')} ({a.max_score.toFixed(2)}) in a message that
+              may involve a minor in a sexual context. It never stored the content, because keeping
+              it could be illegal, so it cannot be shown here.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Only the details above are kept. To see what was sent, open the chat directly in
+              WhatsApp.
+            </p>
+          </div>
         </div>
       ) : (
-        <blockquote
-          className={cn(
-            'rounded-lg border-s-4 border-danger bg-surface p-5 text-lg leading-relaxed',
-            revokedClass(a),
-          )}
-          dir="auto"
-        >
-          <span className="whitespace-pre-wrap break-words">{a.quote}</span>
-        </blockquote>
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold">The message</h2>
+            <RevealButton revealed={revealed} onToggle={toggle} />
+          </div>
+          <blockquote
+            className={cn(
+              'rounded-lg border-s-4 border-danger bg-surface p-5 text-lg leading-relaxed',
+              revokedClass(a),
+            )}
+            dir="auto"
+          >
+            <span className="whitespace-pre-wrap break-words">
+              <Concealed revealed={revealed} length={a.quote?.length}>
+                {a.quote}
+              </Concealed>
+            </span>
+          </blockquote>
+        </>
       )}
 
       {a.media && !a.redacted && (
@@ -133,7 +154,7 @@ export function AlertDetail() {
           <h2 id="kept" className="text-lg font-semibold">
             Kept media
           </h2>
-          <MediaPlayer media={a.media} />
+          <MediaPlayer media={a.media} revealed={revealed} />
           <Link
             to={`/media/${a.media.id}`}
             className="w-fit text-sm font-medium text-primary hover:underline"

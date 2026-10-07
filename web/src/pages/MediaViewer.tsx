@@ -3,6 +3,8 @@ import { BellRing, ChevronLeft, FileX, MessagesSquare } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { EmptyState } from '../components/EmptyState'
 import { MediaPlayer } from '../components/MediaPlayer'
+import { RevealButton } from '../components/Reveal'
+import { useReveal } from '../lib/useReveal'
 import { PageHeader } from '../components/PageHeader'
 import { QueryError } from '../components/QueryError'
 import { Button } from '../components/ui/button'
@@ -16,6 +18,7 @@ const LABEL = { image: 'Photo', audio: 'Voice note', video: 'Video' } as const
 /** The page the WhatsApp alert links to: the kept file, shown after sign-in. */
 export function MediaViewer() {
   const { id } = useParams()
+  const { revealed, toggle } = useReveal()
   const info = useQuery({
     queryKey: ['media', id],
     queryFn: () => api<MediaInfo>(`/api/media/${id}/info`),
@@ -52,7 +55,14 @@ export function MediaViewer() {
       {!m && !info.isError && <Skeleton className="h-64" />}
       {m && (
         <>
-          <MediaPlayer media={m} />
+          <div className="flex flex-col items-start gap-3">
+            <RevealButton
+              revealed={revealed}
+              onToggle={toggle}
+              label={m.kind === 'image' ? 'photo' : 'voice note'}
+            />
+            <MediaPlayer media={m} revealed={revealed} />
+          </div>
           <div className="flex flex-wrap gap-2">
             {m.alert_id !== null && (
               <Button asChild variant="outline">
