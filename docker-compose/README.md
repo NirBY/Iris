@@ -44,7 +44,7 @@ Compose refuses to start and says which value is missing if a required one is em
 
 1. Start OpenWA and open `http://localhost:2785`. The first start creates an admin API key: `docker exec openwa cat /app/data/.api-key`.
 2. Create one session per child's phone and scan its QR code with WhatsApp on that phone.
-3. In Iris, open **Phones > Add a phone**: enter OpenWA's address, the session id and the API key. Iris shows the phone's private webhook address.
+3. In Iris, open **Phones > Add a phone**: enter the child's name, OpenWA's address, the session's full ID (not its name) and the API key. Iris shows the phone's private webhook address.
 4. Press **Register in OpenWA** (or paste the address into the session's webhooks yourself).
 
 **OpenWA refuses to send webhooks to private network addresses** (`Destination address is not allowed`). `IRIS_PUBLIC_BASE_URL` must therefore be a public hostname (a reverse proxy or a tunnel such as Cloudflare Tunnel) that reaches Iris, not `http://192.168.x.x:8080`. Expose only `/webhooks/*` publicly if you can.
