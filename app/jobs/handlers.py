@@ -234,8 +234,10 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             message.verdict = prior_verdict
         message.status = "done"
         if outcome.results:
-            last = outcome.results[-1]
-            if needs_redaction(message.type, last.high_categories, last.flagged_categories):
+            # Every stage counts: a later look can clear what an earlier one flagged.
+            high = [c for r in outcome.results for c in r.high_categories]
+            low = [c for r in outcome.results for c in r.flagged_categories]
+            if needs_redaction(message.type, high, low):
                 # Withhold now, in the same commit as the verdict: a message awaiting review (or
                 # with alerts off) must not sit in the DB, search index or portal unredacted.
                 redact_message(message)
