@@ -3,7 +3,7 @@
 from typing import Any
 
 from sqlalchemy import event
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import ORMExecuteState, Session
 
 from app.events import bus
 
@@ -24,8 +24,22 @@ _KEY = "iris_live"
 _installed = False
 
 
+def _state(session: Session) -> dict[str, Any]:
+    state: dict[str, Any] = session.info.setdefault(_KEY, {"topics": set(), "alerts": []})
+    return state
+
+
+def _on_execute(execute_state: ORMExecuteState) -> None:
+    """Bulk update()/delete() skip the unit of work, so read the table off the statement."""
+    if not (execute_state.is_update or execute_state.is_delete or execute_state.is_insert):
+        return
+    mapper = execute_state.bind_arguments.get("mapper")
+    if mapper is not None:
+        _state(execute_state.session)["topics"].update(TOPICS.get(mapper.class_.__name__, ()))
+
+
 def _after_flush(session: Session, _ctx: Any) -> None:
-    state = session.info.setdefault(_KEY, {"topics": set(), "alerts": []})
+    state = _state(session)
     for obj in (*session.new, *session.dirty, *session.deleted):
         state["topics"].update(TOPICS.get(type(obj).__name__, ()))
     for obj in session.new:
@@ -50,6 +64,7 @@ def install() -> None:
     global _installed
     if _installed:
         return
+    event.listen(Session, "do_orm_execute", _on_execute)
     event.listen(Session, "after_flush", _after_flush)
     event.listen(Session, "after_commit", _after_commit)
     event.listen(Session, "after_rollback", _after_rollback)

@@ -251,3 +251,32 @@ async def test_shutdown_ends_an_open_stream(app_client: Any) -> None:
     await bus.close_all()
     assert s.task is not None
     await asyncio.wait_for(s.task, 3)
+
+
+async def test_an_open_stream_holds_no_database_connection(app_client: Any) -> None:
+    pool = app_client.app.state.engine.pool
+    if not hasattr(pool, "checkedout"):
+        pytest.skip("this pool does not report checked out connections")
+    s = await _open(app_client)
+    try:
+        await s.events("event: hello")
+        assert pool.checkedout() == 0
+    finally:
+        await s.close()
+
+
+async def test_bulk_updates_that_skip_the_unit_of_work_are_announced(app_client: Any) -> None:
+    from sqlalchemy import update
+
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx("text_received_mixed"))
+    s = await _open(app_client)
+    try:
+        await s.events("event: hello")
+        async with app_client.app.state.session_factory() as db:
+            await db.execute(update(Message).values(status="done"))
+            await db.commit()
+        text = "".join(await s.events("event: change"))
+        assert '"messages"' in text
+    finally:
+        await s.close()

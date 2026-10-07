@@ -3,10 +3,13 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.deps import get_db
 from app.events import TooManyClients, bus
 from app.security.auth import current_user
 
@@ -20,7 +23,10 @@ def _frame(event: dict[str, object]) -> str:
 
 
 @router.get("")
-async def stream() -> StreamingResponse:
+async def stream(db: Annotated[AsyncSession, Depends(get_db)]) -> StreamingResponse:
+    # The login check opened a transaction. A dependency stays open until the response ends, so give
+    # the pooled connection back now: a stream must not hold one for as long as the tab is open.
+    await db.close()
     try:
         sub = bus.subscribe()
     except TooManyClients:
