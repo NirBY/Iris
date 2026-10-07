@@ -6,7 +6,7 @@ import { EmptyState } from '../components/EmptyState'
 import { KidStack } from '../components/KidAvatar'
 import { MessageFlags } from '../components/MessageFlags'
 import { revokedClass } from '../lib/revoked'
-import { MessageBody } from '../components/MessageBody'
+import { RevealableMessage } from '../components/MessageBody'
 import { PageHeader } from '../components/PageHeader'
 import { Scores } from '../components/Scores'
 import { Button } from '../components/ui/button'
@@ -76,7 +76,7 @@ export function Review() {
               {m.sender_name && (
                 <span className="me-2 text-sm text-muted-foreground">{m.sender_name}:</span>
               )}
-              <MessageBody m={m} />
+              <RevealableMessage m={m} />
             </p>
             <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
               <MessageFlags m={m} history />

@@ -26,6 +26,8 @@ test('lists alerts with who, where, what was said and what state they are in', a
   renderWithApp(<Alerts />, { '/api/alerts': page([alert]), '/api/instances': [] })
   const row = await screen.findByRole('link', { name: /Noa/ })
   const r = within(row)
+  expect(r.queryByText('I will find you')).not.toBeInTheDocument() // hidden by default
+  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
   expect(r.getByText('I will find you')).toBeInTheDocument()
   expect(r.getByText(/in Class/)).toBeInTheDocument()
   expect(r.getByText('Not delivered')).toBeInTheDocument()

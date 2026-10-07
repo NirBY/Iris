@@ -1,9 +1,11 @@
+import { Masked } from './Reveal'
+
 // The API marks FTS matches with control characters (never HTML), so message content is
 // always rendered as plain text.
 const START = '\x02'
 const END = '\x03'
 
-export function Highlight({ snippet }: { snippet: string }) {
+export function Highlight({ snippet, revealed = false }: { snippet: string; revealed?: boolean }) {
   const parts: { text: string; hit: boolean }[] = []
   let rest = snippet
   while (rest.length > 0) {
@@ -18,6 +20,12 @@ export function Highlight({ snippet }: { snippet: string }) {
     parts.push({ text: rest.slice(s + 1, stop), hit: true })
     rest = e === -1 ? '' : rest.slice(e + 1)
   }
+  if (!revealed)
+    return (
+      <span dir="auto">
+        <Masked length={parts.reduce((n, p) => n + p.text.length, 0)} />
+      </span>
+    )
   return (
     <span dir="auto">
       {parts.map((p, i) =>

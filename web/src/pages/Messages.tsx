@@ -11,6 +11,8 @@ import { MessageFlags } from '../components/MessageFlags'
 import { revokedClass } from '../lib/revoked'
 import { Failure, MessageBody, VerdictBadge } from '../components/MessageBody'
 import { PageHeader } from '../components/PageHeader'
+import { RevealButton } from '../components/Reveal'
+import { useReveal } from '../lib/useReveal'
 import { Pagination } from '../components/Pagination'
 import { TypeIcon } from '../components/TypeIcon'
 import { Button } from '../components/ui/button'
@@ -45,6 +47,7 @@ function since(when: string): string | null {
 }
 
 export function Messages() {
+  const { revealed, toggle } = useReveal()
   const { get, page, update, clear } = useUrlState()
 
   // The search box edits locally and reaches the address (and the server) after a short pause.
@@ -97,6 +100,7 @@ export function Messages() {
       <PageHeader
         title="Messages"
         description="Everything Iris has seen. Search covers messages and voice-note transcripts, in Hebrew and English."
+        actions={<RevealButton revealed={revealed} onToggle={toggle} />}
       />
 
       <div className="relative">
@@ -202,7 +206,11 @@ export function Messages() {
                   <TypeIcon type={m.type} />
                 </span>
                 <span className="line-clamp-2 min-w-0 flex-1 break-words text-[15px]" dir="auto">
-                  {m.snippet ? <Highlight snippet={m.snippet} /> : <MessageBody m={m} />}
+                  {m.snippet ? (
+                    <Highlight snippet={m.snippet} revealed={revealed} />
+                  ) : (
+                    <MessageBody m={m} revealed={revealed} />
+                  )}
                 </span>
                 <VerdictBadge m={m} />
               </span>

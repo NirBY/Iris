@@ -45,6 +45,10 @@ test('the edited button opens the history, newest first, ending with the origina
   })
   await userEvent.click(screen.getByRole('button', { name: /show the edit history/ }))
   const dialog = await screen.findByRole('dialog', { name: 'Edit history' })
+  await screen.findAllByRole('listitem')
+  expect(screen.queryByText('third wording')).not.toBeInTheDocument() // hidden until shown
+  expect(screen.queryByText('first wording')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
   const items = await screen.findAllByRole('listitem')
   expect(items.map((i) => i.textContent)).toEqual([
     expect.stringContaining('third wording'),
@@ -65,4 +69,18 @@ test('a redacted message shows no earlier wording', async () => {
   await userEvent.click(screen.getByRole('button', { name: /show the edit history/ }))
   expect(await screen.findByText(/no earlier wording is kept/)).toBeInTheDocument()
   expect(screen.queryByText('first wording')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Show content/ })).not.toBeInTheDocument()
+})
+
+test('closing the edit history hides the wordings again', async () => {
+  renderWithApp(<MessageFlags m={{ ...base, edited_at: detail.edited_at }} history />, {
+    '/api/messages/7': detail,
+  })
+  await userEvent.click(screen.getByRole('button', { name: /show the edit history/ }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Show content' }))
+  expect(await screen.findByText('third wording')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Close' }))
+  await userEvent.click(screen.getByRole('button', { name: /show the edit history/ }))
+  await screen.findByRole('button', { name: 'Show content' })
+  expect(screen.queryByText('third wording')).not.toBeInTheDocument()
 })

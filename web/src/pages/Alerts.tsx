@@ -5,6 +5,8 @@ import { AlertRow } from '../components/AlertRow'
 import { EmptyState } from '../components/EmptyState'
 import { Chips, FilterBar } from '../components/FilterBar'
 import { PageHeader } from '../components/PageHeader'
+import { RevealButton } from '../components/Reveal'
+import { useReveal } from '../lib/useReveal'
 import { Pagination } from '../components/Pagination'
 import { Button } from '../components/ui/button'
 import { Field, Select } from '../components/ui/field'
@@ -23,6 +25,7 @@ const STATUS = [
 const PAGE_SIZE = 25
 
 export function Alerts() {
+  const { revealed, toggle } = useReveal()
   const { get, page, update, clear } = useUrlState()
   const status = get('status')
   const kid = get('instance_id')
@@ -51,7 +54,11 @@ export function Alerts() {
 
   return (
     <div className="flex flex-col gap-5">
-      <PageHeader title="Alerts" description="Messages Iris judged harmful, newest first." />
+      <PageHeader
+        title="Alerts"
+        description="Messages Iris judged harmful, newest first."
+        actions={<RevealButton revealed={revealed} onToggle={toggle} />}
+      />
 
       {notConfigured && (
         <p
@@ -113,7 +120,7 @@ export function Alerts() {
           </li>
         )}
         {data?.items.map((a) => (
-          <AlertRow key={a.id} alert={a} />
+          <AlertRow key={a.id} alert={a} revealed={revealed} />
         ))}
         {data && data.items.length === 0 && (
           <li>

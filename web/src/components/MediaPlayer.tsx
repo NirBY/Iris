@@ -18,10 +18,29 @@ export function MediaBadge({ media }: { media: KeptMedia }) {
   )
 }
 
-/** Shows kept media from Iris itself (the file is only served to a signed-in owner). */
-export function MediaPlayer({ media, className }: { media: KeptMedia; className?: string }) {
+/**
+ * Shows kept media from Iris itself (the file is only served to a signed-in owner). Hidden
+ * unless `revealed`: nothing is requested until then.
+ */
+export function MediaPlayer({
+  media,
+  revealed = false,
+  className,
+}: {
+  media: KeptMedia
+  revealed?: boolean
+  className?: string
+}) {
   const src = `/api/media/${media.id}`
   const [failed, setFailed] = useState(false)
+  if (!revealed) {
+    const Icon = ICON[media.kind]
+    return (
+      <div className="flex min-h-32 w-full max-w-md items-center justify-center gap-2 rounded-lg border bg-surface-2 p-6 text-sm text-muted-foreground">
+        <Icon className="size-5" aria-hidden /> {LABEL[media.kind]} hidden
+      </div>
+    )
+  }
   if (failed)
     return (
       <p role="alert" className="flex items-center gap-2 text-sm text-muted-foreground">

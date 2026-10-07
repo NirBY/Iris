@@ -5,7 +5,9 @@ import { api } from '../lib/api'
 import { cn } from '../lib/cn'
 import { dateTime } from '../lib/format'
 import type { Message, MessageDetail } from '../lib/types'
+import { useReveal } from '../lib/useReveal'
 import { QueryError } from './QueryError'
+import { Concealed, RevealButton } from './Reveal'
 import { Badge } from './ui/badge'
 import { Dialog, DialogContent, DialogTrigger } from './ui/dialog'
 import { Skeleton } from './ui/skeleton'
@@ -68,45 +70,61 @@ function EditHistory({ m }: { m: Flagged }) {
           <QueryError what="the edit history" onRetry={() => void detail.refetch()} />
         )}
         {!d && !detail.isError && <Skeleton className="h-24" />}
-        {d && (
-          <ol className="flex flex-col gap-3">
-            <li className="flex flex-col gap-1 rounded-md border bg-surface-2/50 p-3">
-              <span className="text-sm font-medium">Current</span>
-              <span className="text-xs text-muted-foreground">
-                Edited {d.edited_at ? dateTime(d.edited_at) : ''}
-              </span>
-              <Wording text={d.text} redacted={d.redacted} />
-            </li>
-            {earlier.map((r, i) => {
-              const original = i === earlier.length - 1
-              return (
-                <li key={r.replaced_at + i} className="flex flex-col gap-1 rounded-md border p-3">
-                  <span className="text-sm font-medium">
-                    {original ? 'Original' : 'Earlier version'}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {original ? `Sent ${dateTime(d.sent_at)}, ` : ''}replaced{' '}
-                    {dateTime(r.replaced_at)}
-                  </span>
-                  <Wording text={r.text} />
-                </li>
-              )
-            })}
-            {earlier.length === 0 && (
-              <li className="text-sm text-muted-foreground">
-                {d.redacted
-                  ? 'The content is withheld, so no earlier wording is kept.'
-                  : 'No earlier wording was kept for this message.'}
-              </li>
-            )}
-          </ol>
-        )}
+        {d && <HistoryBody d={d} earlier={earlier} />}
       </DialogContent>
     </Dialog>
   )
 }
 
-function Wording({ text, redacted }: { text: string | null; redacted?: boolean }) {
+/** Lives inside the dialog, so it starts hidden again every time the dialog is opened. */
+function HistoryBody({ d, earlier }: { d: MessageDetail; earlier: MessageDetail['revisions'] }) {
+  const { revealed, toggle } = useReveal()
+  return (
+    <>
+      {!d.redacted && <RevealButton revealed={revealed} onToggle={toggle} className="w-fit" />}
+      <ol className="flex flex-col gap-3">
+        <li className="flex flex-col gap-1 rounded-md border bg-surface-2/50 p-3">
+          <span className="text-sm font-medium">Current</span>
+          <span className="text-xs text-muted-foreground">
+            Edited {d.edited_at ? dateTime(d.edited_at) : ''}
+          </span>
+          <Wording text={d.text} redacted={d.redacted} revealed={revealed} />
+        </li>
+        {earlier.map((r, i) => {
+          const original = i === earlier.length - 1
+          return (
+            <li key={r.replaced_at + i} className="flex flex-col gap-1 rounded-md border p-3">
+              <span className="text-sm font-medium">
+                {original ? 'Original' : 'Earlier version'}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {original ? `Sent ${dateTime(d.sent_at)}, ` : ''}replaced {dateTime(r.replaced_at)}
+              </span>
+              <Wording text={r.text} revealed={revealed} />
+            </li>
+          )
+        })}
+        {earlier.length === 0 && (
+          <li className="text-sm text-muted-foreground">
+            {d.redacted
+              ? 'The content is withheld, so no earlier wording is kept.'
+              : 'No earlier wording was kept for this message.'}
+          </li>
+        )}
+      </ol>
+    </>
+  )
+}
+
+function Wording({
+  text,
+  redacted,
+  revealed,
+}: {
+  text: string | null
+  redacted?: boolean
+  revealed: boolean
+}) {
   if (redacted)
     return (
       <span className="inline-flex items-center gap-1.5 italic text-muted-foreground">
@@ -115,7 +133,9 @@ function Wording({ text, redacted }: { text: string | null; redacted?: boolean }
     )
   return (
     <span dir="auto" className="whitespace-pre-wrap break-words text-[15px]">
-      {text}
+      <Concealed revealed={revealed} length={text?.length}>
+        {text}
+      </Concealed>
     </span>
   )
 }

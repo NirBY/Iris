@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router-dom'
 import { renderWithApp } from '../test-utils'
 import { MediaViewer } from './MediaViewer'
@@ -25,6 +26,9 @@ function page(routes: Record<string, unknown>) {
 
 test('shows the file with links to its alert and conversation', async () => {
   page({ '/api/media/9/info': info })
+  expect(await screen.findByText('Photo hidden')).toBeInTheDocument() // hidden until shown
+  expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Show photo' }))
   expect(await screen.findByRole('img', { name: /photo kept/ })).toHaveAttribute(
     'src',
     '/api/media/9',
@@ -40,7 +44,7 @@ test('shows the file with links to its alert and conversation', async () => {
 
 test('omits the alert link when the media has no alert', async () => {
   page({ '/api/media/9/info': { ...info, alert_id: null } })
-  await screen.findByRole('img')
+  await screen.findByText('Photo hidden')
   expect(screen.queryByRole('link', { name: /See the alert/ })).not.toBeInTheDocument()
 })
 
@@ -76,4 +80,10 @@ test('an address that is not a number is simply "no longer kept"', async () => {
   )
   expect(await screen.findByText('This file is no longer kept')).toBeInTheDocument()
   expect(calls.length).toBe(0)
+})
+
+test('a video is called a video, not a voice note', async () => {
+  page({ '/api/media/9/info': { ...info, kind: 'video', content_type: 'video/mp4' } })
+  expect(await screen.findByRole('button', { name: 'Show video' })).toBeInTheDocument()
+  expect(screen.getByText('Video hidden')).toBeInTheDocument()
 })

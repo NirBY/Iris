@@ -39,8 +39,10 @@ const item = {
 
 test('shows the message with who and where, and explains why it is unclear on request', async () => {
   renderWithApp(<Review />, { '/api/review': { items: [item], total: 1, page: 1, page_size: 25 } })
+  await screen.findByText(/in Maya/)
+  expect(screen.queryByText("lol you're dead meat")).not.toBeInTheDocument() // hidden until shown
+  await userEvent.click(screen.getByRole('button', { name: /^Show content/ }))
   expect(await screen.findByText("lol you're dead meat")).toBeInTheDocument()
-  expect(screen.getByText(/in Maya/)).toBeInTheDocument()
   await userEvent.click(screen.getByText('Why it is unclear'))
   expect(screen.getByText('harassment')).toBeInTheDocument()
 })
@@ -64,4 +66,11 @@ test('marking harmful and marking safe each send the decision', async () => {
 test('an empty queue is an invitation, not a blank page', async () => {
   renderWithApp(<Review />, { '/api/review': { items: [], total: 0, page: 1, page_size: 25 } })
   expect(await screen.findByText('Nothing to review')).toBeInTheDocument()
+})
+
+test("each card's eye says whose message it belongs to", async () => {
+  renderWithApp(<Review />, { '/api/review': { items: [item], total: 1, page: 1, page_size: 25 } })
+  expect(
+    await screen.findByRole('button', { name: 'Show content, message from Maya' }),
+  ).toBeInTheDocument()
 })
