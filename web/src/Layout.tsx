@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Check, LogOut, Monitor, Moon, MoreHorizontal, Sun } from 'lucide-react'
-import { Suspense, useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { IrisMark } from './components/IrisMark'
+import { LiveStatus } from './components/LiveStatus'
 import { PageLoading } from './components/PageLoading'
 import { NAV, TAB_BAR, type NavItem } from './components/nav'
 import { Button } from './components/ui/button'
@@ -19,6 +21,7 @@ import { Toaster } from './components/ui/toaster'
 import { api } from './lib/api'
 import { useLogout, useMe } from './lib/auth'
 import { cn } from './lib/cn'
+import { useLiveUpdates, type LiveStatus as Status } from './lib/live'
 import { getTheme, setTheme, type Theme } from './lib/theme'
 import type { Stats } from './lib/types'
 import { useIsDesktop, useIsWide } from './lib/useMediaQuery'
@@ -137,7 +140,7 @@ function AccountMenu({ wide, version }: { wide: boolean; version?: string }) {
   )
 }
 
-function Sidebar({ stats, version }: { stats?: Stats; version?: string }) {
+function Sidebar({ stats, version, live }: { stats?: Stats; version?: string; live: Status }) {
   const wide = useIsWide()
   const groups = [
     { key: 'watch', title: 'Watch' },
@@ -171,6 +174,7 @@ function Sidebar({ stats, version }: { stats?: Stats; version?: string }) {
           </div>
         ))}
       </nav>
+      {wide && <LiveStatus status={live} />}
       <AccountMenu wide={wide} version={version} />
     </aside>
   )
@@ -278,13 +282,14 @@ function MoreSheet({ stats, version }: { stats?: Stats; version?: string }) {
   )
 }
 
-function PhoneChrome({ stats, version }: { stats?: Stats; version?: string }) {
+function PhoneChrome({ stats, version, live }: { stats?: Stats; version?: string; live: Status }) {
   const tabs = NAV.filter((n) => TAB_BAR.includes(n.to))
   return (
     <>
       <header className="sticky top-0 z-30 flex items-center gap-2 border-b bg-background/85 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-primary backdrop-blur">
         <IrisMark className="size-6" />
         <span className="text-lg font-semibold tracking-tight text-foreground">Iris</span>
+        <LiveStatus status={live} compact />
       </header>
       <nav
         aria-label="Main"
@@ -313,6 +318,31 @@ export function Layout() {
     mainRef.current?.focus({ preventScroll: true })
   }, [pathname])
   const { stats, version } = useShellData()
+  const navigate = useNavigate()
+  const unread = useRef(0)
+  const baseTitle = useRef(document.title)
+  const onAlert = useCallback(
+    (id: number | null) => {
+      unread.current += 1
+      document.title = `(${unread.current}) ${baseTitle.current}`
+      toast('A new alert needs you', {
+        action: { label: 'Open', onClick: () => navigate(id ? `/alerts/${id}` : '/alerts') },
+      })
+    },
+    [navigate],
+  )
+  // Back on the tab means the owner has seen it: drop the count from the title.
+  useEffect(() => {
+    const seen = () => {
+      if (document.visibilityState === 'visible') {
+        unread.current = 0
+        document.title = baseTitle.current
+      }
+    }
+    document.addEventListener('visibilitychange', seen)
+    return () => document.removeEventListener('visibilitychange', seen)
+  }, [])
+  const live = useLiveUpdates(onAlert)
   return (
     <div className="min-h-dvh md:flex">
       <a
@@ -322,9 +352,9 @@ export function Layout() {
         Skip to content
       </a>
       {desktop ? (
-        <Sidebar stats={stats} version={version} />
+        <Sidebar stats={stats} version={version} live={live} />
       ) : (
-        <PhoneChrome stats={stats} version={version} />
+        <PhoneChrome stats={stats} version={version} live={live} />
       )}
       <div className="flex min-w-0 flex-1 flex-col">
         <main
