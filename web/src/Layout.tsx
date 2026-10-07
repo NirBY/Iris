@@ -324,9 +324,11 @@ export function Layout() {
   const unread = useRef(0)
   const onAlert = useCallback(
     (id: number | null) => {
-      if (document.visibilityState === 'visible') return // already looking at it
-      unread.current += 1
-      document.title = `(${unread.current}) ${withoutCount(document.title)}`
+      // The tab title counts only what you have not seen; the toast shows either way.
+      if (document.visibilityState === 'hidden') {
+        unread.current += 1
+        document.title = `(${unread.current}) ${withoutCount(document.title)}`
+      }
       toast('A new alert needs you', {
         action: { label: 'Open', onClick: () => navigate(id ? `/alerts/${id}` : '/alerts') },
       })
