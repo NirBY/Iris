@@ -649,4 +649,4 @@ linux/amd64 and linux/arm64 on every pull request.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+MIT License. See [LICENSE](LICENSE).

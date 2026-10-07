@@ -14,7 +14,7 @@ ARG REVISION=unknown
 LABEL org.opencontainers.image.title="iris" \
       org.opencontainers.image.description="Self-hosted WhatsApp safety monitor for kids" \
       org.opencontainers.image.source="https://github.com/t0mer/Iris" \
-      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
 
