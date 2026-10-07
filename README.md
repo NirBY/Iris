@@ -59,7 +59,8 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
 - **Sexual content safety rule.** Content clearly involving minors, and sexual imagery, is withheld entirely: it
   is not stored, not searchable, not shown and not forwarded. The alert says to review the chat directly. When
   Iris is only *unsure* about a text or voice message (a low score), it keeps the words so you can read them in
-  the review queue and decide; confirming it as harmful withholds it at that moment.
+  the review queue and decide. It is never copied into an alert or sent to WhatsApp, and confirming it as harmful
+  withholds it at that moment.
 - **Hidden until you look.** Stored content (message text, alert quotes, kept media) is hidden by default and
   shown with an eye button; a switch under Settings > Account makes this browser show it by default.
 - **Keep the media if you want to (off by default).** Store the photo or voice note behind an alert on

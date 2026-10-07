@@ -76,3 +76,13 @@ test('a withheld alert says why there is nothing to show, and has no eye', async
   expect(screen.queryByRole('button', { name: /Show content/ })).not.toBeInTheDocument()
   expect(screen.queryByRole('img', { name: /photo kept/ })).not.toBeInTheDocument()
 })
+
+test('an uncertain item kept out of the alert points to the conversation', async () => {
+  page({ ...alert, quote: null, media: null })
+  expect(await screen.findByText('Kept out of this alert')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /Read it in the conversation/ })).toHaveAttribute(
+    'href',
+    '/messages/4',
+  )
+  expect(screen.queryByRole('button', { name: /Show content/ })).not.toBeInTheDocument()
+})

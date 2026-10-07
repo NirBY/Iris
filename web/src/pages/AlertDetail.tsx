@@ -127,6 +127,22 @@ export function AlertDetail() {
             </p>
           </div>
         </div>
+      ) : a.quote === null ? (
+        <div className="flex items-start gap-3 rounded-lg border bg-surface p-5">
+          <ShieldOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+          <div className="flex flex-col gap-2">
+            <p className="font-medium">Kept out of this alert</p>
+            <p>
+              The text may involve a minor, so it was not copied into the alert or sent to your
+              WhatsApp. It is kept so you can read it and decide.
+            </p>
+            <Button asChild variant="outline" className="w-fit">
+              <Link to={`/messages/${a.message_id}`}>
+                <MessagesSquare /> Read it in the conversation
+              </Link>
+            </Button>
+          </div>
+        </div>
       ) : (
         <>
           <div className="flex items-center justify-between gap-3">

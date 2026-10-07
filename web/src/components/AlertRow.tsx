@@ -53,6 +53,10 @@ export function AlertRow({ alert: a, revealed = false }: { alert: Alert; reveale
             <span className="inline-flex items-center gap-1.5 italic text-muted-foreground">
               <ShieldOff className="size-4" /> Content withheld. Review the chat directly.
             </span>
+          ) : a.quote === null ? (
+            <span className="inline-flex items-center gap-1.5 italic text-muted-foreground">
+              <ShieldOff className="size-4" /> Kept out of the alert. Open it to read.
+            </span>
           ) : (
             <>
               {voice && <Mic className="me-1 inline size-4 text-muted-foreground" />}

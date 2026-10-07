@@ -90,3 +90,25 @@ test('blocked storage falls back to hidden and still lets the switch work for th
   act(() => setShowContentByDefault(true))
   expect(screen.getByText('text of 1')).toBeInTheDocument()
 })
+
+test('another tab turning it off hides this one too', () => {
+  setShowContentByDefault(true)
+  render(<Item />)
+  expect(screen.getByText('text of 1')).toBeInTheDocument()
+  act(() => {
+    localStorage.removeItem('iris-show-content')
+    window.dispatchEvent(new StorageEvent('storage', { key: 'iris-show-content' }))
+  })
+  expect(screen.queryByText('text of 1')).not.toBeInTheDocument()
+})
+
+test('after a blocked write, turning it off again really turns it off', () => {
+  const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('quota')
+  })
+  act(() => setShowContentByDefault(true))
+  expect(getShowContentByDefault()).toBe(true)
+  spy.mockRestore()
+  act(() => setShowContentByDefault(false))
+  expect(getShowContentByDefault()).toBe(false)
+})
