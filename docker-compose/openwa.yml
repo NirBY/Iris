@@ -1,0 +1,41 @@
+# OpenWA, the WhatsApp gateway Iris reads from. Run it on its own, or next to Iris.
+#   docker compose -f openwa.yml up -d
+# Then open http://localhost:2785, sign in with the admin API key from the first start's log
+# (`docker compose -f openwa.yml logs openwa | grep -i key`, or `docker exec openwa cat /app/data/.api-key`),
+# create one session per child's phone and scan its QR code with WhatsApp on that phone.
+name: openwa
+services:
+  openwa:
+    image: ghcr.io/rmyndharis/openwa:latest   # pin a release number for repeatable installs
+    container_name: openwa
+    # Published on localhost only. Put a TLS reverse proxy in front to reach it from elsewhere.
+    ports: ["127.0.0.1:${OPENWA_PORT:-2785}:2785"]
+    volumes:
+      - openwa-data:/app/data   # API key, sessions (your WhatsApp logins), database, media
+    environment:
+      NODE_ENV: production
+      TZ: ${TZ:-UTC}
+      # Plain HTTP on localhost would otherwise render a blank dashboard. Remove this line when a
+      # TLS proxy is in front.
+      CSP_UPGRADE_INSECURE_REQUESTS: "false"
+      HOME: /tmp
+      XDG_CONFIG_HOME: /tmp/.config
+      XDG_CACHE_HOME: /tmp/.cache
+    # Chromium runs without its own sandbox, so the container is the boundary: keep it locked down.
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, KILL, SETGID, SETUID]
+    pids_limit: 2048   # Chromium is process-heavy; raise for many sessions
+    mem_limit: 2g
+    stop_grace_period: 45s   # lets sessions close cleanly
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:2785/api/health/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
+volumes:
+  openwa-data:

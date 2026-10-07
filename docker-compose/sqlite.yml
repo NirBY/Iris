@@ -1,0 +1,19 @@
+# Iris with its built-in SQLite database. The simplest setup: one container, one volume.
+#   docker compose -f sqlite.yml up -d
+name: iris
+services:
+  iris:
+    image: ${IRIS_IMAGE:-techblog/iris:latest}
+    container_name: iris
+    ports: ["${IRIS_PORT:-8080}:8080"]
+    volumes:
+      - iris-data:/data   # SQLite file, kept media, saved settings. A named volume keeps non-root ownership.
+    environment:
+      IRIS_SECRET_KEY: ${IRIS_SECRET_KEY:?set IRIS_SECRET_KEY in .env (openssl rand -base64 32)}
+      IRIS_ADMIN_USERNAME: ${IRIS_ADMIN_USERNAME:-admin}
+      IRIS_ADMIN_PASSWORD: ${IRIS_ADMIN_PASSWORD:?set IRIS_ADMIN_PASSWORD in .env}
+      IRIS_PUBLIC_BASE_URL: ${IRIS_PUBLIC_BASE_URL:?set IRIS_PUBLIC_BASE_URL in .env}
+      IRIS_LOG_LEVEL: INFO
+    restart: unless-stopped
+volumes:
+  iris-data:
