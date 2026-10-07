@@ -32,6 +32,8 @@ const THEMES: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: 'dark', label: 'Dark', icon: Moon },
 ]
 
+const withoutCount = (title: string) => title.replace(/^\(\d+\) /, '')
+
 function useShellData() {
   const { data: stats } = useQuery({
     queryKey: ['stats'],
@@ -320,11 +322,10 @@ export function Layout() {
   const { stats, version } = useShellData()
   const navigate = useNavigate()
   const unread = useRef(0)
-  const baseTitle = useRef(document.title)
   const onAlert = useCallback(
     (id: number | null) => {
       unread.current += 1
-      document.title = `(${unread.current}) ${baseTitle.current}`
+      document.title = `(${unread.current}) ${withoutCount(document.title)}`
       toast('A new alert needs you', {
         action: { label: 'Open', onClick: () => navigate(id ? `/alerts/${id}` : '/alerts') },
       })
@@ -336,7 +337,7 @@ export function Layout() {
     const seen = () => {
       if (document.visibilityState === 'visible') {
         unread.current = 0
-        document.title = baseTitle.current
+        document.title = withoutCount(document.title)
       }
     }
     document.addEventListener('visibilitychange', seen)
