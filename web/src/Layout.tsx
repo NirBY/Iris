@@ -324,6 +324,7 @@ export function Layout() {
   const unread = useRef(0)
   const onAlert = useCallback(
     (id: number | null) => {
+      if (document.visibilityState === 'visible') return // already looking at it
       unread.current += 1
       document.title = `(${unread.current}) ${withoutCount(document.title)}`
       toast('A new alert needs you', {

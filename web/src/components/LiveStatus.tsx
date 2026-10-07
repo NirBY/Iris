@@ -7,7 +7,6 @@ export function LiveStatus({ status, compact = false }: { status: Status; compac
   const live = status === 'live'
   return (
     <span
-      role="status"
       className={cn(
         'inline-flex items-center gap-1.5 text-xs text-muted-foreground',
         compact && 'ms-auto',

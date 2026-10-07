@@ -45,33 +45,52 @@ export function useLiveUpdates(onAlert: (id: number | null) => void): LiveStatus
   )
   useEffect(() => {
     if (typeof EventSource === 'undefined') return
-    const source = new EventSource('/api/events')
+    let source: EventSource | null = null
+    let retry: ReturnType<typeof setTimeout> | undefined
+    let delay = 5_000
     const everything = () => void qc.invalidateQueries()
-    source.addEventListener('hello', () => {
-      setStatus('live')
-      everything() // whatever happened while we were not listening
-    })
-    source.addEventListener('change', (e) => {
-      const topics = parse((e as MessageEvent<string>).data)?.topics
-      if (Array.isArray(topics)) {
-        invalidateTopics(
-          qc,
-          topics.filter((t): t is string => typeof t === 'string'),
-        )
+    const connect = () => {
+      const es = new EventSource('/api/events')
+      source = es
+      es.addEventListener('hello', () => {
+        delay = 5_000
+        setStatus('live')
+        everything() // whatever happened while we were not listening
+      })
+      es.addEventListener('change', (e) => {
+        const topics = parse((e as MessageEvent<string>).data)?.topics
+        if (Array.isArray(topics)) {
+          invalidateTopics(
+            qc,
+            topics.filter((t): t is string => typeof t === 'string'),
+          )
+        }
+      })
+      es.addEventListener('alert', (e) => {
+        const id = parse((e as MessageEvent<string>).data)?.id
+        alertRef.current(typeof id === 'number' ? id : null)
+      })
+      es.onerror = () => {
+        setStatus('reconnecting')
+        // A network drop is retried by the browser. A refusal (signed out, too many portals) closes
+        // the stream for good, so open a new one ourselves, a little slower each time.
+        if (es.readyState === 2 && source === es) {
+          es.close()
+          retry = setTimeout(connect, delay)
+          delay = Math.min(delay * 2, 60_000)
+        }
       }
-    })
-    source.addEventListener('alert', (e) => {
-      const id = parse((e as MessageEvent<string>).data)?.id
-      alertRef.current(typeof id === 'number' ? id : null)
-    })
-    source.onerror = () => setStatus('reconnecting') // the browser retries by itself
+    }
+    connect()
     const onVisible = () => {
       if (document.visibilityState === 'visible') everything()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       document.removeEventListener('visibilitychange', onVisible)
-      source.close()
+      clearTimeout(retry)
+      source?.close()
+      source = null
     }
   }, [qc])
   return status

@@ -136,11 +136,15 @@ test('a live alert shows a toast and counts in the tab title until the tab is se
   await screen.findByRole('navigation', { name: 'Main' })
   const s = sources[sources.length - 1]!
   act(() => s.listeners.hello![0]!({ data: '{}' }))
-  expect(await screen.findByRole('status')).toHaveTextContent('Live')
+  expect(await screen.findByText('Live')).toBeInTheDocument()
+  act(() => s.listeners.alert![0]!({ data: '{"id": 5}' }))
+  expect(document.title).toBe('Iris') // looking at the tab: no count
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
   act(() => s.listeners.alert![0]!({ data: '{"id": 5}' }))
   expect(await screen.findByText('A new alert needs you')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Open' })).toBeInTheDocument()
   expect(document.title).toBe('(1) Iris')
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
   act(() => {
     document.dispatchEvent(new Event('visibilitychange'))
   })

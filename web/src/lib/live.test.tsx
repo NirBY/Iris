@@ -10,6 +10,7 @@ class FakeSource {
   listeners: Record<string, Listener[]> = {}
   onerror: (() => void) | null = null
   closed = false
+  readyState = 0
   url: string
   constructor(url: string) {
     this.url = url
@@ -103,4 +104,29 @@ test('a browser without EventSource is reported as unsupported', () => {
   vi.stubGlobal('EventSource', undefined)
   const { result } = setup()
   expect(result.current).toBe('unsupported')
+})
+
+test('a refused stream (signed out, too many portals) is reopened after a pause', () => {
+  vi.useFakeTimers()
+  try {
+    const { result, source } = setup()
+    const first = source()
+    first.readyState = 2 // the browser gave up
+    act(() => first.onerror?.())
+    expect(result.current).toBe('reconnecting')
+    expect(first.closed).toBe(true)
+    expect(FakeSource.all.length).toBe(1)
+    act(() => vi.advanceTimersByTime(5_000))
+    expect(FakeSource.all.length).toBe(2)
+    act(() => source().emit('hello'))
+    expect(result.current).toBe('live')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('a network blip is left to the browser to retry', () => {
+  const { source } = setup()
+  act(() => source().onerror?.())
+  expect(FakeSource.all.length).toBe(1)
 })
