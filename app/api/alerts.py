@@ -326,7 +326,7 @@ async def resolve_review(
             f"review-{m.id}",
         )
         await db.refresh(m)  # the other session may have flagged or changed it meanwhile
-        alert = await create_alert(db, m, scores)
+        alert = await create_alert(db, m, scores, confirmed=True)
         alert_id = alert.id
     else:
         if not wants(policy, "safe"):

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.format import make_quote
 from app.classify.pipeline import PipelineOutcome
+from app.classify.thresholds import effective_thresholds
 from app.db.models import (
     Alert,
     Chat,
@@ -36,11 +37,38 @@ def should_redact(message_type: str, categories: list[str]) -> bool:
 def needs_redaction(message_type: str, high: list[str], low: list[str]) -> bool:
     """Decide at classification time, before anything is shown or alerted.
 
-    `sexual/minors` is withheld from the LOW threshold up: the parent is better served by an
-    over-cautious "review the chat directly" than by Iris storing or showing such material.
-    Sexual imagery is withheld at the high threshold, as in the spec.
+    `sexual/minors` at or above its high threshold is withheld. In the uncertain band (above low,
+    below high) the words of a TEXT or voice message are kept so the owner can read them in the
+    review queue and decide (they are withheld the moment it is confirmed harmful); anything with
+    a picture (image, sticker, video) is withheld at any band. Sexual imagery is withheld at the
+    high threshold, as in the spec.
     """
-    return "sexual/minors" in low or should_redact(message_type, high)
+    if "sexual/minors" in high:
+        return True
+    if "sexual/minors" in low and message_type in MEDIA_TYPES:
+        return True
+    return should_redact(message_type, high)
+
+
+def redact_for_alert(
+    message_type: str,
+    scores: dict[str, float],
+    thresholds: dict[str, tuple[float, float]],
+    confirmed: bool = False,
+) -> bool:
+    """The same decision when an alert is created (the scores are what triggered it).
+
+    `confirmed` is true when the owner has just marked the message harmful: an item kept for
+    review is then withheld.
+    """
+    minors = scores.get("sexual/minors")
+    if minors is not None and (
+        confirmed
+        or message_type in MEDIA_TYPES
+        or minors >= thresholds.get("sexual/minors", (0.05, 0.30))[1]
+    ):
+        return True
+    return message_type in MEDIA_TYPES and "sexual" in scores
 
 
 def redact_message(message: Message) -> None:
@@ -73,7 +101,9 @@ async def delivery_configured(db: AsyncSession) -> bool:
     )
 
 
-async def create_alert(db: AsyncSession, message: Message, scores: dict[str, float]) -> Alert:
+async def create_alert(
+    db: AsyncSession, message: Message, scores: dict[str, float], confirmed: bool = False
+) -> Alert:
     """Create the alert for a message (one per message) and queue its delivery.
 
     `scores` maps the triggering categories to their scores. Redaction and the alert row are
@@ -88,7 +118,8 @@ async def create_alert(db: AsyncSession, message: Message, scores: dict[str, flo
     ordered = sorted((scores or {"manual review": 0.0}).items(), key=lambda kv: kv[1], reverse=True)
     categories = [c for c, _ in ordered]
     chat = await db.get(Chat, message.chat_id)
-    redact = message.redacted or should_redact(message.type, categories)
+    thresholds = effective_thresholds(await get_setting(db, "classification.thresholds"))
+    redact = message.redacted or redact_for_alert(message.type, scores, thresholds, confirmed)
     if redact:
         redact_message(message)
         await wipe_revisions(db, message.id)
