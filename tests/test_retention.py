@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from sqlalchemy import func, select, text, update
 
 from app.alerts.service import create_alert
@@ -29,6 +30,7 @@ async def count(c: Any, model: Any) -> int:
         return int((await s.execute(select(func.count()).select_from(model))).scalar_one())
 
 
+@pytest.mark.sqlite_only
 async def test_old_messages_deleted_with_their_rows_and_search_entries(app_client: Any) -> None:
     _, token = await make_instance(app_client)
     ids = await seed(app_client, token, ["R1", "R2"], [100, 5])
@@ -116,7 +118,9 @@ async def test_old_alerts_and_old_done_jobs_are_deleted(app_client: Any) -> None
     assert await count(app_client, Alert) == 1
     async with app_client.app.state.session_factory() as s:
         jobs = (await s.execute(select(Job.created_at))).scalars().all()
-        assert all(j >= datetime(2026, 9, 29) for j in jobs)  # nothing older than 7 days remains
+        assert all(
+            j >= datetime(2026, 9, 29, tzinfo=UTC) for j in jobs
+        )  # nothing older than 7 days remains
 
 
 async def test_retention_windows_come_from_settings(app_client: Any) -> None:

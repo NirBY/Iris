@@ -10,12 +10,16 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from loguru import logger
 
-from app.api import alerts, auth, classify, instances, jobs, messages, stats, system
+from app.api import alerts, auth, classify, database, instances, jobs, messages, stats, system
 from app.api import settings as settings_api
 from app.config import get_settings
 from app.db.engine import make_engine, make_session_factory
+from app.db.migrate import upgrade_head
 from app.db.models import User
+from app.db.url import DbConfigError
+from app.db.url import resolve as resolve_database
 from app.ingest import webhooks
 from app.jobs.handlers import Deps
 from app.jobs.worker import WorkerPool
@@ -39,7 +43,28 @@ _DOCS_CSP = (
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     setup_logging(settings.log_level, settings.log_json)
-    engine = make_engine()
+    try:
+        db_config, db_source = resolve_database(settings)
+    except DbConfigError as exc:
+        logger.error("{}", exc)
+        raise
+    logger.info("database: {} ({})", db_config.describe(), db_source)
+    # Bring the schema up to date (cheap when it already is), so a database chosen in Settings
+    # works on the first start, with or without the container entrypoint.
+    try:
+        await asyncio.to_thread(upgrade_head)
+    except Exception as exc:
+        # Starting on another database would hide the data, so stop and say what to do.
+        logger.error(
+            "cannot reach {} ({}). Start the database, or delete database.json in the data "
+            "folder to use SQLite again.",
+            db_config.describe(),
+            exc.__class__.__name__,
+        )
+        raise
+    engine = make_engine(config=db_config)
+    app.state.engine = engine
+    app.state.db_running, app.state.db_source = db_config.with_defaults(), db_source
     app.state.session_factory = make_session_factory(engine)
     async with app.state.session_factory() as session:
         await bootstrap_admin(session, settings)
@@ -100,6 +125,7 @@ def create_app() -> FastAPI:
     app.include_router(stats.router)
     app.include_router(settings_api.router)
     app.include_router(classify.router)
+    app.include_router(database.router)
     app.include_router(webhooks.router)
 
     @app.get("/metrics", include_in_schema=False)
