@@ -131,6 +131,8 @@ openssl rand -base64 32      # paste into IRIS_SECRET_KEY, and back it up
 docker compose up -d
 ```
 
+More ready-made files, for SQLite, MySQL, PostgreSQL and OpenWA, are in [`docker-compose/`](docker-compose/README.md).
+
 Open the portal on port 8080 and sign in with the admin credentials. They are used only to create the first
 account; change the password under **Settings → Account**.
 
