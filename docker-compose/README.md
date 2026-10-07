@@ -29,6 +29,7 @@ Compose refuses to start and says which value is missing if a required one is em
 | `IRIS_SECRET_KEY` | Iris | Encrypts every stored secret. Keep a backup: without it you must re-enter them. |
 | `IRIS_ADMIN_USERNAME`, `IRIS_ADMIN_PASSWORD` | Iris | First-run admin account (the password is ignored afterwards). |
 | `IRIS_PUBLIC_BASE_URL` | Iris | The address OpenWA reaches Iris on. It builds the webhook URLs and alert links. |
+| `IRIS_METRICS_TOKEN` | Iris | Makes `/metrics` require `Authorization: Bearer <token>`. Set it if the Iris port is reachable from outside. |
 | `IRIS_PORT`, `IRIS_IMAGE` | Iris | Published port (default 8080) and image (default `techblog/iris:latest`). |
 | `DB_PASSWORD` | MySQL, PostgreSQL | The database password. Use letters and digits only: it goes into a connection URL as is. |
 | `OPENWA_PORT`, `TZ` | OpenWA | Port on localhost (default 2785) and time zone for its logs. |
@@ -51,6 +52,8 @@ Compose refuses to start and says which value is missing if a required one is em
 
 ## Good to know
 
+- The Iris port is published on all interfaces so OpenWA and your phone can reach it. `/metrics` is open unless you set `IRIS_METRICS_TOKEN`, so set it, or bind the port to localhost (`127.0.0.1:8080:8080`) and publish only `/webhooks/*` through your proxy.
+- The MySQL root password is random and unused; Iris has its own limited user.
 - `openwa.yml` publishes OpenWA on `127.0.0.1` only and runs it read-only with all capabilities dropped except those its entrypoint needs. Put a TLS reverse proxy in front to reach it from other machines, and remove `CSP_UPGRADE_INSECURE_REQUESTS` once you do (it is there so the dashboard works over plain HTTP).
 - OpenWA's `openwa-data` volume holds your WhatsApp logins. Back it up like a secret.
 - Pin versions for repeatable installs: set `IRIS_IMAGE=techblog/iris:<version>` and replace `latest` in `openwa.yml`.

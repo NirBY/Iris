@@ -15,6 +15,7 @@ services:
       IRIS_PUBLIC_BASE_URL: ${IRIS_PUBLIC_BASE_URL:?set IRIS_PUBLIC_BASE_URL in .env}
       IRIS_DATABASE_URL: mysql://iris:${DB_PASSWORD:?set DB_PASSWORD in .env}@mysql:3306/iris
       IRIS_LOG_LEVEL: INFO
+      IRIS_METRICS_TOKEN: ${IRIS_METRICS_TOKEN:-}   # protects /metrics; see the README
     depends_on:
       mysql:
         condition: service_healthy
@@ -29,11 +30,11 @@ services:
       MYSQL_DATABASE: iris
       MYSQL_USER: iris
       MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"   # nothing needs root: Iris uses its own limited user
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uiris -p\"$$MYSQL_PASSWORD\" --silent"]
       interval: 5s
       timeout: 5s
       retries: 20

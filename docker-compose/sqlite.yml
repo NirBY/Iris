@@ -14,6 +14,7 @@ services:
       IRIS_ADMIN_PASSWORD: ${IRIS_ADMIN_PASSWORD:?set IRIS_ADMIN_PASSWORD in .env}
       IRIS_PUBLIC_BASE_URL: ${IRIS_PUBLIC_BASE_URL:?set IRIS_PUBLIC_BASE_URL in .env}
       IRIS_LOG_LEVEL: INFO
+      IRIS_METRICS_TOKEN: ${IRIS_METRICS_TOKEN:-}   # protects /metrics; see the README
     restart: unless-stopped
 volumes:
   iris-data:

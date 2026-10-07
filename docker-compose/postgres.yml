@@ -15,6 +15,7 @@ services:
       IRIS_PUBLIC_BASE_URL: ${IRIS_PUBLIC_BASE_URL:?set IRIS_PUBLIC_BASE_URL in .env}
       IRIS_DATABASE_URL: postgresql://iris:${DB_PASSWORD:?set DB_PASSWORD in .env}@postgres:5432/iris
       IRIS_LOG_LEVEL: INFO
+      IRIS_METRICS_TOKEN: ${IRIS_METRICS_TOKEN:-}   # protects /metrics; see the README
     depends_on:
       postgres:
         condition: service_healthy
