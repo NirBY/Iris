@@ -8,21 +8,41 @@ import {
   ShieldOff,
 } from 'lucide-react'
 import type { Message } from '../lib/types'
+import { useReveal } from '../lib/useReveal'
+import { Concealed, RevealButton } from './Reveal'
 import { Badge } from './ui/badge'
 
-export function MessageBody({ m }: { m: Message }) {
+/** The message's words. Hidden unless `revealed`; withheld messages never show anything. */
+export function MessageBody({ m, revealed = false }: { m: Message; revealed?: boolean }) {
   if (m.redacted)
     return (
       <span className="inline-flex items-center gap-1.5 italic text-muted-foreground">
-        <ShieldOff className="size-4" /> Content withheld. Only the details are kept.
+        <ShieldOff className="size-4" /> Content withheld on purpose and never stored.
       </span>
     )
   const body = m.text || m.transcript
   if (!body) return <em className="text-muted-foreground">[{m.type}]</em>
   return (
     <span dir="auto" className="whitespace-pre-wrap break-words">
-      {m.transcript && !m.text ? '🎤 ' : ''}
-      {body}
+      <Concealed revealed={revealed} length={body.length}>
+        {m.transcript && !m.text ? '🎤 ' : ''}
+        {body}
+      </Concealed>
+    </span>
+  )
+}
+
+/** A message with its own eye (for cards, which are not links). */
+export function RevealableMessage({ m }: { m: Message }) {
+  const { revealed, toggle } = useReveal()
+  return (
+    <span className="flex flex-wrap items-start gap-x-3 gap-y-2">
+      <span className="min-w-0 flex-1 basis-60">
+        <MessageBody m={m} revealed={revealed} />
+      </span>
+      {!m.redacted && (m.text || m.transcript) && (
+        <RevealButton revealed={revealed} onToggle={toggle} />
+      )}
     </span>
   )
 }
