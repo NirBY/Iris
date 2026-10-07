@@ -25,6 +25,16 @@ const settings = {
   'alerts.alert_on_review': false,
   'alerts.notify_changes': true,
   'alerts.timezone': 'Asia/Jerusalem',
+  'media.policy': 'off',
+  'media.backend': 'local',
+  'media.s3_endpoint': null,
+  'media.s3_bucket': null,
+  'media.s3_region': 'auto',
+  'media.s3_access_key': null,
+  'media.s3_secret_key': { set: false },
+  'media.s3_prefix': 'iris/',
+  'media.s3_path_style': true,
+  'media.retention_days': 30,
 }
 
 const thresholds = [
@@ -38,13 +48,15 @@ function renderPage() {
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url, body: init?.body as string | undefined })
-      const body = url.startsWith('/api/settings/test')
-        ? { ok: true, detail: 'OpenAI Moderation answered' }
-        : url.startsWith('/api/instances')
-          ? []
-          : url.startsWith('/api/settings/thresholds')
-            ? thresholds
-            : settings
+      const body = url.startsWith('/api/stats')
+        ? { media_files: 3, media_bytes: 3 * 1024 * 1024 }
+        : url.startsWith('/api/settings/test')
+          ? { ok: true, detail: 'OpenAI Moderation answered' }
+          : url.startsWith('/api/instances')
+            ? []
+            : url.startsWith('/api/settings/thresholds')
+              ? thresholds
+              : settings
       return new Response(JSON.stringify(body), { status: 200 })
     }),
   )
@@ -196,4 +208,103 @@ test('the follow-up setting is on by default and can be switched off', async () 
   await userEvent.click(screen.getByRole('button', { name: 'Save' }))
   const put = calls.find((c) => c.url === '/api/settings' && c.body)
   expect(JSON.parse(put!.body!).settings).toEqual({ 'alerts.notify_changes': false })
+})
+
+// --- media ---
+
+async function openMediaTab() {
+  await userEvent.click(await screen.findByRole('tab', { name: 'Media' }))
+}
+
+test('media is off by default and the options appear only when it is turned on', async () => {
+  renderPage()
+  await openMediaTab()
+  expect(screen.getByRole('switch', { name: 'Keep media' })).not.toBeChecked()
+  expect(screen.queryByText('What to keep')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('switch', { name: 'Keep media' }))
+  expect(await screen.findByText('What to keep')).toBeInTheDocument()
+  expect(screen.getByRole('radio', { name: /Only what Iris judges harmful/ })).toBeChecked()
+  expect(screen.getByText(/never kept, whatever you choose/)).toBeInTheDocument()
+})
+
+test('choosing what to keep and saving sends the policy', async () => {
+  const calls = renderPage()
+  await openMediaTab()
+  await userEvent.click(screen.getByRole('switch', { name: 'Keep media' }))
+  await userEvent.click(await screen.findByRole('radio', { name: /Everything/ }))
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const put = calls.find((c) => c.url === '/api/settings' && c.body)
+  expect(JSON.parse(put!.body!).settings).toEqual({ 'media.policy': 'all' })
+})
+
+test('the S3 fields show only for S3, and the secret is never shown', async () => {
+  renderPage()
+  await openMediaTab()
+  await userEvent.click(screen.getByRole('switch', { name: 'Keep media' }))
+  expect(screen.queryByLabelText('Endpoint')).not.toBeInTheDocument()
+  expect(screen.getByText(/media<\/code> folder|media folder|data folder/)).toBeInTheDocument()
+  await userEvent.selectOptions(screen.getByLabelText('Storage'), 's3')
+  expect(screen.getByLabelText(/^Endpoint/)).toBeInTheDocument()
+  expect(screen.getByLabelText('Bucket')).toBeInTheDocument()
+  expect(screen.getByLabelText(/^Region/)).toHaveValue('auto')
+  expect(screen.getByPlaceholderText('Not set')).toHaveValue('')
+})
+
+test('test storage sends the typed values nested under media', async () => {
+  const calls = renderPage()
+  await openMediaTab()
+  await userEvent.click(screen.getByRole('switch', { name: 'Keep media' }))
+  await userEvent.selectOptions(screen.getByLabelText('Storage'), 's3')
+  await userEvent.type(screen.getByLabelText(/^Endpoint/), 'http://seaweed.lan:8333')
+  await userEvent.type(screen.getByLabelText('Bucket'), 'iris-media')
+  await userEvent.type(screen.getByLabelText('Access key ID'), 'key1')
+  await userEvent.type(screen.getByPlaceholderText('Not set'), 'secret1')
+  await userEvent.click(screen.getByRole('button', { name: 'Test storage' }))
+  expect(await screen.findByText('OpenAI Moderation answered')).toBeInTheDocument()
+  const post = calls.find((c) => c.url === '/api/settings/test/media')
+  expect(JSON.parse(post!.body!).media).toMatchObject({
+    backend: 's3',
+    endpoint: 'http://seaweed.lan:8333',
+    bucket: 'iris-media',
+    access_key: 'key1',
+    secret_key: 'secret1',
+    path_style: true,
+  })
+})
+
+test('media retention is a number and goes to the server as one', async () => {
+  const calls = renderPage()
+  await openMediaTab()
+  await userEvent.click(screen.getByRole('switch', { name: 'Keep media' }))
+  const days = await screen.findByLabelText('Keep media for (days)')
+  await userEvent.clear(days)
+  await userEvent.type(days, '45')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const put = calls.find((c) => c.url === '/api/settings' && c.body)
+  expect(JSON.parse(put!.body!).settings).toEqual({
+    'media.policy': 'harmful',
+    'media.retention_days': 45,
+  })
+})
+
+test('files kept earlier can be deleted, even when keeping is off', async () => {
+  const calls = renderPage()
+  await openMediaTab()
+  expect(screen.getByRole('switch', { name: 'Keep media' })).not.toBeChecked()
+  expect(await screen.findByText('Kept now')).toBeInTheDocument()
+  expect(
+    screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === '3 files, 3.0 MB'),
+  ).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /Delete all kept media/ }))
+  await userEvent.click(
+    within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete media' }),
+  )
+  expect(calls.some((c) => c.url === '/api/media')).toBe(true)
+})
+
+test('says plainly that videos are not kept', async () => {
+  renderPage()
+  await openMediaTab()
+  await userEvent.click(screen.getByRole('switch', { name: 'Keep media' }))
+  expect(await screen.findByText(/Videos are not kept at all/)).toBeInTheDocument()
 })

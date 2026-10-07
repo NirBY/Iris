@@ -92,6 +92,28 @@ class Message(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
+class StoredMedia(Base):
+    """A kept copy of a message's media. No foreign key on purpose: the row (and so the object
+    it points at) must outlive a deleted message until the sweeper has removed the object."""
+
+    __tablename__ = "stored_media"
+    __table_args__ = (UniqueConstraint("message_id", "sha256"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(index=True)
+    backend: Mapped[str] = mapped_column(String(255))  # local | s3
+    # Where an S3 object really lives (endpoint, bucket, folder, region, addressing as JSON), so a
+    # later change of the settings cannot strand it. Empty for local files.
+    location: Mapped[str] = mapped_column(String(1024), default="", server_default="")
+    key: Mapped[str] = mapped_column(String(512))
+    content_type: Mapped[str] = mapped_column(String(255))
+    kind: Mapped[str] = mapped_column(String(255))  # image | audio | video
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = _ts()
+    purge: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), index=True)
+    purge_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
 class MessageRevision(Base):
     """The text an edit replaced. The oldest row is the original wording."""
 
