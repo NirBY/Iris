@@ -7,6 +7,7 @@ import { relativeTime } from '../lib/format'
 import type { Alert } from '../lib/types'
 import { KidStack } from './KidAvatar'
 import { MediaBadge } from './MediaPlayer'
+import { Concealed } from './Reveal'
 import { Badge } from './ui/badge'
 
 const DELIVERY: Record<
@@ -19,7 +20,7 @@ const DELIVERY: Record<
 }
 
 /** One alert as a row: severity bar, who, where, what was said, and what state it is in. */
-export function AlertRow({ alert: a }: { alert: Alert }) {
+export function AlertRow({ alert: a, revealed = false }: { alert: Alert; revealed?: boolean }) {
   const open = a.status === 'new'
   const delivery = DELIVERY[a.delivery_status]
   const voice = a.quote?.startsWith('🎤')
@@ -55,7 +56,9 @@ export function AlertRow({ alert: a }: { alert: Alert }) {
           ) : (
             <>
               {voice && <Mic className="me-1 inline size-4 text-muted-foreground" />}
-              {a.quote?.replace(/^🎤\s*/, '')}
+              <Concealed revealed={revealed} length={a.quote?.length}>
+                {a.quote?.replace(/^🎤\s*/, '')}
+              </Concealed>
             </>
           )}
         </span>

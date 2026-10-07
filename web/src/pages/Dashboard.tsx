@@ -12,6 +12,8 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ActivityChart } from '../components/ActivityChart'
 import { AlertRow } from '../components/AlertRow'
+import { RevealButton } from '../components/Reveal'
+import { useReveal } from '../lib/useReveal'
 import { EmptyState } from '../components/EmptyState'
 import { IrisRing } from '../components/IrisRing'
 import { PageHeader } from '../components/PageHeader'
@@ -153,6 +155,7 @@ function Loading() {
 }
 
 export function Dashboard() {
+  const { revealed, toggle } = useReveal()
   const stats = useQuery({
     queryKey: ['stats'],
     queryFn: () => api<Stats>('/api/stats'),
@@ -266,16 +269,19 @@ export function Dashboard() {
           <h2 id="recent" className="text-lg font-semibold">
             Recent alerts
           </h2>
-          <Link
-            to="/alerts"
-            className="inline-flex min-h-10 items-center rounded-md px-3 text-sm font-medium text-primary hover:bg-primary-soft"
-          >
-            See all
-          </Link>
+          <div className="flex items-center gap-1">
+            <RevealButton revealed={revealed} onToggle={toggle} />
+            <Link
+              to="/alerts"
+              className="inline-flex min-h-10 items-center rounded-md px-3 text-sm font-medium text-primary hover:bg-primary-soft"
+            >
+              See all
+            </Link>
+          </div>
         </div>
         <ul className="divide-y overflow-hidden rounded-lg border bg-surface">
           {alerts.data?.items.map((a) => (
-            <AlertRow key={a.id} alert={a} />
+            <AlertRow key={a.id} alert={a} revealed={revealed} />
           ))}
           {alerts.data && alerts.data.items.length === 0 && (
             <li>
