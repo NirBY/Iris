@@ -325,6 +325,25 @@ needs you or needs fixing (unread alerts, items to review, undelivered alerts, f
 reported) with a button for each, and the **activity chart** shows 14 days of messages by verdict. Everything
 refreshes about every minute. The chart is also available as a table.
 
+### Live updates
+
+While a page is open, Iris pushes changes to it, so new messages, alerts, review items and job failures
+appear without a reload. A **Live** indicator (**Reconnecting…** if the connection drops) shows that the page is
+updating by itself, and a new alert also shows a toast, **A new alert needs you**, with an **Open** button, and
+puts the number of unseen alerts in the browser tab title until you come back to it.
+
+![Home with the Live indicator](assets/screenshots/dashboard.png)
+
+The stream never carries message content: it only says *what* changed (messages, alerts, stats, ...) and the
+page then asks the normal, signed-in API for the new data, so hide and show and withholding apply exactly as
+before. If a proxy blocks or buffers the stream, the page keeps working and still refreshes about once a
+minute.
+
+Behind a reverse proxy, turn buffering off for `/api/events` (nginx: `proxy_buffering off;` or rely on the
+`X-Accel-Buffering: no` header Iris sends) and allow long-lived responses. Iris sends a heartbeat every 20
+seconds. Up to 20 portal tabs can listen at once. The stream lives inside the one Iris process, which is how Iris
+is meant to run.
+
 ### Hide and show
 
 Everything Iris has stored of a message is **hidden by default**: message text and transcripts, alert quotes,
@@ -488,6 +507,7 @@ except `/api/auth/login`, `/api/health` and `/api/version`. Interactive OpenAPI 
 | GET | `/api/auth/me` | The signed-in user (401 when not signed in) |
 | GET | `/api/health`, `/api/version` | Liveness (database and workers), version |
 | GET | `/api/stats` | Dashboard numbers |
+| GET | `/api/events` | Server-sent events: `change` (topics that changed) and `alert` (id of a new alert), never content |
 | GET | `/api/messages` | Search: `q`, `instance_id`, `chat_id`, `sender`, `type`, `verdict`, `from`, `to`, `page`, `page_size` (max 100) |
 | GET | `/api/messages/{id}`, `/api/messages/{id}/context` | One message with classifications; surrounding messages |
 | POST | `/api/messages/{id}/reprocess` | Re-queue classification (not for redacted messages) |
@@ -524,6 +544,7 @@ except `/api/auth/login`, `/api/health` and `/api/version`. Interactive OpenAPI 
 | `iris_transcription_seconds_audio_total` | `provider` |
 | `iris_alerts_total` | `category`, `delivery_status` |
 | `iris_jobs` | `status` |
+| `iris_live_clients` | none (portal tabs listening for live updates) |
 
 `/metrics` is open by default. Because OpenWA needs Iris's port for webhooks, that port may be reachable from
 outside, so set `IRIS_METRICS_TOKEN` or restrict `/metrics` in your reverse proxy.
