@@ -39,8 +39,10 @@ const item = {
 
 test('shows the message with who and where, and explains why it is unclear on request', async () => {
   renderWithApp(<Review />, { '/api/review': { items: [item], total: 1, page: 1, page_size: 25 } })
+  await screen.findByText(/in Maya/)
+  expect(screen.queryByText("lol you're dead meat")).not.toBeInTheDocument() // hidden until shown
+  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
   expect(await screen.findByText("lol you're dead meat")).toBeInTheDocument()
-  expect(screen.getByText(/in Maya/)).toBeInTheDocument()
   await userEvent.click(screen.getByText('Why it is unclear'))
   expect(screen.getByText('harassment')).toBeInTheDocument()
 })

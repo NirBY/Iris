@@ -44,8 +44,18 @@ test('renders messages with a highlighted snippet and kid names', async () => {
       </MemoryRouter>
     </QueryClientProvider>,
   )
+  await screen.findByText(/Noa/)
+  // Hidden by default: none of the real words are on the page until the eye is pressed.
+  expect(screen.queryByText('שלום')).not.toBeInTheDocument()
+  expect(screen.getByText('Content hidden')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
   expect((await screen.findByText('שלום')).tagName).toBe('MARK')
-  expect(screen.getByText(/Noa/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Hide content' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Hide content' }))
+  expect(screen.queryByText('שלום')).not.toBeInTheDocument()
 })
 
 // --- regression tests for the review findings -------------------------------------------------

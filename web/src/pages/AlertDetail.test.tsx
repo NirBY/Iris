@@ -1,4 +1,5 @@
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router-dom'
 import { renderWithApp } from '../test-utils'
 import { AlertDetail } from './AlertDetail'
@@ -37,11 +38,23 @@ function page(a: unknown) {
   )
 }
 
-test('shows the kept media under the quote, with a link to its own page', async () => {
-  page({ ...alert, media })
-  expect(await screen.findByRole('heading', { name: 'Kept media' })).toBeInTheDocument()
+test('everything stored is hidden until the eye is pressed', async () => {
+  const calls = page({ ...alert, media })
+  await screen.findByRole('heading', { name: 'Kept media' })
+  expect(screen.queryByText('I will find you')).not.toBeInTheDocument()
+  expect(screen.queryByRole('img', { name: /photo kept/ })).not.toBeInTheDocument()
+  expect(screen.getByText('Photo hidden')).toBeInTheDocument()
+  expect(calls.every((c) => !c.url.includes('/api/media/7'))).toBe(true)
+  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  expect(await screen.findByText('I will find you')).toBeInTheDocument()
   expect(screen.getByRole('img', { name: /photo kept/ })).toHaveAttribute('src', '/api/media/7')
-  expect(screen.getByRole('link', { name: 'Open on its own page' })).toHaveAttribute(
+  await userEvent.click(screen.getByRole('button', { name: 'Hide content' }))
+  expect(screen.queryByText('I will find you')).not.toBeInTheDocument()
+})
+
+test('keeps a link to the media on its own page', async () => {
+  page({ ...alert, media })
+  expect(await screen.findByRole('link', { name: 'Open on its own page' })).toHaveAttribute(
     'href',
     '/media/7',
   )
@@ -49,12 +62,17 @@ test('shows the kept media under the quote, with a link to its own page', async 
 
 test('has no media section when nothing is kept', async () => {
   page({ ...alert, media: null })
-  await screen.findByText('I will find you')
+  await screen.findByRole('heading', { name: 'The message' })
   expect(screen.queryByRole('heading', { name: 'Kept media' })).not.toBeInTheDocument()
 })
 
-test('never shows media for a withheld alert', async () => {
+test('a withheld alert says why there is nothing to show, and has no eye', async () => {
   page({ ...alert, redacted: true, quote: null, media })
-  await screen.findByText(/The content is withheld/)
+  expect(
+    await screen.findByText(/Withheld on purpose, so there is nothing to show/),
+  ).toBeInTheDocument()
+  expect(screen.getByText(/never stored the content/)).toBeInTheDocument()
+  expect(screen.getByText(/open the chat directly in WhatsApp/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Show content/ })).not.toBeInTheDocument()
   expect(screen.queryByRole('img', { name: /photo kept/ })).not.toBeInTheDocument()
 })

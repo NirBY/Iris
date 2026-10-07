@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { Dashboard } from './Dashboard'
 
@@ -99,4 +100,45 @@ test('still shows kept media after keeping was turned off', async () => {
   cleanup()
   renderPage({ media_policy: 'off', media_files: 2, media_bytes: 2048 })
   expect(await screen.findByText('Media kept')).toBeInTheDocument()
+})
+
+test('recent alerts show no quote until the eye is pressed', async () => {
+  cleanup()
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url.startsWith('/api/stats')) return new Response(JSON.stringify(stats))
+      const alert = {
+        id: 1,
+        message_id: 1,
+        chat_id: 1,
+        categories: ['violence'],
+        max_score: 0.9,
+        kid_names: ['Noa'],
+        chat_name: 'Class',
+        sender_name: 'Dan',
+        quote: 'a private quote',
+        redacted: false,
+        status: 'new',
+        delivery_status: 'sent',
+        delivery_error: null,
+        notified_at: null,
+        created_at: '2026-10-06T10:00:00Z',
+        edited_at: null,
+        revoked_at: null,
+      }
+      return new Response(JSON.stringify({ items: [alert], total: 1, page: 1, page_size: 5 }))
+    }),
+  )
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter>
+        <Dashboard />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+  await screen.findByText('Recent alerts')
+  expect(screen.queryByText('a private quote')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
+  expect(await screen.findByText('a private quote')).toBeInTheDocument()
 })
