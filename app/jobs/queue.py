@@ -13,6 +13,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import Alert, Job, Message
+from app.events import bus
 from app.metrics import ALERTS
 
 BACKOFF_SECONDS = (5, 30, 120, 600, 1800)
@@ -78,6 +79,7 @@ async def claim(factory: async_sessionmaker[AsyncSession]) -> ClaimedJob | None:
         await db.commit()
         if res.rowcount != 1:  # type: ignore[attr-defined]
             return None  # another worker took it
+        bus.publish("jobs", "stats")
         job = await db.get(Job, candidate)
         assert job is not None
         return ClaimedJob(job.id, job.type, job.payload, job.attempts, job.max_attempts)
@@ -87,6 +89,7 @@ async def ack(factory: async_sessionmaker[AsyncSession], job_id: int) -> None:
     async with factory() as db:
         await db.execute(update(Job).where(Job.id == job_id).values(status="done", locked_at=None))
         await db.commit()
+    bus.publish("jobs", "stats")
 
 
 def backoff_for(attempt: int, retry_after: float | None = None) -> timedelta:
@@ -114,6 +117,7 @@ async def fail(
                 )
             )
             await db.commit()
+            bus.publish("jobs", "stats")
             return "queued"
         status = "dead" if transient else "failed"
         await db.execute(
@@ -141,6 +145,7 @@ async def fail(
                 .values(delivery_status="failed", delivery_error=error[:500])
             )
         await db.commit()
+        bus.publish("jobs", "stats", "messages", "alerts")  # a failed check or delivery shows
         return status
 
 
