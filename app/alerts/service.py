@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.alerts.format import make_quote
 from app.classify.pipeline import PipelineOutcome
 from app.classify.thresholds import effective_thresholds
+from app.config import get_settings
 from app.db.models import (
     Alert,
     Chat,
@@ -207,6 +208,8 @@ async def alert_on_review(db: AsyncSession, message: Message, outcome: PipelineO
         return
     last = outcome.results[-1] if outcome.results else None
     if last is None:
+        if get_settings().local_safety_mode:
+            await create_alert(db, message, {})
         return
     scores = {c: float(last.scores[c]) for c in last.flagged_categories if c in last.scores}
     await create_alert(db, message, scores)

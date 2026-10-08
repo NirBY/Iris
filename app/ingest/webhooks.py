@@ -201,7 +201,7 @@ async def receive(
     raw = await _read_capped(request)
 
     sig = request.headers.get("x-openwa-signature")
-    if sig is None and inst.signature_required:
+    if sig is None and (inst.signature_required or settings.require_webhook_signatures):
         WEBHOOKS.labels(str(inst_id), "rejected").inc()
         raise HTTPException(status_code=401, detail="signature required")
     if sig is not None:

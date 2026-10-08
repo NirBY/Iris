@@ -142,3 +142,23 @@ test('recent alerts show no quote until the eye is pressed', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
   expect(await screen.findByText('a private quote')).toBeInTheDocument()
 })
+
+test('warns when no children, parents or alert sender are configured', async () => {
+  renderPage({
+    children: 0,
+    parent_recipients: 0,
+    alert_phones: 0,
+    alert_sender_configured: false,
+    alerts_by_status: {},
+    review_queue: 0,
+  })
+  expect(await screen.findByText(/No child phone is configured/)).toBeInTheDocument()
+  expect(screen.getByText(/No parent recipients are configured/)).toBeInTheDocument()
+  expect(screen.getByText(/No alert phone is set/)).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Children: 0' })).toHaveAttribute('href', '/instances')
+  expect(screen.getByRole('link', { name: 'Parents: 0' })).toHaveAttribute(
+    'href',
+    '/settings?tab=Alerts',
+  )
+  expect(screen.getByRole('link', { name: 'Alert phones: 0' })).toBeInTheDocument()
+})

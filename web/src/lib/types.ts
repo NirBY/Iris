@@ -55,6 +55,10 @@ export interface MessageDetail extends Message {
 }
 
 export interface Instance {
+  connection_status?: string
+  connection_checked_at?: string | null
+  session_name?: string | null
+  role?: 'child' | 'parent'
   id: number
   kid_name: string
   phone_number: string | null
@@ -137,7 +141,14 @@ export interface Stats {
   failed_jobs: number
   delivery_configured: boolean
   instances: number
+  children?: number
+  parent_recipients?: number
+  alert_phones?: number
+  alert_sender_configured?: boolean
   silent_instances: number
+  sender_is_recipient?: boolean
+  unavailable_instances?: number
+  monitoring_window_minutes?: number
   media_policy?: string
   media_files?: number
   media_bytes?: number

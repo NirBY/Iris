@@ -26,7 +26,8 @@ async def _notify_parent(db: AsyncSession, message: Message, kind: str) -> None:
     alert = (
         await db.execute(
             select(Alert).where(
-                Alert.message_id == message.id, Alert.delivery_status.in_(("pending", "sent"))
+                Alert.message_id == message.id,
+                Alert.delivery_status.in_(("pending", "sent", "partial")),
             )
         )
     ).scalar_one_or_none()

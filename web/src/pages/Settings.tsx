@@ -1,3 +1,4 @@
+import { ParentConnections } from '../components/PhoneConnections'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Bell,
@@ -34,6 +35,28 @@ import { DatabaseTab } from './DatabaseTab'
 
 type Secret = { set: boolean }
 interface Values {
+  'runtime.classification_provider'?: string
+  'runtime.transcription_provider'?: string
+  'runtime.ollama_base_url'?: string
+  'runtime.ollama_model'?: string
+  'runtime.whisper_url'?: string | null
+  'runtime.whisper_model'?: string
+  'runtime.whisper_fallback_model'?: string | null
+  'runtime.whisper_api_key'?: Secret
+  'runtime.whisper_use_environment_key'?: boolean
+  'runtime.local_safety_mode'?: boolean
+  'runtime.require_webhook_signatures'?: boolean
+  'runtime.workers'?: number
+  'runtime.delivery_workers'?: number
+  'runtime.job_heartbeat_seconds'?: number
+  'runtime.monitoring_silence_minutes'?: number
+  local_providers?: {
+    classification: string
+    ollama_model: string
+    transcription: string
+    transcription_model: string
+    api_key_set: boolean
+  }
   'openai.api_key': Secret
   'transcription.provider': 'openai' | 'cloudflare'
   'transcription.openai_model': string
@@ -82,8 +105,17 @@ const TABS = [
   'Account',
 ] as const
 type Tab = (typeof TABS)[number]
-const SECRETS = ['openai.api_key', 'transcription.cloudflare_api_token', 'media.s3_secret_key']
+const SECRETS = [
+  'openai.api_key',
+  'transcription.cloudflare_api_token',
+  'media.s3_secret_key',
+  'runtime.whisper_api_key',
+]
 const NUMBERS = [
+  'runtime.workers',
+  'runtime.delivery_workers',
+  'runtime.job_heartbeat_seconds',
+  'runtime.monitoring_silence_minutes',
   'alerts.cooldown_minutes',
   'classification.context_window_size',
   'classification.context_max_age_hours',
@@ -100,6 +132,9 @@ const NUMBER_LABELS: Record<string, string> = {
   'media.retention_days': 'Keep media for',
 }
 const BOOLEANS = [
+  'runtime.local_safety_mode',
+  'runtime.require_webhook_signatures',
+  'runtime.whisper_use_environment_key',
   'alerts.alert_on_review',
   'alerts.notify_changes',
   'scope.monitor_from_me',
@@ -391,7 +426,9 @@ export function Settings() {
     queryKey: ['thresholds'],
     queryFn: () => api<ThresholdRow[]>('/api/settings/thresholds'),
   })
-  const [tab, setTab] = useState<Tab>('Providers')
+  const [tab, setTab] = useState<Tab>(
+    new URLSearchParams(window.location.search).get('tab') === 'Alerts' ? 'Alerts' : 'Providers',
+  )
   const [edit, setEdit] = useState<Record<string, string>>({})
   const [thresholdEdits, setThresholdEdits] = useState<
     Record<string, { low: string; high: string }>
@@ -413,7 +450,13 @@ export function Settings() {
     return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? String(v) : ''
   }
   const set = (k: keyof Values) => (v: string) => setEdit((e) => ({ ...e, [k]: v }))
-  const provider = get('transcription.provider')
+  const classifier =
+    get('runtime.classification_provider') || data.local_providers?.classification || 'openai'
+  const provider =
+    get('runtime.transcription_provider') ||
+    (data.local_providers?.transcription === 'local_whisper'
+      ? 'local_whisper'
+      : get('transcription.provider'))
   const mediaOn = get('media.policy') !== 'off'
 
   async function save(changes: Record<string, Change>, clearKeys: string[] = Object.keys(changes)) {
@@ -520,85 +563,239 @@ export function Settings() {
         <div className="flex min-w-0 flex-1 flex-col gap-5">
           <TabsContent value="Providers" className="flex flex-col gap-5">
             <Section
-              title="OpenAI"
-              description="Checks every message for harm. The moderation endpoint is free."
+              title="Classification provider"
+              description="Choose how Iris classifies messages. Saved choices override server environment defaults."
             >
-              <Field label="API key">
-                <SecretInput
-                  value={get('openai.api_key')}
-                  isSet={data['openai.api_key'].set}
-                  onChange={set('openai.api_key')}
-                  onClear={() => void save({ 'openai.api_key': null })}
-                />
+              <Field label="Classification provider">
+                <Select
+                  value={classifier}
+                  onChange={(e) => set('runtime.classification_provider')(e.target.value)}
+                >
+                  <option value="openai">OpenAI</option>
+                  <option value="ollama">Ollama (local)</option>
+                </Select>
               </Field>
-              <TestButton target="openai" body={{ api_key: edit['openai.api_key'] || undefined }} />
             </Section>
+            {classifier === 'ollama' ? (
+              <Section
+                title="Ollama"
+                description="Local text classifier. Test the entered endpoint and model, then save to use them for new jobs."
+              >
+                <Field label="Ollama endpoint">
+                  <Input
+                    value={get('runtime.ollama_base_url')}
+                    onChange={(e) => set('runtime.ollama_base_url')(e.target.value)}
+                    placeholder="http://localhost:11434"
+                  />
+                </Field>
+                <Field label="Ollama model">
+                  <Input
+                    value={get('runtime.ollama_model') || data.local_providers?.ollama_model || ''}
+                    onChange={(e) => set('runtime.ollama_model')(e.target.value)}
+                  />
+                </Field>
+                <p className="text-sm text-muted-foreground">
+                  Local scores require calibration. Images and stickers require manual review in
+                  local safety mode.
+                </p>
+                <TestButton
+                  target="ollama"
+                  body={{
+                    base_url: get('runtime.ollama_base_url'),
+                    model: get('runtime.ollama_model') || data.local_providers?.ollama_model,
+                  }}
+                  label="Test Ollama"
+                />
+              </Section>
+            ) : (
+              <Section
+                title="OpenAI"
+                description="Checks every message for harm. The moderation endpoint is free."
+              >
+                <Field label="API key">
+                  <SecretInput
+                    value={get('openai.api_key')}
+                    isSet={data['openai.api_key'].set}
+                    onChange={set('openai.api_key')}
+                    onClear={() => void save({ 'openai.api_key': null })}
+                  />
+                </Field>
+                <TestButton
+                  target="openai"
+                  body={{ api_key: edit['openai.api_key'] || undefined }}
+                />
+              </Section>
+            )}
             <Section
-              title="Voice and video"
-              description="Turns audio into text so it can be checked like any message."
+              title="Transcription provider"
+              description="Choose local transcription, OpenAI, or Cloudflare. No automatic cloud fallback is used."
             >
               <Field label="Provider">
                 <Select
                   value={provider}
-                  onChange={(e) => set('transcription.provider')(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if ('runtime.transcription_provider' in data || value === 'local_whisper')
+                      set('runtime.transcription_provider')(value)
+                    if (value !== 'local_whisper') set('transcription.provider')(value)
+                  }}
                 >
                   <option value="openai">OpenAI</option>
                   <option value="cloudflare">Cloudflare Workers AI</option>
+                  <option value="local_whisper">Mila companion / local Whisper</option>
                 </Select>
               </Field>
-              {provider === 'openai' ? (
-                <Field label="OpenAI model">
-                  <Select
-                    value={get('transcription.openai_model')}
-                    onChange={(e) => set('transcription.openai_model')(e.target.value)}
-                  >
-                    <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
-                    <option value="whisper-1">whisper-1</option>
-                  </Select>
-                </Field>
-              ) : (
-                <>
-                  <Field label="Cloudflare account ID">
-                    <Input
-                      dir="ltr"
-                      value={get('transcription.cloudflare_account_id')}
-                      onChange={(e) => set('transcription.cloudflare_account_id')(e.target.value)}
-                    />
-                  </Field>
-                  <Field label="Cloudflare API token">
-                    <SecretInput
-                      value={get('transcription.cloudflare_api_token')}
-                      isSet={data['transcription.cloudflare_api_token'].set}
-                      onChange={set('transcription.cloudflare_api_token')}
-                      onClear={() => void save({ 'transcription.cloudflare_api_token': null })}
-                    />
-                  </Field>
-                  <Field label="Model">
-                    <Input
-                      dir="ltr"
-                      value={get('transcription.cloudflare_model')}
-                      onChange={(e) => set('transcription.cloudflare_model')(e.target.value)}
-                    />
-                  </Field>
-                  <TestButton
-                    target="cloudflare"
-                    body={{
-                      account_id: edit['transcription.cloudflare_account_id'] || undefined,
-                      api_token: edit['transcription.cloudflare_api_token'] || undefined,
-                      model: edit['transcription.cloudflare_model'] || undefined,
-                    }}
-                  />
-                </>
-              )}
             </Section>
+            {provider === 'local_whisper' ? (
+              <Section
+                title="Mila companion / local Whisper"
+                description="Active local transcription API. The Mila desktop app itself does not provide this API."
+              >
+                <Field label="Transcription endpoint">
+                  <Input
+                    value={get('runtime.whisper_url')}
+                    onChange={(e) => set('runtime.whisper_url')(e.target.value)}
+                    placeholder="http://mac.example:8081/v1/audio/transcriptions"
+                  />
+                </Field>
+                <Field label="Local transcription model">
+                  <Input
+                    list="whisper-models"
+                    value={
+                      get('runtime.whisper_model') ||
+                      data.local_providers?.transcription_model ||
+                      ''
+                    }
+                    onChange={(e) => set('runtime.whisper_model')(e.target.value)}
+                  />
+                </Field>
+                <datalist id="whisper-models">
+                  <option value="auto" />
+                  <option value="ivrit-large-v3" />
+                  <option value="large-v3-turbo" />
+                </datalist>
+                <Field label="Local transcription API key">
+                  <SecretInput
+                    value={get('runtime.whisper_api_key')}
+                    isSet={data['runtime.whisper_api_key']?.set || false}
+                    onChange={set('runtime.whisper_api_key')}
+                    onClear={() =>
+                      void save({
+                        'runtime.whisper_api_key': null,
+                        'runtime.whisper_use_environment_key': false,
+                      })
+                    }
+                  />
+                </Field>
+                <Toggle
+                  label="Use environment API key when no saved key exists"
+                  checked={get('runtime.whisper_use_environment_key') !== 'false'}
+                  onChange={(value) => set('runtime.whisper_use_environment_key')(String(value))}
+                />
+                <Field label="Fallback model (optional)">
+                  <Input
+                    value={get('runtime.whisper_fallback_model')}
+                    onChange={(e) => set('runtime.whisper_fallback_model')(e.target.value)}
+                  />
+                </Field>
+                <p className="text-sm text-muted-foreground">
+                  Audio and video audio tracks are transcribed. Test the endpoint, model and key
+                  before saving. Changing the host requires re-entering the API key.
+                </p>
+                <TestButton
+                  target="local_whisper"
+                  body={{
+                    endpoint: get('runtime.whisper_url'),
+                    model:
+                      get('runtime.whisper_model') || data.local_providers?.transcription_model,
+                    api_key: edit['runtime.whisper_api_key'] || undefined,
+                  }}
+                  label="Test transcription connection"
+                />
+              </Section>
+            ) : (
+              <Section
+                title="Voice and video"
+                description="Turns audio into text so it can be checked like any message."
+              >
+                {provider === 'openai' ? (
+                  <Field label="OpenAI model">
+                    <Select
+                      value={get('transcription.openai_model')}
+                      onChange={(e) => set('transcription.openai_model')(e.target.value)}
+                    >
+                      <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
+                      <option value="whisper-1">whisper-1</option>
+                    </Select>
+                  </Field>
+                ) : (
+                  <>
+                    <Field label="Cloudflare account ID">
+                      <Input
+                        dir="ltr"
+                        value={get('transcription.cloudflare_account_id')}
+                        onChange={(e) => set('transcription.cloudflare_account_id')(e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Cloudflare API token">
+                      <SecretInput
+                        value={get('transcription.cloudflare_api_token')}
+                        isSet={data['transcription.cloudflare_api_token'].set}
+                        onChange={set('transcription.cloudflare_api_token')}
+                        onClear={() => void save({ 'transcription.cloudflare_api_token': null })}
+                      />
+                    </Field>
+                    <Field label="Model">
+                      <Input
+                        dir="ltr"
+                        value={get('transcription.cloudflare_model')}
+                        onChange={(e) => set('transcription.cloudflare_model')(e.target.value)}
+                      />
+                    </Field>
+                    <TestButton
+                      target="cloudflare"
+                      body={{
+                        account_id: edit['transcription.cloudflare_account_id'] || undefined,
+                        api_token: edit['transcription.cloudflare_api_token'] || undefined,
+                        model: edit['transcription.cloudflare_model'] || undefined,
+                      }}
+                    />
+                  </>
+                )}
+              </Section>
+            )}
           </TabsContent>
 
           <TabsContent value="Classification" className="flex flex-col gap-5">
             <Section
+              title="Processing mode"
+              description="Safety mode keeps unexamined media for review. Worker changes apply to new jobs; in-flight jobs finish."
+            >
+              <Toggle
+                label="Local safety mode"
+                checked={get('runtime.local_safety_mode') === 'true'}
+                onChange={(value) => set('runtime.local_safety_mode')(String(value))}
+              />
+              <Toggle
+                label="Require signed webhooks"
+                checked={get('runtime.require_webhook_signatures') === 'true'}
+                onChange={(value) => set('runtime.require_webhook_signatures')(String(value))}
+              />
+              {num('runtime.workers', 'Classification workers (0 pauses processing)', 0, 16)}
+              {num('runtime.delivery_workers', 'Dedicated alert workers', 0, 4)}
+              {num('runtime.job_heartbeat_seconds', 'Job heartbeat seconds (0 disables)', 0, 120)}
+              {num(
+                'runtime.monitoring_silence_minutes',
+                'Monitoring silence minutes (0 disables)',
+                0,
+                10080,
+              )}
+            </Section>
+            <Section
               title="Moderation"
               description="How much of the chat Iris reads around a message it is unsure about."
             >
-              <Field label="Moderation model">
+              <Field label="OpenAI moderation model">
                 <Input
                   dir="ltr"
                   value={get('classification.model')}
@@ -630,9 +827,10 @@ export function Settings() {
           </TabsContent>
 
           <TabsContent value="Alerts" className="flex flex-col gap-5">
+            <ParentConnections />
             <Section
               title="Where alerts go"
-              description="Iris sends each alert as a WhatsApp message from one of your phones to your own number."
+              description="Iris sends each alert to every listed parent from one linked WhatsApp phone. Up to 10 recipients."
             >
               <Field label="Send alerts from">
                 <Select
@@ -646,14 +844,6 @@ export function Settings() {
                     </option>
                   ))}
                 </Select>
-              </Field>
-              <Field label="Recipient (phone number in international format, or a chat ID)">
-                <Input
-                  dir="ltr"
-                  placeholder="972501234567"
-                  value={get('alerts.recipient')}
-                  onChange={(e) => set('alerts.recipient')(e.target.value)}
-                />
               </Field>
               <TestButton
                 target="alert"
@@ -881,7 +1071,7 @@ export function Settings() {
           </TabsContent>
 
           {dirty && tab !== 'Account' && tab !== 'Database' && (
-            <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 flex items-center justify-between gap-3 rounded-lg border bg-surface p-3 shadow-overlay md:bottom-4">
+            <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-surface p-3 shadow-overlay md:bottom-4">
               <p className="text-sm text-muted-foreground">You have unsaved changes.</p>
               <div className="flex gap-2">
                 <Button

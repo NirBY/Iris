@@ -5,14 +5,16 @@ from collections import deque
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts import ALERT_PREFIX
-from app.alerts.delivery import recipient_chat_id
 from app.alerts.format import with_signed_link
+from app.alerts.recipients import recipients
 from app.classify.moderation import ModerationClient
+from app.classify.ollama import OllamaModerator
 from app.classify.thresholds import DEFAULT_THRESHOLDS, effective_thresholds
 from app.config import Settings, get_settings
 from app.db.models import Instance
@@ -23,7 +25,15 @@ from app.media.store import MediaStoreError
 from app.openwa.client import OpenWAClient, OpenWAError
 from app.security.auth import current_user
 from app.security.crypto import decrypt
-from app.settings_store import REGISTRY, all_settings, get_secret, get_setting, set_setting
+from app.settings_store import (
+    REGISTRY,
+    RUNTIME_FIELDS,
+    all_settings,
+    get_secret,
+    get_setting,
+    reload_runtime_settings,
+    set_setting,
+)
 from app.transcription.cloudflare import CloudflareTranscriber
 
 router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(current_user)])
@@ -35,7 +45,24 @@ class SettingsUpdate(BaseModel):
 
 @router.get("")
 async def read_settings(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, Any]:
-    return await all_settings(db)
+    values = await all_settings(db)
+    cfg = get_settings()
+    for field in RUNTIME_FIELDS:
+        values["runtime." + field] = getattr(cfg, field)
+    values["runtime.transcription_provider"] = cfg.transcription_provider or (
+        "local_whisper" if cfg.whisper_url else await get_setting(db, "transcription.provider")
+    )
+    values["runtime.whisper_api_key"] = {"set": bool(cfg.whisper_api_key)}
+    if cfg.classification_provider == "ollama" or cfg.whisper_url:
+        # Operational metadata only; secrets stay write-only and cloud settings stay intact.
+        values["local_providers"] = {
+            "classification": cfg.classification_provider,
+            "ollama_model": cfg.ollama_model,
+            "transcription": values["runtime.transcription_provider"],
+            "transcription_model": cfg.whisper_model,
+            "api_key_set": bool(cfg.whisper_api_key),
+        }
+    return values
 
 
 class ThresholdRow(BaseModel):
@@ -65,6 +92,7 @@ async def thresholds(db: Annotated[AsyncSession, Depends(get_db)]) -> list[Thres
 @router.put("")
 async def update_settings(
     body: SettingsUpdate,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     cfg: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
@@ -81,9 +109,27 @@ async def update_settings(
             errors[key] = str(exc)
     if errors:
         raise HTTPException(status_code=422, detail=errors)
+    # Changing a host must not send a saved credential to that new host unnoticed.
+    if body.settings.get("runtime.whisper_url") and cfg.whisper_api_key:
+        from urllib.parse import urlsplit
+
+        entered = urlsplit(str(body.settings["runtime.whisper_url"]))
+        old = urlsplit(cfg.whisper_url or "")
+        if (
+            entered.netloc != old.netloc
+            and not body.settings.get("runtime.whisper_api_key")
+            and body.settings.get("runtime.whisper_use_environment_key") is not False
+        ):
+            raise HTTPException(
+                status_code=422, detail="Re-enter the transcription API key when changing its host"
+            )
     for key, value in body.settings.items():
         await set_setting(db, key, value, cfg.key_bytes)
-    return await all_settings(db)
+    if any(key.startswith("runtime.") for key in body.settings):
+        await reload_runtime_settings(db)
+        updated = get_settings()
+        await request.app.state.workers.reconfigure(updated.workers, updated.delivery_workers)
+    return await read_settings(db)
 
 
 SILENCE = Path(__file__).resolve().parent.parent / "assets" / "silence.wav"
@@ -98,6 +144,8 @@ class TestRequest(BaseModel):
     account_id: str | None = None
     api_token: str | None = None
     model: str | None = None
+    base_url: str | None = None
+    endpoint: str | None = None
     media: "MediaTest | None" = None
 
 
@@ -119,13 +167,63 @@ class TestResult(BaseModel):
 
 @router.post("/test/{target}")
 async def test_provider(
-    target: Literal["openai", "cloudflare", "alert", "media"],
+    target: Literal["openai", "cloudflare", "alert", "media", "ollama", "local_whisper"],
     db: Annotated[AsyncSession, Depends(get_db)],
     cfg: Annotated[Settings, Depends(get_settings)],
     body: TestRequest | None = None,
 ) -> TestResult:
     body = body or TestRequest()
     try:
+        if target == "ollama":
+            if cfg.classification_provider != "ollama" and not body.base_url:
+                return TestResult(ok=False, detail="Ollama is not enabled")
+            url = REGISTRY["runtime.ollama_base_url"].validate(body.base_url or cfg.ollama_base_url)
+            model = body.model or cfg.ollama_model
+            local = OllamaModerator(url, model)
+            try:
+                await local.moderate(model, "Hello, this is a connection test.")
+            finally:
+                await local.aclose()
+            return TestResult(ok=True, detail="Ollama answered with valid moderation output")
+        if target == "local_whisper":
+            endpoint = REGISTRY["runtime.whisper_url"].validate(body.endpoint or cfg.whisper_url)
+            if not endpoint:
+                return TestResult(ok=False, detail="Local transcription is not enabled")
+            # Check authenticated capabilities, rather than submitting silence as real speech.
+            from urllib.parse import urlsplit, urlunsplit
+
+            parts = urlsplit(endpoint)
+            if (
+                parts.netloc != urlsplit(cfg.whisper_url or "").netloc
+                and cfg.whisper_api_key
+                and not body.api_key
+            ):
+                return TestResult(ok=False, detail="Re-enter the API key when testing a new host")
+            url = urlunsplit((parts.scheme, parts.netloc, "/v1/models", "", ""))
+            token = body.api_key or cfg.whisper_api_key
+            headers = {"Authorization": f"Bearer {token}"} if token else {}
+            async with httpx.AsyncClient(timeout=10, trust_env=False) as http_client:
+                response = await http_client.get(url, headers=headers)
+            if response.status_code != 200:
+                return TestResult(
+                    ok=False, detail="Local transcription authentication or connection failed"
+                )
+            models = response.json().get("data")
+            if not isinstance(models, list):
+                return TestResult(
+                    ok=False, detail="Local transcription returned invalid capabilities"
+                )
+            if body.model and body.model not in [
+                m.get("id") for m in models if isinstance(m, dict)
+            ]:
+                return TestResult(ok=False, detail="Selected transcription model is not available")
+            return TestResult(
+                ok=True,
+                detail=(
+                    "Local transcription authenticated; models available. "
+                    "Run a real audio test to verify inference."
+                ),
+            )
         if target == "openai":
             key = body.api_key or await get_secret(db, "openai.api_key", cfg.key_bytes)
             if not key:
@@ -163,6 +261,8 @@ async def test_provider(
         return await _test_alert(db, cfg, body)
     except (PermanentError, TransientError) as exc:
         return TestResult(ok=False, detail=str(exc))  # messages are static, never secrets
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return TestResult(ok=False, detail="Local provider unreachable or returned invalid output")
 
 
 _media_tests: deque[float] = deque()
@@ -202,23 +302,40 @@ async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
         )
     if not recipient:
         return TestResult(ok=False, detail="Enter the alert recipient (phone number or chat ID)")
-    client = OpenWAClient(sender.openwa_base_url, decrypt(cfg.key_bytes, sender.openwa_api_key_enc))
     try:
-        await client.send_text(
-            sender.openwa_instance_id,
-            recipient_chat_id(recipient),
-            # Signed like a real alert (the signature covers this exact text), so Iris skips it
-            # if it comes back through a monitored session rather than classifying it.
-            with_signed_link(
-                f"{ALERT_PREFIX} (test)\nAlert delivery is working.",
-                cfg.public_base_url,
-                cfg.key_bytes,
-                0,
-            ),
-        )
-    except OpenWAError as exc:
-        hint = " (is the OpenWA session running?)" if exc.status == 400 else ""
-        return TestResult(ok=False, detail=f"OpenWA: {exc.message}{hint}")
+        targets = recipients(recipient)
+    except ValueError as exc:
+        return TestResult(ok=False, detail=str(exc))
+    if not targets:
+        return TestResult(ok=False, detail="Enter at least one parent recipient")
+    client = OpenWAClient(sender.openwa_base_url, decrypt(cfg.key_bytes, sender.openwa_api_key_enc))
+    errors: list[str] = []
+    try:
+        for target in targets:
+            try:
+                await client.send_text(
+                    sender.openwa_instance_id,
+                    target,
+                    # Signed like a real alert so a monitored session skips the test.
+                    with_signed_link(
+                        f"{ALERT_PREFIX} (test)\nAlert delivery is working.",
+                        cfg.public_base_url,
+                        cfg.key_bytes,
+                        0,
+                    ),
+                )
+            except OpenWAError as exc:
+                hint = " (is the OpenWA session running?)" if exc.status == 400 else ""
+                errors.append(f"OpenWA: {exc.message}{hint}")
     finally:
         await client.aclose()
-    return TestResult(ok=True, detail="Test message sent")
+    if errors:
+        return TestResult(
+            ok=False, detail=f"{len(errors)} recipient(s) failed: " + "; ".join(errors)
+        )
+    return TestResult(
+        ok=True,
+        detail="Test message sent"
+        if len(targets) == 1
+        else f"Test message sent to {len(targets)} parents",
+    )

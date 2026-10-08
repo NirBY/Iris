@@ -1,5 +1,6 @@
 """/api/auth endpoints."""
 
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -23,6 +24,8 @@ from app.security.auth import (
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 limiter = LoginLimiter()
+_hash_gate = asyncio.Semaphore(2)
+_inflight_logins = 0
 
 
 class LoginBody(BaseModel):
@@ -50,8 +53,7 @@ def _ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-@router.post("/login")
-async def login(
+async def _login(
     body: LoginBody,
     request: Request,
     response: Response,
@@ -61,16 +63,50 @@ async def login(
     ip = _ip(request)
     if limiter.blocked(ip):
         raise HTTPException(status_code=429, detail="Too many failed attempts")
+    reserved = settings.local_safety_mode
+    if reserved:
+        if _hash_gate.locked():
+            raise HTTPException(status_code=429, detail="Login capacity reached; retry later")
+        # Reserve before the first await, closing the concurrent-attempt limiter race.
+        limiter.record_failure(ip)
     user = (
         await db.execute(select(User).where(User.username == body.username))
     ).scalar_one_or_none()
-    ok = verify_password(user.password_hash if user else _DUMMY_HASH, body.password)
+    if reserved:
+        async with _hash_gate:
+            ok = await asyncio.to_thread(
+                verify_password, user.password_hash if user else _DUMMY_HASH, body.password
+            )
+    else:
+        ok = verify_password(user.password_hash if user else _DUMMY_HASH, body.password)
     if user is None or not ok:
-        limiter.record_failure(ip)
+        if not reserved:
+            limiter.record_failure(ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     limiter.reset(ip)
     _set_session_cookie(response, settings, user)
     return {"username": user.username}
+
+
+@router.post("/login")
+async def login(
+    body: LoginBody,
+    request: Request,
+    response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict[str, str]:
+    global _inflight_logins
+    if not settings.local_safety_mode:
+        return await _login(body, request, response, db, settings)
+    # Reserve globally before any database/hash await, rather than queueing unlimited hashes.
+    if _inflight_logins >= 2:
+        raise HTTPException(status_code=429, detail="Login capacity reached; retry later")
+    _inflight_logins += 1
+    try:
+        return await _login(body, request, response, db, settings)
+    finally:
+        _inflight_logins -= 1
 
 
 @router.post("/logout")

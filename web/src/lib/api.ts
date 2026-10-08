@@ -16,5 +16,6 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => ({}))
     throw new ApiError(res.status, body.detail ?? res.statusText)
   }
+  if (res.status === 204 || res.status === 205) return undefined as T
   return res.json() as Promise<T>
 }
