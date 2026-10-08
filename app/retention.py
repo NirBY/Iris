@@ -7,6 +7,7 @@ from loguru import logger
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.config import get_settings
 from app.db.models import Alert, Chat, Job, Message
 from app.events import bus
 from app.settings_store import get_setting
@@ -33,12 +34,25 @@ async def run_retention(
         alerts = await db.execute(
             delete(Alert).where(Alert.created_at < now - timedelta(days=alert_days))
         )
-        messages = await db.execute(
-            delete(Message).where(
-                Message.sent_at < now - timedelta(days=message_days),
-                Message.id.not_in(select(Alert.message_id)),
+        message_filters = [
+            Message.sent_at < now - timedelta(days=message_days),
+            Message.id.not_in(select(Alert.message_id)),
+        ]
+        if get_settings().local_safety_mode:
+            message_filters.extend(
+                [
+                    Message.status == "done",
+                    Message.verdict.in_(("safe", "harmful")),
+                    Message.id.not_in(
+                        select(Job.payload["message_id"].as_integer()).where(
+                            Job.type == "process_message",
+                            Job.status.in_(("queued", "running")),
+                            Job.payload["message_id"].as_integer().is_not(None),
+                        )
+                    ),
+                ]
             )
-        )
+        messages = await db.execute(delete(Message).where(*message_filters))
         jobs = await db.execute(
             delete(Job).where(
                 ((Job.status == "done") & (Job.created_at < now - JOB_RETENTION))

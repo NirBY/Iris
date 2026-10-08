@@ -23,6 +23,7 @@ from app.api import (
     jobs,
     media,
     messages,
+    pairing,
     stats,
     system,
 )
@@ -87,6 +88,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.session_factory = make_session_factory(engine)
     async with app.state.session_factory() as session:
         await bootstrap_admin(session, settings)
+        from app.settings_store import reload_runtime_settings
+
+        await reload_runtime_settings(session)
+        settings = get_settings()
     providers = Providers()
     pool = WorkerPool(
         Deps(
@@ -103,7 +108,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     cleanup = (
         asyncio.create_task(retention_loop(app.state.session_factory)) if settings.workers else None
     )
+    pairing_cleanup = asyncio.create_task(pairing.cleanup_loop(app.state.session_factory))
     yield
+    pairing_cleanup.cancel()
+    await asyncio.gather(pairing_cleanup, return_exceptions=True)
     if cleanup is not None:
         cleanup.cancel()
         await asyncio.gather(cleanup, return_exceptions=True)
@@ -154,6 +162,7 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(auth.router)
     app.include_router(instances.router)
+    app.include_router(pairing.router)
     app.include_router(messages.router)
     app.include_router(jobs.router)
     app.include_router(alerts.router)

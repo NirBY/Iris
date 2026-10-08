@@ -22,7 +22,8 @@ from app.chats import resolve_group_names
 from app.classify.pipeline import PipelineOutcome, run_pipeline
 from app.classify.stages import StageContext
 from app.classify.thresholds import effective_thresholds
-from app.db.models import Chat, Classification, Job, Message
+from app.config import get_settings
+from app.db.models import Chat, Classification, Job, Message, MessageRevision
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
 from app.media import ffmpeg
 from app.media.fetch import MAX_AUDIO_SECONDS, MediaSkipped, fetch_original, job_tmpdir
@@ -109,6 +110,14 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
     """Fetch/convert media as needed."""
     if message.type in ("text", "document", "other"):
         return Prepared()  # only text (or a caption/filename) can be moderated
+    cfg = get_settings()
+    if (
+        cfg.local_safety_mode
+        and cfg.classification_provider == "ollama"
+        and message.type in ("image", "sticker")
+    ):
+        # This text-only adapter must still check captions, without fetching unexamined images.
+        return Prepared(problem=PermanentError("image content requires manual review"))
     try:
         async with job_tmpdir(deps.data_dir, job.id) as tmp:
             if message.type in ("image", "sticker"):
@@ -116,6 +125,8 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
             await _transcribe(db, deps, tmp, message)
             return Prepared()
     except (Skip, MediaSkipped, PermanentError) as exc:
+        if cfg.local_safety_mode:
+            return Prepared(problem=exc)
         if not message.text:
             raise
         # The caption is still worth moderating: a harmful caption must never be lost
@@ -195,12 +206,15 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             return
 
         api_key = await get_secret(db, "openai.api_key", deps.key_bytes)
-        if not api_key:
+        cfg = get_settings()
+        if not api_key and cfg.classification_provider != "ollama":
             raise PermanentError("OpenAI API key is not configured")
         ctx = StageContext(
             db=db,
-            moderator=deps.providers.moderation(api_key),
-            model=str(await get_setting(db, "classification.model")),
+            moderator=deps.providers.moderation(api_key or ""),
+            model=cfg.ollama_model
+            if cfg.classification_provider == "ollama"
+            else str(await get_setting(db, "classification.model")),
             thresholds=effective_thresholds(await get_setting(db, "classification.thresholds")),
             context_window_size=int(await get_setting(db, "classification.context_window_size")),
             context_max_age=timedelta(
@@ -211,13 +225,52 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         try:
             outcome = await run_pipeline(message, ctx)
         except ValueError:
-            message.status = "skipped"  # nothing to classify (no text, transcript or image)
-            await db.commit()
-            return
+            if cfg.local_safety_mode and prepared.problem is not None:
+                outcome = PipelineOutcome(verdict="review")
+            else:
+                message.status = "skipped"  # nothing to classify (no text, transcript or image)
+                await db.commit()
+                return
+
+        if cfg.local_safety_mode:
+            # Check every preserved wording separately: edits must not hide earlier harm.
+            revisions = list(
+                (
+                    await db.scalars(
+                        select(MessageRevision)
+                        .where(MessageRevision.message_id == message.id)
+                        .order_by(MessageRevision.id)
+                    )
+                ).all()
+            )
+            for revision in revisions:
+                snapshot = Message(
+                    id=message.id,
+                    chat_id=message.chat_id,
+                    sent_at=message.sent_at,
+                    type="text",
+                    text=revision.text,
+                    sender_name=message.sender_name,
+                )
+                earlier = await run_pipeline(snapshot, ctx)
+                for result in earlier.results:
+                    result.stage = "revision_" + result.stage
+                if _RANK[earlier.verdict] > _RANK[outcome.verdict]:
+                    outcome = PipelineOutcome(
+                        verdict=earlier.verdict,
+                        results=[*outcome.results, *earlier.results],
+                        categories=earlier.categories,
+                        max_score=earlier.max_score,
+                    )
+                else:
+                    # Keep the deciding result last for alert category/score extraction.
+                    outcome.results = [*earlier.results, *outcome.results]
+            if prepared.problem is not None and outcome.verdict != "harmful":
+                outcome.verdict = "review"
 
         _persist(db, message, outcome)
         problem = prepared.problem
-        if problem is not None and outcome.verdict != "harmful":
+        if problem is not None and outcome.verdict != "harmful" and not cfg.local_safety_mode:
             # Only the caption was examined: do not present the message as classified.
             message.verdict = None
             message.status = "failed" if isinstance(problem, PermanentError) else "skipped"

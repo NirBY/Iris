@@ -6,6 +6,7 @@
 !.env.example
 **/__pycache__
 .pytest_cache
+.test-*/
 .mypy_cache
 .ruff_cache
 web/node_modules

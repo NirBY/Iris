@@ -42,7 +42,7 @@ const thresholds = [
   { category: 'hate', low: 0.2, high: 0.7, default_low: 0.2, default_high: 0.7 },
 ]
 
-function renderPage() {
+function renderPage(values: Record<string, unknown> = settings) {
   const calls: { url: string; body?: string }[] = []
   vi.stubGlobal(
     'fetch',
@@ -56,7 +56,7 @@ function renderPage() {
             ? []
             : url.startsWith('/api/settings/thresholds')
               ? thresholds
-              : settings
+              : values
       return new Response(JSON.stringify(body), { status: 200 })
     }),
   )
@@ -69,6 +69,25 @@ function renderPage() {
   return calls
 }
 
+test('local providers show dedicated tests and keep cloud controls hidden', async () => {
+  const calls = renderPage({
+    ...settings,
+    local_providers: {
+      classification: 'ollama',
+      ollama_model: 'example-model',
+      transcription: 'local_whisper',
+      transcription_model: 'auto',
+      api_key_set: true,
+    },
+  })
+  await userEvent.click(await screen.findByRole('button', { name: 'Test Ollama' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Test transcription connection' }))
+  expect(calls.some((c) => c.url === '/api/settings/test/ollama')).toBe(true)
+  expect(calls.some((c) => c.url === '/api/settings/test/local_whisper')).toBe(true)
+  expect(screen.queryByLabelText('API key')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Provider')).toBeInTheDocument()
+})
+
 test('never shows the saved key, and blank secret is not sent on save', async () => {
   const calls = renderPage()
   expect(await screen.findByPlaceholderText(/saved, leave blank/)).toHaveValue('')
@@ -76,6 +95,37 @@ test('never shows the saved key, and blank secret is not sent on save', async ()
   await userEvent.click(screen.getByRole('button', { name: 'Save' }))
   const put = calls.find((c) => c.url === '/api/settings' && c.body)
   expect(JSON.parse(put!.body!).settings).toEqual({ 'transcription.provider': 'cloudflare' })
+})
+
+test('saves edited local model and allows an explicit cloud provider switch', async () => {
+  const calls = renderPage({
+    ...settings,
+    'runtime.classification_provider': 'ollama',
+    'runtime.ollama_base_url': 'http://mac.example:11434',
+    'runtime.ollama_model': 'old-model',
+    'runtime.transcription_provider': 'local_whisper',
+    'runtime.whisper_url': 'http://mac.example:8081/v1/audio/transcriptions',
+    'runtime.whisper_model': 'auto',
+    'runtime.whisper_api_key': { set: true },
+  })
+  const model = await screen.findByLabelText('Ollama model')
+  await userEvent.clear(model)
+  await userEvent.type(model, 'new-model')
+  await userEvent.click(screen.getByRole('button', { name: 'Test Ollama' }))
+  const testCall = calls.find((c) => c.url === '/api/settings/test/ollama')
+  expect(JSON.parse(testCall!.body!)).toMatchObject({
+    model: 'new-model',
+    base_url: 'http://mac.example:11434',
+  })
+  await userEvent.selectOptions(screen.getByLabelText('Classification provider'), 'openai')
+  await userEvent.selectOptions(screen.getByLabelText('Provider'), 'cloudflare')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const put = calls.find((c) => c.url === '/api/settings' && c.body)
+  expect(JSON.parse(put!.body!).settings).toMatchObject({
+    'runtime.ollama_model': 'new-model',
+    'runtime.classification_provider': 'openai',
+    'runtime.transcription_provider': 'cloudflare',
+  })
 })
 
 test('test button reports the result', async () => {

@@ -34,11 +34,11 @@ def engine_options(cfg: DbConfig) -> dict[str, Any]:
 def make_engine(url: str | None = None, *, config: DbConfig | None = None) -> AsyncEngine:
     """Engine for an explicit URL (tests, migrations), an explicit config, or the configured one."""
     if url is not None:
-        engine = create_async_engine(url)
+        engine = create_async_engine(url, hide_parameters=True)
         sqlite = url.startswith("sqlite")
     else:
         cfg = (config or resolve()[0]).with_defaults()
-        engine = create_async_engine(cfg.to_url(), **engine_options(cfg))
+        engine = create_async_engine(cfg.to_url(), hide_parameters=True, **engine_options(cfg))
         sqlite = cfg.kind == "sqlite"
 
     if sqlite:

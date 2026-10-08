@@ -1,14 +1,17 @@
 """/api/instances: CRUD for the kids' WhatsApp numbers. API keys are write-only."""
 
+import base64
+import binascii
 import hashlib
 import hmac
 import ipaddress
+import re
 import secrets
 from datetime import datetime
-from typing import Annotated
-from urllib.parse import urlsplit
+from typing import Annotated, Literal
+from urllib.parse import quote, urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +22,7 @@ from app.deps import get_db
 from app.openwa.client import OpenWAClient, OpenWAError
 from app.security.auth import current_user
 from app.security.crypto import decrypt, encrypt
+from app.settings_store import get_setting, set_setting
 
 router = APIRouter(
     prefix="/api/instances", tags=["instances"], dependencies=[Depends(current_user)]
@@ -48,24 +52,33 @@ def validate_base_url(url: str) -> str:
 
 
 class InstanceIn(BaseModel):
+    role: Literal["child", "parent"] | None = None
     kid_name: str = Field(min_length=1)
     phone_number: str | None = None
     openwa_base_url: str = Field(min_length=1)
     openwa_instance_id: str = Field(min_length=1)
     openwa_api_key: str | None = None
     enabled: bool = True
+    verify_openwa: bool = False
 
 
 class InstancePatch(BaseModel):
+    role: Literal["child", "parent"] | None = None
     kid_name: str | None = Field(default=None, min_length=1)
     phone_number: str | None = None
     openwa_base_url: str | None = None
-    openwa_instance_id: str | None = None
     openwa_api_key: str | None = None
+    openwa_instance_id: str | None = Field(default=None, min_length=1)
+    session_name: str | None = Field(default=None, max_length=100)
+    verify_openwa: bool = False
     enabled: bool | None = None
 
 
 class InstanceOut(BaseModel):
+    connection_status: str = "unknown"
+    connection_checked_at: datetime | None = None
+    session_name: str | None = None
+    role: Literal["child", "parent"] = "child"
     id: int
     kid_name: str
     phone_number: str | None
@@ -78,7 +91,9 @@ class InstanceOut(BaseModel):
     created_at: datetime
 
 
-def to_out(i: Instance, settings: Settings) -> InstanceOut:
+def to_out(
+    i: Instance, settings: Settings, role: Literal["child", "parent"] = "child"
+) -> InstanceOut:
     return InstanceOut(
         id=i.id,
         kid_name=i.kid_name,
@@ -90,7 +105,31 @@ def to_out(i: Instance, settings: Settings) -> InstanceOut:
         webhook_url=f"{settings.public_base_url}/webhooks/{i.webhook_token}",
         last_webhook_at=i.last_webhook_at,
         created_at=i.created_at,
+        role=role,
     )
+
+
+async def instance_out(db: AsyncSession, instance: Instance, settings: Settings) -> InstanceOut:
+    roles = await get_setting(db, "phones.roles")
+    role = roles.get(str(instance.id))
+    if role is None:
+        role = "child"  # preserve existing monitored instances until explicitly assigned a role
+    result = to_out(instance, settings, "parent" if role == "parent" else "child")
+    names = await get_setting(db, "phones.session_names")
+    result.session_name = names.get(str(instance.id))
+    from app.monitoring import session_details
+
+    detail = session_details.get(instance.id)
+    if detail:
+        result.connection_status, result.connection_checked_at = detail
+    return result
+
+
+async def save_role(db: AsyncSession, instance: Instance, role: str | None) -> None:
+    if role is not None:
+        roles = dict(await get_setting(db, "phones.roles"))
+        roles[str(instance.id)] = role
+        await set_setting(db, "phones.roles", roles)
 
 
 async def _get(db: AsyncSession, instance_id: int) -> Instance:
@@ -103,30 +142,68 @@ async def _get(db: AsyncSession, instance_id: int) -> Instance:
 @router.get("")
 async def list_instances(db: DB, settings: Cfg) -> list[InstanceOut]:
     rows = (await db.execute(select(Instance).order_by(Instance.id))).scalars().all()
-    return [to_out(i, settings) for i in rows]
+    return [await instance_out(db, i, settings) for i in rows]
+
+
+async def clear_missing_sender(db: AsyncSession) -> None:
+    sender_id = await get_setting(db, "alerts.sender_instance_id")
+    if sender_id and await db.get(Instance, sender_id) is None:
+        await set_setting(db, "alerts.sender_instance_id", None)
 
 
 @router.post("", status_code=201)
 async def create_instance(body: InstanceIn, db: DB, settings: Cfg) -> InstanceOut:
+    base_url = validate_base_url(body.openwa_base_url)
+    phone_number = body.phone_number
+    if body.verify_openwa:
+        if not body.openwa_api_key:
+            raise HTTPException(422, "Enter an OpenWA API key before adding this phone")
+        client = OpenWAClient(base_url, body.openwa_api_key)
+        try:
+            result = await client._request(
+                "GET", f"/api/sessions/{quote(body.openwa_instance_id, safe='')}"
+            )
+            session = result.get("data", result) if isinstance(result, dict) else None
+            if not isinstance(session, dict) or session.get("id") != body.openwa_instance_id:
+                raise HTTPException(
+                    502, "OpenWA returned an invalid session. The phone was not added."
+                )
+            supplied_phone = session.get("phone")
+            if supplied_phone:
+                phone_number = str(supplied_phone).split("@")[0].lstrip("+")
+        except OpenWAError as exc:
+            detail = (
+                "OpenWA API key was rejected"
+                if exc.status in (401, 403)
+                else "OpenWA session could not be verified"
+            )
+            raise HTTPException(
+                502,
+                detail + ". The phone was not added; check the address, session ID and API key.",
+            ) from None
+        finally:
+            await client.aclose()
     inst = Instance(
         kid_name=body.kid_name,
-        phone_number=body.phone_number,
-        openwa_base_url=validate_base_url(body.openwa_base_url),
+        phone_number=phone_number,
+        openwa_base_url=base_url,
         openwa_instance_id=body.openwa_instance_id,
         openwa_api_key_enc=encrypt(settings.key_bytes, body.openwa_api_key)
         if body.openwa_api_key
         else None,
         webhook_token=secrets.token_urlsafe(32),
-        enabled=body.enabled,
+        enabled=False if body.role == "parent" else body.enabled,
     )
+    await clear_missing_sender(db)
     db.add(inst)
     await db.commit()
-    return to_out(inst, settings)
+    await save_role(db, inst, body.role)
+    return await instance_out(db, inst, settings)
 
 
 @router.get("/{instance_id}")
 async def get_instance(instance_id: int, db: DB, settings: Cfg) -> InstanceOut:
-    return to_out(await _get(db, instance_id), settings)
+    return await instance_out(db, await _get(db, instance_id), settings)
 
 
 @router.patch("/{instance_id}")
@@ -135,6 +212,17 @@ async def update_instance(
 ) -> InstanceOut:
     inst = await _get(db, instance_id)
     data = body.model_dump(exclude_unset=True)
+    role = data.pop("role", None)
+    verify = data.pop("verify_openwa", False)
+    session_name_supplied = "session_name" in data
+    session_name = data.pop("session_name", None)
+    current_role = (await instance_out(db, inst, settings)).role
+    if (role or current_role) == "parent":
+        if data.get("enabled") is True:
+            raise HTTPException(
+                status_code=422, detail="Parent sender connections are not monitored"
+            )
+        data["enabled"] = False
     key = data.pop("openwa_api_key", None)
     if key:  # empty/absent means "leave unchanged": secrets are write-only in the API
         inst.openwa_api_key_enc = encrypt(settings.key_bytes, key)
@@ -146,17 +234,196 @@ async def update_instance(
                 status_code=422, detail="Re-enter the API key when changing the base URL"
             )
         data["openwa_base_url"] = new_url
+    if verify:
+        effective_key = key or (
+            decrypt(settings.key_bytes, inst.openwa_api_key_enc)
+            if inst.openwa_api_key_enc
+            else None
+        )
+        if not effective_key:
+            raise HTTPException(422, "OpenWA API key is not set")
+        client = OpenWAClient(data.get("openwa_base_url") or inst.openwa_base_url, effective_key)
+        try:
+            result = await client._request(
+                "GET",
+                "/api/sessions/"
+                + quote(data.get("openwa_instance_id") or inst.openwa_instance_id, safe=""),
+            )
+            session = result.get("data", result) if isinstance(result, dict) else None
+            if not isinstance(session, dict) or session.get("id") != (
+                data.get("openwa_instance_id") or inst.openwa_instance_id
+            ):
+                raise HTTPException(
+                    502, "OpenWA returned an invalid session. Changes were not saved."
+                )
+        except OpenWAError:
+            raise HTTPException(
+                502,
+                "OpenWA connection could not be verified. Changes were not saved; "
+                "check the address, session ID and key.",
+            ) from None
+        finally:
+            await client.aclose()
     for field, value in data.items():
         if value is not None or field == "phone_number":
             setattr(inst, field, value)
     await db.commit()
-    return to_out(inst, settings)
+    await save_role(db, inst, role)
+    if session_name_supplied:
+        names = dict(await get_setting(db, "phones.session_names"))
+        if session_name and session_name.strip():
+            names[str(inst.id)] = session_name.strip()
+        else:
+            names.pop(str(inst.id), None)
+        await set_setting(db, "phones.session_names", names)
+    return await instance_out(db, inst, settings)
+
+
+async def _remove_openwa(
+    inst: Instance,
+    db: AsyncSession,
+    settings: Settings,
+    stage: Literal["all", "deactivate", "delete"],
+) -> None:
+    shared = await db.scalar(
+        select(Instance.id).where(
+            Instance.id != inst.id,
+            Instance.openwa_instance_id == inst.openwa_instance_id,
+        )
+    )
+    if shared is not None:
+        raise HTTPException(
+            409, "Another Iris phone uses this OpenWA session. Remove that reference first."
+        )
+    if not inst.openwa_api_key_enc:
+        raise HTTPException(422, "OpenWA API key is not set. The phone has not been removed.")
+    client = OpenWAClient(
+        inst.openwa_base_url, decrypt(settings.key_bytes, inst.openwa_api_key_enc)
+    )
+    sid = quote(inst.openwa_instance_id, safe="")
+    try:
+        if stage in ("all", "deactivate"):
+            try:
+                await client._request("POST", f"/api/sessions/{sid}/logout")
+            except OpenWAError as exc:
+                if exc.status not in (400, 404):
+                    raise
+        if stage in ("all", "delete"):
+            try:
+                await client._request("DELETE", f"/api/sessions/{sid}")
+            except OpenWAError as exc:
+                if exc.status != 404:
+                    raise
+    except OpenWAError:
+        raise HTTPException(
+            502,
+            "OpenWA session removal failed. The Iris phone has been kept; check OpenWA and retry.",
+        ) from None
+    finally:
+        await client.aclose()
+
+
+@router.post("/{instance_id}/remove-openwa", status_code=204)
+async def remove_openwa_stage(
+    instance_id: int, stage: Literal["deactivate", "delete"], db: DB, settings: Cfg
+) -> None:
+    await _remove_openwa(await _get(db, instance_id), db, settings, stage)
 
 
 @router.delete("/{instance_id}", status_code=204)
-async def delete_instance(instance_id: int, db: DB) -> None:
-    await db.delete(await _get(db, instance_id))
+async def delete_instance(
+    instance_id: int, db: DB, settings: Cfg, delete_openwa: bool = False
+) -> None:
+    inst = await _get(db, instance_id)
+    if delete_openwa:
+        await _remove_openwa(inst, db, settings, "all")
+    if await get_setting(db, "alerts.sender_instance_id") == instance_id:
+        await set_setting(db, "alerts.sender_instance_id", None)
+    await db.delete(inst)
     await db.commit()
+    roles = dict(await get_setting(db, "phones.roles"))
+    roles.pop(str(instance_id), None)
+    names = dict(await get_setting(db, "phones.session_names"))
+    names.pop(str(instance_id), None)
+    await set_setting(db, "phones.session_names", names)
+    await set_setting(db, "phones.roles", roles, settings.key_bytes)
+
+
+@router.post("/{instance_id}/re-pair")
+async def re_pair(instance_id: int, db: DB, settings: Cfg, response: Response) -> dict[str, object]:
+    response.headers["Cache-Control"] = "no-store"
+    inst = await _get(db, instance_id)
+    if not inst.openwa_api_key_enc:
+        raise HTTPException(422, "OpenWA API key is not set")
+    client = OpenWAClient(
+        inst.openwa_base_url, decrypt(settings.key_bytes, inst.openwa_api_key_enc)
+    )
+    sid = quote(inst.openwa_instance_id, safe="")
+    try:
+        value = await client._request("GET", f"/api/sessions/{sid}")
+        session = value.get("data", value) if isinstance(value, dict) else {}
+        if not isinstance(session, dict):
+            raise HTTPException(502, "OpenWA returned an invalid session")
+        status = str(session.get("status", "unknown"))
+        from datetime import UTC
+
+        from app.monitoring import session_details, states
+
+        session_details[inst.id] = (status, datetime.now(UTC))
+        states[inst.id] = status == "ready"
+        if status == "ready":
+            phone = session.get("phone")
+            if phone:
+                number = str(phone).split("@")[0].lstrip("+")
+                if re.fullmatch(r"[1-9][0-9]{5,14}", number) and inst.phone_number != number:
+                    inst.phone_number = number
+                    await db.commit()
+            return {"status": "ready", "qr": None}
+        if status in ("created", "disconnected", "failed", "action_required"):
+            await client._request("POST", f"/api/sessions/{sid}/start")
+            return {"status": "initializing", "qr": None}
+        if status in ("initializing", "authenticating"):
+            return {"status": status, "qr": None}
+        value = await client._request("GET", f"/api/sessions/{sid}/qr")
+        body = value.get("data", value) if isinstance(value, dict) else {}
+        qr = body.get("qrCode") if isinstance(body, dict) else None
+        if qr is not None:
+            try:
+                if (
+                    not isinstance(qr, str)
+                    or len(qr) > 1_000_000
+                    or not re.fullmatch(r"data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+", qr)
+                ):
+                    raise ValueError
+                image = base64.b64decode(qr.split(",", 1)[1], validate=True)
+                if not image.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")):
+                    raise ValueError
+            except (ValueError, binascii.Error):
+                raise HTTPException(
+                    502, "OpenWA returned an invalid QR. Refresh and retry."
+                ) from None
+        return {"status": "qr_ready" if qr else "waiting", "qr": qr}
+    except OpenWAError as exc:
+        if exc.status == 400:
+            return {"status": "waiting", "qr": None}
+        if exc.status == 404:
+            raise HTTPException(
+                409, "The OpenWA session no longer exists. Add a new phone connection."
+            ) from None
+        raise HTTPException(
+            502, "OpenWA is unavailable. The existing phone has not been removed."
+        ) from None
+    finally:
+        await client.aclose()
+
+
+@router.post("/{instance_id}/check-session")
+async def check_session(instance_id: int, db: DB, settings: Cfg) -> InstanceOut:
+    from app.monitoring import probe_instance
+
+    instance = await _get(db, instance_id)
+    await probe_instance(instance, settings.key_bytes)
+    return await instance_out(db, instance, settings)
 
 
 @router.post("/{instance_id}/rotate-token")
@@ -167,7 +434,7 @@ async def rotate_token(instance_id: int, db: DB, settings: Cfg) -> InstanceOut:
         False  # the secret is derived from the token: re-register to sign again
     )
     await db.commit()
-    return to_out(inst, settings)
+    return await instance_out(db, inst, settings)
 
 
 @router.post("/{instance_id}/register-webhook")

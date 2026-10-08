@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.alerts.recipients import validate_recipients
 from app.classify.thresholds import validate_thresholds
 from app.db.models import Setting
 from app.media.s3 import validate_endpoint
@@ -116,7 +117,85 @@ def _prefix(v: Any) -> str:
     return text if text.endswith("/") else text + "/"
 
 
+def _provider_url(v: Any) -> str | None:
+    import ipaddress
+    from urllib.parse import urlsplit
+
+    value = _opt_str(v)
+    if value is None:
+        return None
+    try:
+        parts = urlsplit(value)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError("use an http or https endpoint")
+        if parts.username or parts.password or parts.query or parts.fragment:
+            raise ValueError("credentials belong in the API key field, not the URL")
+        _ = parts.port
+        try:
+            address = ipaddress.ip_address(parts.hostname)
+        except ValueError:
+            address = None
+        if address and (address.is_link_local or address.is_unspecified or address.is_multicast):
+            raise ValueError("endpoint address is not allowed")
+    except ValueError as exc:
+        raise ValueError("invalid provider endpoint") from exc
+    return value.rstrip("/")
+
+
+RUNTIME_FIELDS = (
+    "classification_provider",
+    "ollama_base_url",
+    "ollama_model",
+    "transcription_provider",
+    "whisper_url",
+    "whisper_model",
+    "whisper_fallback_model",
+    "local_safety_mode",
+    "workers",
+    "delivery_workers",
+    "job_heartbeat_seconds",
+    "monitoring_silence_minutes",
+    "require_webhook_signatures",
+)
+
+
+def _phone_roles(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict) or any(
+        not isinstance(key, str) or not key.isdigit() or role not in ("child", "parent")
+        for key, role in value.items()
+    ):
+        raise ValueError("phone roles must map instance IDs to child or parent")
+    return dict(value)
+
+
 REGISTRY: dict[str, Spec] = {
+    "phones.roles": Spec({}, _phone_roles),
+    "phones.session_names": Spec(
+        {}, lambda value: {str(int(k)): str(v)[:100] for k, v in dict(value or {}).items()}
+    ),
+    "runtime.classification_provider": Spec(
+        None, lambda v: None if v is None else _choice("openai", "ollama")(v)
+    ),
+    "runtime.transcription_provider": Spec(
+        None, lambda v: None if v is None else _choice("openai", "cloudflare", "local_whisper")(v)
+    ),
+    "runtime.ollama_base_url": Spec(None, _provider_url),
+    "runtime.ollama_model": Spec(None, _opt_str),
+    "runtime.whisper_url": Spec(None, _provider_url),
+    "runtime.whisper_model": Spec(None, _opt_str),
+    "runtime.whisper_fallback_model": Spec(None, lambda v: None if v is None else str(v).strip()),
+    "runtime.whisper_api_key": Spec(None, _opt_secret, secret=True),
+    "runtime.whisper_use_environment_key": Spec(True, _bool),
+    "runtime.local_safety_mode": Spec(None, lambda v: None if v is None else _bool(v)),
+    "runtime.require_webhook_signatures": Spec(None, lambda v: None if v is None else _bool(v)),
+    "runtime.workers": Spec(None, lambda v: None if v is None else _int_range(0, 16)(v)),
+    "runtime.delivery_workers": Spec(None, lambda v: None if v is None else _int_range(0, 4)(v)),
+    "runtime.job_heartbeat_seconds": Spec(
+        None, lambda v: None if v is None else _int_range(0, 120)(v)
+    ),
+    "runtime.monitoring_silence_minutes": Spec(
+        None, lambda v: None if v is None else _int_range(0, 10080)(v)
+    ),
     "transcription.provider": Spec("openai", _choice("openai", "cloudflare")),
     "transcription.openai_model": Spec(
         "gpt-4o-mini-transcribe", _choice("gpt-4o-mini-transcribe", "whisper-1")
@@ -137,7 +216,7 @@ REGISTRY: dict[str, Spec] = {
     "retention.message_days": Spec(90, _int_range(1, 3650)),
     "retention.alert_days": Spec(365, _int_range(1, 3650)),
     "alerts.sender_instance_id": Spec(None, _opt_int),
-    "alerts.recipient": Spec(None, _opt_str),
+    "alerts.recipient": Spec(None, lambda v: validate_recipients(_opt_str(v))),
     "alerts.cooldown_minutes": Spec(10, _int_range(0, 1440)),
     "alerts.alert_on_review": Spec(False, _bool),
     "alerts.notify_changes": Spec(True, _bool),
@@ -212,3 +291,24 @@ async def all_settings(db: AsyncSession) -> dict[str, Any]:
         else:
             out[key] = row.value if row is not None else spec.default
     return out
+
+
+async def reload_runtime_settings(db: AsyncSession) -> None:
+    """Database overrides are explicit; absent rows preserve environment/base defaults."""
+    from app.config import Settings, get_settings
+
+    # Build off-cache so no job can observe half-applied overrides or a temporary cloud default.
+    cfg = Settings()
+    for field in RUNTIME_FIELDS:
+        value = await get_setting(db, "runtime." + field)
+        if value is not None:
+            setattr(cfg, field, value)
+    local_key = await get_secret(db, "runtime.whisper_api_key", cfg.key_bytes)
+    if local_key:
+        cfg.whisper_api_key = local_key
+    elif not await get_setting(db, "runtime.whisper_use_environment_key"):
+        cfg.whisper_api_key = None
+    get_settings.cache_clear()
+    installed = get_settings()
+    for field in (*RUNTIME_FIELDS, "whisper_api_key"):
+        setattr(installed, field, getattr(cfg, field))

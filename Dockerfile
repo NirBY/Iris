@@ -38,6 +38,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY alembic.ini ./
+COPY LICENSE /app/LICENSE
 COPY app/ ./app/
 COPY --from=frontend /src/app/static ./app/static
 COPY scripts/entrypoint.sh /entrypoint.sh
