@@ -127,6 +127,7 @@ async def test_unprocessable_voice_is_reviewed_not_failed(
 
     enable(monkeypatch)
     deps, token = await setup(app_client)
+    deps.data_dir = get_settings().data_dir
 
     async def unavailable(*args: Any) -> None:
         raise PermanentError("transcription HTTP 422")
