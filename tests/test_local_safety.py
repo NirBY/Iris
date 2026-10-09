@@ -368,6 +368,7 @@ async def test_video_transcript_does_not_clear_unchecked_visuals(
     deps, token = await setup(app_client)
 
     async def transcribe(db: Any, deps: Any, tmp: Any, message: Message) -> None:
+        assert tmp.is_relative_to(get_settings().data_dir)
         message.transcript = "harmless speech"
 
     async def moderate(self: Any, model: str, body: str) -> ModerationResult:

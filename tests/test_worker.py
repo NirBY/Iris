@@ -37,7 +37,12 @@ def mod_response(**scores: float) -> httpx.Response:
 async def setup(c: Any) -> tuple[Deps, str]:
     await c.put("/api/settings", json={"settings": {"openai.api_key": "sk-test"}})
     _, token = await make_instance(c, "Noa")
-    deps = Deps(c.app.state.session_factory, Providers(), get_settings().key_bytes)
+    deps = Deps(
+        c.app.state.session_factory,
+        Providers(),
+        get_settings().key_bytes,
+        data_dir=get_settings().data_dir,
+    )
     return deps, token
 
 
