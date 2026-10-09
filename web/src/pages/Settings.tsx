@@ -1,6 +1,7 @@
 import { useSearchParams } from 'react-router-dom'
 import { ParentConnections } from '../components/PhoneConnections'
 import { AlertDeliveryHealth } from '../components/AlertDeliveryHealth'
+import { OllamaModelPicker } from '../components/OllamaModelPicker'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Brain,
@@ -633,7 +634,7 @@ export function Settings() {
             {classifier === 'ollama' ? (
               <Section
                 title="Ollama"
-                description="Local text classifier. Test the entered endpoint and model, then save to use them for new jobs."
+                description="Local text and image classifier. Detect installed models, test your choice, then save to use it for new jobs."
               >
                 <Field label="Ollama endpoint">
                   <Input
@@ -642,12 +643,11 @@ export function Settings() {
                     placeholder="http://localhost:11434"
                   />
                 </Field>
-                <Field label="Ollama model">
-                  <Input
-                    value={get('runtime.ollama_model') || data.local_providers?.ollama_model || ''}
-                    onChange={(e) => set('runtime.ollama_model')(e.target.value)}
-                  />
-                </Field>
+                <OllamaModelPicker
+                  endpoint={get('runtime.ollama_base_url')}
+                  value={get('runtime.ollama_model') || data.local_providers?.ollama_model || ''}
+                  onChange={set('runtime.ollama_model')}
+                />
                 <p className="text-sm text-muted-foreground">
                   Local scores require calibration. Images and stickers are checked with their
                   captions when the selected Ollama model supports vision. Missing media or failed

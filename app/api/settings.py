@@ -224,6 +224,47 @@ class TestResult(BaseModel):
     detail: str
 
 
+@router.post("/ollama/models")
+async def ollama_models(
+    body: TestRequest, cfg: Annotated[Settings, Depends(get_settings)]
+) -> dict[str, Any]:
+    import asyncio
+
+    url = REGISTRY["runtime.ollama_base_url"].validate(body.base_url or cfg.ollama_base_url)
+    try:
+        async with httpx.AsyncClient(
+            base_url=url.rstrip("/"), timeout=3, trust_env=False
+        ) as client:
+            response = await client.get("/api/tags")
+            response.raise_for_status()
+            rows = response.json()["models"]
+            if not isinstance(rows, list):
+                raise ValueError("Invalid model list")
+            names = sorted(
+                {r["name"] for r in rows if isinstance(r, dict) and isinstance(r.get("name"), str)}
+            )
+            items = [{"name": name, "vision": None} for name in names]
+            slots = asyncio.Semaphore(4)
+
+            async def capabilities(item: dict[str, Any]) -> None:
+                async with slots:
+                    try:
+                        metadata = await client.post("/api/show", json={"model": item["name"]})
+                        metadata.raise_for_status()
+                        caps = metadata.json().get("capabilities")
+                        if isinstance(caps, list):
+                            item["vision"] = "vision" in caps
+                    except (httpx.HTTPError, ValueError, AttributeError):
+                        pass  # Keep the installed model visible with unknown capabilities.
+
+            await asyncio.gather(*(capabilities(item) for item in items[:20]))
+            return {"models": items}
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        raise HTTPException(
+            502, "Could not detect installed Ollama models. Check the endpoint and try again."
+        ) from exc
+
+
 @router.post("/test/{target}")
 async def test_provider(
     target: Literal[

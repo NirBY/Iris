@@ -19,6 +19,38 @@ from tests.test_webhooks import fx, post
 from tests.test_worker import drain, mod_response, setup
 
 
+@respx.mock
+async def test_detected_models_preserve_names_and_unknown_capabilities(app_client: Any) -> None:
+    respx.get("http://ollama/api/tags").mock(
+        return_value=httpx.Response(
+            200, json={"models": [{"name": "vision"}, {"name": "text"}, {"name": "unknown"}]}
+        )
+    )
+
+    def metadata(request: httpx.Request) -> httpx.Response:
+        import json
+
+        name = json.loads(request.content)["model"]
+        return (
+            httpx.Response(503)
+            if name == "unknown"
+            else httpx.Response(
+                200, json={"capabilities": ["vision"] if name == "vision" else ["completion"]}
+            )
+        )
+
+    respx.post("http://ollama/api/show").mock(side_effect=metadata)
+    response = await app_client.post(
+        "/api/settings/ollama/models", json={"base_url": "http://ollama"}
+    )
+    assert response.status_code == 200
+    assert response.json()["models"] == [
+        {"name": "text", "vision": False},
+        {"name": "unknown", "vision": None},
+        {"name": "vision", "vision": True},
+    ]
+
+
 def enable(monkeypatch: pytest.MonkeyPatch, local: bool = False) -> None:
     monkeypatch.setenv("IRIS_LOCAL_SAFETY_MODE", "true")
     if local:

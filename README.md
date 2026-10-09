@@ -34,6 +34,8 @@ Local Ollama vision models now receive images/stickers and captions together. Se
 includes a separate Test Ollama image button that verifies model vision support and actual inference
 using a bundled sample. Saved traces identify image or text+image classifications. Missing originals,
 unsupported models and failed checks still require review; model scores are not calibrated guarantees.
+The Ollama model dropdown detects installed models from the entered server and labels vision support.
+Refresh the list or enter a custom name; detection preserves the saved choice until you explicitly save.
 
 Settings → Schedules includes daily summaries, device/webhook verification, incident notifications,
 retention, media cleanup, stale job recovery, pending alert catch-up, group names and pairing cleanup.
