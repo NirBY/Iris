@@ -39,6 +39,9 @@ Refresh the list or enter a custom name; detection preserves the saved choice un
 Review keeps compact Safe (green), Harmful, Ignore and Chat actions visible. AI rejudging, trace copying
 and chat skipping sit under “Note: additional options.” Decision, skip and trace actions are disabled
 while that message's AI recheck is queued or running.
+Animated WebP stickers are unwrapped to their first frame for compatibility with older FFmpeg builds.
+Image conversion checks that a nonempty JPEG was produced and bounds both dimensions. This checks
+the first displayed frame, not every frame of an animation; the original remains available to view.
 
 Settings → Schedules includes daily summaries, device/webhook verification, incident notifications,
 retention, media cleanup, stale job recovery, pending alert catch-up, group names and pairing cleanup.
