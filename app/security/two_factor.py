@@ -163,7 +163,7 @@ async def send_green_code(
                 "chatId": recipient.lstrip("+") + "@c.us",
                 "header": "Iris verification code",
                 "body": (
-                    f"Test code: {code}. Approve your contact using the button below."
+                    f"Test code: {code}. Approve your contact using this link:\n{approval_url}"
                     if approval_url
                     else f"Your Iris verification code is: {code}"
                 ),

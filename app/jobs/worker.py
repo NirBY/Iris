@@ -2,7 +2,8 @@
 
 import asyncio
 import shutil
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 from loguru import logger
 from sqlalchemy.exc import OperationalError
@@ -23,6 +24,29 @@ HANDLERS: dict[str, Handler] = {
     "notify_change": notify_change,
     "test_alert": deliver_test,
 }
+
+
+_message_locks: dict[tuple[int, int], tuple[asyncio.Lock, int]] = {}
+
+
+@asynccontextmanager
+async def _message_execution(job: ClaimedJob, deps: Deps) -> AsyncIterator[None]:
+    mid = job.payload.get("message_id")
+    if job.type != "process_message" or not isinstance(mid, int):
+        yield
+        return
+    key = (id(deps.session_factory), mid)
+    lock, users = _message_locks.get(key, (asyncio.Lock(), 0))
+    _message_locks[key] = (lock, users + 1)
+    try:
+        async with lock:
+            yield
+    finally:
+        _, users = _message_locks[key]
+        if users == 1:
+            del _message_locks[key]
+        else:
+            _message_locks[key] = (lock, users - 1)
 
 
 async def run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler] = HANDLERS) -> str:
@@ -57,8 +81,13 @@ async def _run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler]) ->
         timeout = cfg.job_timeout_seconds
         if not cfg.job_heartbeat_seconds:
             timeout = min(timeout, int(queue.STALE_LOCK.total_seconds()) - 30)
-        async with asyncio.timeout(timeout):
+        async with asyncio.timeout(timeout), _message_execution(job, deps):
+            async with factory() as db:
+                await queue.ensure_owned(db, job)
+                await db.commit()
             await handler(job, deps)
+    except queue.LostLeaseError:
+        return "superseded"
     except TimeoutError:
         return await queue.fail(
             factory,

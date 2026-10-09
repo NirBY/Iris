@@ -34,6 +34,10 @@ const emptyUser = {
 export function UserSettings() {
   const qc = useQueryClient()
   const users = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/api/users') })
+  const settings = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api<Record<string, unknown>>('/api/settings'),
+  })
   const security = useQuery({
     queryKey: ['security'],
     queryFn: () =>
@@ -56,6 +60,7 @@ export function UserSettings() {
       await qc.invalidateQueries({ queryKey: ['security'] })
       await qc.invalidateQueries({ queryKey: ['users'] })
       await qc.invalidateQueries({ queryKey: ['me'] })
+      await qc.invalidateQueries({ queryKey: ['settings'] })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not save'
       setSaveError(message)
@@ -68,9 +73,21 @@ export function UserSettings() {
     users.data?.length &&
     users.data.every(
       (u) =>
-        (u.email_verified && security.data?.smtp.verified) ||
-        (u.whatsapp_verified && security.data?.green_api?.verified),
+        (u.email && u.email_verified && security.data?.smtp.verified) ||
+        (u.whatsapp_number && u.whatsapp_verified && security.data?.green_api?.verified),
     )
+  const emailReady =
+    security.data?.smtp.verified && users.data?.some((u) => u.email && u.email_verified)
+  const whatsappReady =
+    security.data?.green_api?.verified &&
+    users.data?.some((u) => u.whatsapp_number && u.whatsapp_verified)
+  const availableChannels = [emailReady && 'email', whatsappReady && 'whatsapp'].filter(
+    Boolean,
+  ) as string[]
+  const preferredChannel = String(settings.data?.['auth.default_channel'] || 'email')
+  const defaultChannel = availableChannels.includes(preferredChannel)
+    ? preferredChannel
+    : availableChannels[0]
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-lg border bg-surface p-5">
@@ -278,14 +295,54 @@ export function UserSettings() {
           Email codes use SMTP. WhatsApp 2FA uses GreenAPI only and includes a Copy code button. An
           approved email with tested SMTP or an approved WhatsApp number with tested GreenAPI is
           enough; both are optional alternatives. Approval links use Iris base URL in Settings →
-          Alerts.
+          Notifications.
         </p>
         <p className="mb-3 text-sm text-muted-foreground">
           If code delivery fails, emergency recovery requires access to the Iris Docker container
           and its predefined recovery key. No recovery-key bypass is available on this login page.
         </p>
+        {!!canEnable &&
+          availableChannels.length > 0 &&
+          !users.isError &&
+          !security.isError &&
+          !settings.isError &&
+          settings.data && (
+            <div className="mb-4 flex flex-col gap-3">
+              <h3 className="font-semibold">Sign-in verification</h3>
+              <p className="text-sm text-muted-foreground">
+                Choose the preferred code channel from tested providers with approved user contacts.
+                Each user can use a channel available to their account when signing in.
+              </p>
+              <Field label="Default sign-in code channel">
+                <Select
+                  aria-label="Default sign-in code channel"
+                  value={defaultChannel}
+                  disabled={busy}
+                  onChange={(event) => {
+                    const channel = event.target.value
+                    void run(async () => {
+                      await api('/api/settings', {
+                        method: 'PUT',
+                        body: JSON.stringify({ settings: { 'auth.default_channel': channel } }),
+                      })
+                      toast.success('Sign-in channel saved.')
+                    })
+                  }}
+                >
+                  {emailReady && <option value="email">Email (default)</option>}
+                  {whatsappReady && <option value="whatsapp">WhatsApp via GreenAPI</option>}
+                </Select>
+              </Field>
+            </div>
+          )}
         <Button
-          disabled={busy || security.isLoading || (!security.data?.enabled && !canEnable)}
+          disabled={
+            busy ||
+            security.isLoading ||
+            users.isError ||
+            security.isError ||
+            (!security.data?.enabled && !canEnable)
+          }
           onClick={() =>
             void run(async () => {
               await api('/api/users/security/two-factor', {

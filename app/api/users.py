@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -141,13 +141,35 @@ async def create_user(body: UserBody, db: DB, cfg: Cfg) -> dict[str, Any]:
     return out(user)
 
 
+_USER_UPDATE_LOCK = asyncio.Lock()
+
+
 @router.put("/{user_id}")
 async def update_user(
     user_id: int, body: UserBody, db: DB, admin: Admin, cfg: Cfg, response: Response
 ) -> dict[str, Any]:
+    async with _USER_UPDATE_LOCK:
+        await db.refresh(admin)
+        if admin.role != "admin":
+            raise HTTPException(403, "Administrator access required")
+        return await _update_user(user_id, body, db, admin, cfg, response)
+
+
+async def _update_user(
+    user_id: int, body: UserBody, db: AsyncSession, admin: User, cfg: Settings, response: Response
+) -> dict[str, Any]:
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(404, "User not found")
+    # Omitted fields preserve the existing account rather than demoting it or
+    # clearing contacts. Explicit null still clears an optional contact.
+    body = body.model_copy(
+        update={
+            key: getattr(user, key)
+            for key in ("role", "email", "whatsapp_number")
+            if key not in body.model_fields_set
+        }
+    )
     if user.id == admin.id and body.role != "admin":
         raise HTTPException(422, "You cannot remove your own admin role")
     if (
@@ -282,13 +304,18 @@ async def configure_two_factor(
 
 
 class WhatsAppBody(BaseModel):
+    media_url: str | None = None
     api_url: str = "https://api.green-api.com"
     instance_id: str = Field(default="", max_length=30, pattern=r"^\d*$")
     token: str | None = Field(default=None, max_length=512, pattern=r"^[A-Za-z0-9_-]+$")
 
-    @field_validator("api_url")
+    @field_validator("api_url", "media_url")
     @classmethod
-    def valid_api_url(cls, value: str) -> str:
+    def valid_api_url(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if not value:
+            if info.field_name == "api_url":
+                raise ValueError("GreenAPI API URL is required")
+            return None
         parts = urlsplit(value.strip())
         host = parts.hostname or ""
         if (
@@ -320,6 +347,8 @@ async def configure_whatsapp(body: WhatsAppBody, db: DB, cfg: Cfg) -> dict[str, 
     if not body.instance_id or not token:
         raise HTTPException(422, "GreenAPI instance ID and API token are required")
     config = {"api_url": body.api_url, "instance_id": body.instance_id, "token": token}
+    if body.media_url:
+        config["media_url"] = body.media_url
     config["verified"] = (
         bool(previous.get("verified"))
         if all(previous.get(k) == v for k, v in config.items())
@@ -328,6 +357,37 @@ async def configure_whatsapp(body: WhatsAppBody, db: DB, cfg: Cfg) -> dict[str, 
     await save(db, GREEN_API_KEY, encrypt(cfg.key_bytes, json.dumps(config)), True)
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/security/whatsapp/check")
+async def check_whatsapp_account(db: DB, cfg: Cfg) -> dict[str, Any]:
+    import httpx
+
+    config = await green_api_config(db, cfg)
+    if not config.get("instance_id") or not config.get("token"):
+        raise HTTPException(422, "Save the GreenAPI instance ID and token first")
+    url = (
+        f"{config['api_url']}/waInstance{config['instance_id']}/getStateInstance/{config['token']}"
+    )
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+            result = await client.get(url)
+            result.raise_for_status()
+            authorized = result.json().get("stateInstance") == "authorized"
+    except (httpx.HTTPError, ValueError):
+        return {
+            "ok": False,
+            "detail": "GreenAPI account check failed; verify the saved credentials",
+        }
+    if not authorized:
+        return {"ok": False, "detail": "GreenAPI account is not connected"}
+    config["verified"] = True
+    await save(db, GREEN_API_KEY, encrypt(cfg.key_bytes, json.dumps(config)), True)
+    await db.commit()
+    return {
+        "ok": True,
+        "detail": "GreenAPI connected. Alerts are ready; 2FA needs an approved personal number.",
+    }
 
 
 @router.post("/security/whatsapp/test")

@@ -16,7 +16,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Response
 from loguru import logger
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.instances import (
@@ -39,6 +39,7 @@ DB = Annotated[AsyncSession, Depends(get_db)]
 Cfg = Annotated[Settings, Depends(get_settings)]
 Owner = Annotated[User, Depends(admin_user)]
 PREFIX = "pairing.draft."
+COMPLETED_PREFIX = "pairing.completed."
 LEASE_SECONDS = 120
 MAX_AGE = 1800
 QR_SECONDS = 120
@@ -348,6 +349,15 @@ async def cancel(token: str, db: DB, cfg: Cfg, user: Owner) -> None:
 @router.post("/{token}/complete", status_code=201)
 async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Owner) -> InstanceOut:
     async with _lock:
+        receipt_key = COMPLETED_PREFIX + hashlib.sha256(token.encode()).hexdigest()
+        receipt = await db.get(Setting, receipt_key)
+        if receipt is not None:
+            if receipt.value.get("owner") != user.id:
+                raise HTTPException(404, "Pairing request not found")
+            if receipt.value.get("expires", 0) > time.time():
+                instance = await db.get(Instance, receipt.value["instance_id"])
+                if instance is not None:
+                    return await instance_out(db, instance, cfg)
         row, data = await _owned(db, token, user, cfg)
         state = await _status(db, row, data, cfg)
         if state["status"] != "ready":
@@ -393,6 +403,13 @@ async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Ow
             db.add(Setting(key="phones.roles", value=roles, is_secret=False))
         else:
             role_row.value = roles
+        db.add(
+            Setting(
+                key=receipt_key,
+                value={"owner": user.id, "instance_id": inst.id, "expires": time.time() + MAX_AGE},
+                is_secret=False,
+            )
+        )
         await db.delete(row)
         await db.commit()  # phone and ownership transfer are committed together
         return await instance_out(db, inst, cfg)
@@ -403,6 +420,15 @@ async def cleanup_loop(factory: async_sessionmaker[AsyncSession]) -> None:
         try:
             async with _lock, factory() as db:
                 cfg = get_settings()
+                completed = (
+                    await db.scalars(
+                        select(Setting).where(Setting.key.startswith(COMPLETED_PREFIX))
+                    )
+                ).all()
+                for receipt in completed:
+                    if receipt.value.get("expires", 0) <= time.time():
+                        await db.execute(delete(Setting).where(Setting.key == receipt.key))
+                await db.commit()
                 keys = list(
                     (
                         await db.scalars(select(Setting.key).where(Setting.key.startswith(PREFIX)))

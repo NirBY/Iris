@@ -118,3 +118,16 @@ async def test_password_change_keeps_the_current_session_signed_in(
     )
     assert r.status_code == 200 and "iris_session" in r.headers["set-cookie"]
     assert (await client.get("/api/auth/me")).status_code == 200  # still logged in
+
+
+def test_successful_reservation_does_not_clear_other_failed_attempts():
+    from app.security.auth import LoginLimiter
+
+    limiter = LoginLimiter()
+    for _ in range(4):
+        limiter.record_failure("same-ip")
+    own_attempt = limiter.record_failure("same-ip")
+    limiter.release("same-ip", own_attempt)
+    assert not limiter.blocked("same-ip")
+    limiter.record_failure("same-ip")
+    assert limiter.blocked("same-ip")

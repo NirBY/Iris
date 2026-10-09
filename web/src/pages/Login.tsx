@@ -8,10 +8,15 @@ import { api, ApiError } from '../lib/api'
 
 function explain(err: unknown): string {
   if (err instanceof ApiError && err.status === 408) return err.message
-  if (err instanceof ApiError && err.status === 429 && err.message.includes('WhatsApp code limit'))
+  if (
+    err instanceof ApiError &&
+    err.status === 429 &&
+    (err.message.includes('WhatsApp code limit') || err.message.includes('code requests'))
+  )
     return err.message
   if (err instanceof ApiError && err.status === 429)
     return 'Too many failed attempts. Wait a few minutes, then try again.'
+  if (err instanceof ApiError && (err.status === 403 || err.status === 422)) return err.message
   if (err instanceof ApiError && err.status === 401)
     return 'That username and password do not match. Check them and try again.'
   return 'Could not reach Iris. Check your connection and try again.'
@@ -21,11 +26,15 @@ export function Login() {
   const qc = useQueryClient()
   const [challenge, setChallenge] = useState('')
   const [code, setCode] = useState('')
-  const [channel, setChannel] = useState('email')
+  const [channel, setChannel] = useState('')
   const { data: options } = useQuery({
     queryKey: ['login-options'],
     queryFn: () =>
-      api<{ two_factor_enabled: boolean; secure_login_url?: string | null }>('/api/auth/options'),
+      api<{
+        two_factor_enabled: boolean
+        default_channel?: string
+        secure_login_url?: string | null
+      }>('/api/auth/options'),
   })
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -58,7 +67,9 @@ export function Login() {
           body: JSON.stringify({
             username,
             password,
-            ...(options?.two_factor_enabled ? { channel } : {}),
+            ...(options?.two_factor_enabled
+              ? { channel: channel || options?.default_channel || 'email' }
+              : {}),
           }),
         })
         if (result.challenge_id) {
@@ -147,7 +158,7 @@ export function Login() {
               <Field label="Send verification code by">
                 <select
                   className="rounded border p-2"
-                  value={channel}
+                  value={channel || options?.default_channel || 'email'}
                   onChange={(e) => setChannel(e.target.value)}
                 >
                   <option value="email">Email</option>

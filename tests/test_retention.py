@@ -195,3 +195,16 @@ async def test_local_retention_expires_failed_and_skipped_but_preserves_review_a
     assert result["messages"] == 2
     async with factory() as db:
         assert list((await db.scalars(select(Message.id).order_by(Message.id))).all()) == ids[2:]
+
+
+async def test_hour_retention_overrides_days_and_keeps_review(app_client):
+    _, token = await make_instance(app_client)
+    ids = await seed(app_client, token, ["H1", "H2"], [1, 1])
+    async with app_client.app.state.session_factory() as db:
+        await set_setting(db, "retention.message_hours", 2)
+        await db.execute(update(Message).where(Message.id == ids[1]).values(verdict="review"))
+        await db.commit()
+    result = await run_retention(app_client.app.state.session_factory, NOW)
+    assert result["messages"] == 1
+    async with app_client.app.state.session_factory() as db:
+        assert list(await db.scalars(select(Message.id))) == [ids[1]]

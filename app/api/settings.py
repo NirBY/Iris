@@ -2,12 +2,14 @@
 
 import time
 from collections import deque
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts import ALERT_PREFIX
@@ -108,6 +110,21 @@ async def update_settings(
             spec.validate(value)
         except ValueError as exc:
             errors[key] = str(exc)
+    if "alerts.recipient_children" in body.settings and "alerts.recipient_children" not in errors:
+        roles = await get_setting(db, "phones.roles")
+        sender_id = body.settings.get(
+            "alerts.sender_instance_id", await get_setting(db, "alerts.sender_instance_id")
+        )
+        child_ids = {
+            child.id
+            for child in await db.scalars(select(Instance))
+            if roles.get(str(child.id), "child") == "child" and child.id != sender_id
+        }
+        assigned = {
+            child for ids in body.settings["alerts.recipient_children"].values() for child in ids
+        }
+        if not assigned.issubset(child_ids):
+            errors["alerts.recipient_children"] = "Select existing child phones"
     if errors:
         raise HTTPException(status_code=422, detail=errors)
     # Changing a host must not send a saved credential to that new host unnoticed.
@@ -124,6 +141,13 @@ async def update_settings(
             raise HTTPException(
                 status_code=422, detail="Re-enter the transcription API key when changing its host"
             )
+    if body.settings.get("alerts.alert_on_review") is True and not await get_setting(
+        db, "alerts.alert_on_review"
+    ):
+        # Enabling notifications must not broadcast the historical review backlog.
+        await set_setting(
+            db, "alerts.review_notify_since", datetime.now(UTC).isoformat(), cfg.key_bytes
+        )
     for key, value in body.settings.items():
         await set_setting(db, key, value, cfg.key_bytes)
     if any(key.startswith("runtime.") for key in body.settings):
@@ -294,6 +318,25 @@ async def _test_media(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
 
 async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> TestResult:
     """Send a real WhatsApp test message with the entered (or saved) sender and recipient."""
+    channel = str(await get_setting(db, "alerts.channel"))
+    if channel != "openwa":
+        from app.alerts.channels import configured
+
+        if not await configured(db, channel):
+            return TestResult(ok=False, detail="Save and test the selected provider first")
+        targets = recipients(await get_setting(db, "alerts.recipient"))
+        text = with_signed_link(
+            f"{ALERT_PREFIX} (test)\nAlert delivery is working.",
+            cfg.public_base_url,
+            cfg.key_bytes,
+            0,
+        )
+        await enqueue(db, "test_alert", {"channel": channel, "recipients": targets, "text": text})
+        await db.commit()
+        return TestResult(
+            ok=True,
+            detail="Test notification queued. Check Jobs for delivery status.",
+        )
     sender_id = body.sender_instance_id or await get_setting(db, "alerts.sender_instance_id")
     recipient = body.recipient or await get_setting(db, "alerts.recipient")
     sender = await db.get(Instance, sender_id) if sender_id else None

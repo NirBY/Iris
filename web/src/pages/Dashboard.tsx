@@ -9,7 +9,7 @@ import {
   Smartphone,
   type LucideIcon,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ActivityChart } from '../components/ActivityChart'
 import { AlertRow } from '../components/AlertRow'
@@ -21,7 +21,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
 import { fileSize } from '../lib/format'
-import type { AlertPage, Stats, Timeline } from '../lib/types'
+import type { AlertPage, Stats, Timeline, Instance, Chat } from '../lib/types'
 import { QueryError } from '../components/QueryError'
 
 const REFRESH_MS = 60_000
@@ -52,7 +52,7 @@ function attentionItems(s: Stats): Item[] {
       tone: 'warning',
       text: 'No parent recipients are configured. Add a parent phone number to receive alerts.',
     })
-  if (s.alert_sender_configured === false)
+  if (s.alert_sender_configured === false && (!s.alert_channel || s.alert_channel === 'openwa'))
     items.push({
       icon: Smartphone,
       to: '/settings?tab=Alerts',
@@ -210,14 +210,39 @@ export function Dashboard() {
   const { data: me } = useMe()
   const watch = me?.role !== 'admin'
   const { revealed, toggle } = useReveal()
+  const [activityDays, setActivityDays] = useState(14)
+  const [childId, setChildId] = useState('')
+  const children = useQuery({
+    queryKey: ['auth-phones'],
+    queryFn: () => api<Instance[]>('/api/auth/phones'),
+  })
+  const chats = useQuery({
+    queryKey: ['chats'],
+    queryFn: () => api<Chat[]>('/api/chats'),
+    refetchInterval: REFRESH_MS,
+  })
   const stats = useQuery({
     queryKey: ['stats'],
     queryFn: () => api<Stats>('/api/stats'),
     refetchInterval: REFRESH_MS,
   })
+  const storage = useQuery({
+    queryKey: ['storage'],
+    queryFn: () =>
+      api<{
+        iris: { bytes: number | null; database_bytes: number | null; status: string }
+        openwa: { bytes: number | null; database_bytes: number | null; status: string }
+        iris_media_bytes: number
+      }>('/api/stats/storage'),
+    enabled: me?.role === 'admin',
+    refetchInterval: REFRESH_MS,
+  })
   const timeline = useQuery({
-    queryKey: ['timeline'],
-    queryFn: () => api<Timeline>('/api/stats/timeline?days=14'),
+    queryKey: ['timeline', activityDays, childId],
+    queryFn: () =>
+      api<Timeline>(
+        `/api/stats/timeline?days=${activityDays}${childId ? `&instance_id=${childId}` : ''}`,
+      ),
     refetchInterval: REFRESH_MS,
   })
   const alerts = useQuery({
@@ -291,6 +316,79 @@ export function Dashboard() {
         </div>
       </section>
 
+      {me?.role === 'admin' && (
+        <section aria-label="Storage usage" className="rounded-lg border bg-surface p-4">
+          <h2 className="text-lg font-semibold">Media and storage</h2>
+          {storage.isError ? (
+            <QueryError what="storage usage" onRetry={() => void storage.refetch()} />
+          ) : !storage.data ? (
+            <Skeleton className="h-16" />
+          ) : (
+            <>
+              <dl className="grid gap-4 py-3 sm:grid-cols-2">
+                {(['iris', 'openwa'] as const).map((source) => (
+                  <div key={source}>
+                    <dt className="font-medium">{source === 'iris' ? 'Iris' : 'OpenWA'} data</dt>
+                    <dd>
+                      {storage.data[source].bytes === null
+                        ? storage.data[source].status
+                        : fileSize(storage.data[source].bytes)}
+                      <span className="block text-sm text-muted-foreground">
+                        Database files on this volume:{' '}
+                        {storage.data[source].database_bytes === null
+                          ? 'Unavailable'
+                          : fileSize(storage.data[source].database_bytes)}
+                      </span>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="text-sm">
+                Iris kept media: {fileSize(storage.data.iris_media_bytes)} (includes remote
+                storage).
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Measured file sizes, refreshed each minute. Database size includes indexes and free
+                pages; it is not a text-only size. Iris retention controls Iris copies. OpenWA keeps
+                its own database, sessions and cache; configure its retention separately.
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Keep media is{' '}
+                {s.media_policy === 'off'
+                  ? 'off: Iris does not save new media copies'
+                  : 'enabled for the selected verdicts'}
+                . Unexamined and withheld media are not saved. Opening an original from OpenWA does
+                not retain an Iris copy.
+              </p>
+              <Link className="mt-2 inline-block text-primary" to="/settings?tab=Media">
+                Configure Keep media
+              </Link>
+              <Link className="mt-2 inline-block text-primary" to="/settings?tab=Retention">
+                Manage Iris retention
+              </Link>
+            </>
+          )}
+        </section>
+      )}
+
+      {(s.alert_media_not_saved ?? 0) > 0 && (
+        <section
+          className="rounded-lg border bg-warning-soft p-4"
+          aria-label="Alert media not saved"
+        >
+          <h2 className="font-semibold">
+            {s.alert_media_not_saved} alerts have no saved media copy
+          </h2>
+          <p className="mt-1 text-sm">
+            Photos or recordings may be missing in Messages. Keep media may be off, the content may
+            be unexamined, or its copy may have expired. The original can be checked through OpenWA
+            when available.
+          </p>
+          <Link className="mt-2 inline-block text-primary" to="/alerts">
+            Review affected alerts
+          </Link>
+        </section>
+      )}
       {items.length > 0 && (
         <section aria-labelledby="attention" className="flex flex-col gap-3">
           <h2 id="attention" className="text-lg font-semibold">
@@ -322,8 +420,43 @@ export function Dashboard() {
         className="flex flex-col gap-3 rounded-lg border bg-surface p-4 sm:p-5"
       >
         <h2 id="activity" className="text-lg font-semibold">
-          Activity, last 14 days
+          Activity, last {activityDays} days
         </h2>
+        <div className="flex flex-wrap gap-3">
+          <label className="text-sm">
+            Time period
+            <select
+              className="ml-2 rounded border bg-surface p-2"
+              aria-label="Activity time period"
+              value={activityDays}
+              onChange={(e) => setActivityDays(Number(e.target.value))}
+            >
+              {[1, 7, 14, 30, 60, 90].map((n) => (
+                <option key={n} value={n}>
+                  {n} days
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            Child
+            <select
+              className="ml-2 rounded border bg-surface p-2"
+              aria-label="Activity child"
+              value={childId}
+              onChange={(e) => setChildId(e.target.value)}
+            >
+              <option value="">All children</option>
+              {children.data
+                ?.filter((c) => c.role !== 'parent')
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.kid_name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        </div>
         {timeline.isError ? (
           <QueryError what="the activity chart" onRetry={() => void timeline.refetch()} />
         ) : timeline.isLoading ? (
@@ -334,6 +467,43 @@ export function Dashboard() {
           <p className="py-8 text-center text-sm text-muted-foreground">
             The chart appears once Iris has seen some messages.
           </p>
+        )}
+      </section>
+
+      <section
+        aria-label="Alerts per group or contact"
+        className="flex flex-col gap-3 rounded-lg border bg-surface p-4"
+      >
+        <h2 className="text-lg font-semibold">Alerts per group / contact</h2>
+        <p className="text-sm text-muted-foreground">
+          All retained alerts, with the children linked to each conversation.
+        </p>
+        {chats.isError ? (
+          <QueryError what="chat alert counts" onRetry={() => void chats.refetch()} />
+        ) : (
+          <ul className="divide-y">
+            {chats.data
+              ?.filter(
+                (c) =>
+                  c.alert_count > 0 && (!childId || c.kids.some((k) => k.id === Number(childId))),
+              )
+              .sort((a, b) => b.alert_count - a.alert_count)
+              .map((c) => (
+                <li key={c.id} className="flex justify-between gap-3 py-3">
+                  <Link
+                    to={`/alerts?chat_id=${c.id}${childId ? `&instance_id=${childId}` : ''}`}
+                    className="text-primary"
+                  >
+                    {c.name || (c.is_group ? 'Unnamed group' : 'Direct contact')}
+                    <span className="block text-sm text-muted-foreground">
+                      {c.is_group ? 'Group' : 'Contact'} ·{' '}
+                      {c.kids.map((k) => k.kid_name).join(', ') || 'No child linked'}
+                    </span>
+                  </Link>
+                  <span>{c.alert_count} alerts</span>
+                </li>
+              ))}
+          </ul>
         )}
       </section>
 
@@ -353,6 +523,11 @@ export function Dashboard() {
           </div>
         </div>
         <ul className="divide-y overflow-hidden rounded-lg border bg-surface">
+          {alerts.isError && (
+            <li className="p-4">
+              <QueryError what="recent alerts" onRetry={() => void alerts.refetch()} />
+            </li>
+          )}
           {alerts.data?.items.map((a) => (
             <AlertRow key={a.id} alert={a} revealed={revealed} />
           ))}

@@ -21,6 +21,25 @@ BACKOFF_SECONDS = (5, 30, 120, 600, 1800)
 STALE_LOCK = timedelta(minutes=10)
 
 
+class LostLeaseError(Exception):
+    """A superseded attempt must roll back every pending message write."""
+
+
+async def ensure_owned(db: AsyncSession, job: "ClaimedJob") -> None:
+    result = await db.execute(
+        update(Job)
+        .where(
+            Job.id == job.id,
+            Job.status == "running",
+            Job.attempts == job.attempts,
+        )
+        .values(locked_at=_naive(_now()))
+    )
+    if result.rowcount != 1:  # type: ignore[attr-defined]
+        await db.rollback()
+        raise LostLeaseError("Job attempt no longer owns its lease")
+
+
 class TransientError(Exception):
     """Network / 429 / 5xx: retry with backoff. `retry_after` (seconds) overrides the schedule."""
 
@@ -215,6 +234,7 @@ async def fail(
             await db.execute(
                 update(Message).where(Message.id == message_id).values(status="failed")
             )
+            await _review_failed_check(db, message_id)
         alert_id = job.payload.get("alert_id")
         # Only a delivery that ran out of attempts fails its alert; a lost follow-up must not
         # turn an alert the parent already received into a "failed" one.
@@ -229,7 +249,7 @@ async def fail(
                 .where(Alert.id == alert_id)
                 .values(
                     delivery_status="partial"
-                    if get_settings().local_safety_mode and job.payload.get("delivered_recipients")
+                    if job.payload.get("delivered_recipients")
                     else "failed",
                     delivery_error=error[:500],
                 )
@@ -237,6 +257,24 @@ async def fail(
         await db.commit()
         bus.publish("jobs", "stats", "messages", "alerts")  # a failed check or delivery shows
         return status
+
+
+async def _review_failed_check(db: AsyncSession, message_id: int) -> None:
+    """A terminal safety-check failure stays visible and cannot expire without review."""
+    if not get_settings().local_safety_mode:
+        return
+    message = await db.get(Message, message_id)
+    if message is None or message.verdict == "harmful":
+        return
+    message.verdict = "review"
+    message.review_reason = "Safety check unavailable after retries; parent review required"
+    await db.flush()
+    from app.settings_store import get_setting
+
+    if await get_setting(db, "alerts.alert_on_review"):
+        from app.alerts.service import create_alert
+
+        await create_alert(db, message, {})
 
 
 async def recover_stale(factory: async_sessionmaker[AsyncSession]) -> int:
@@ -271,6 +309,7 @@ async def recover_stale(factory: async_sessionmaker[AsyncSession]) -> int:
                     await db.execute(
                         update(Message).where(Message.id == mid).values(status="failed")
                     )
+                    await _review_failed_check(db, mid)
             else:
                 job.status, job.locked_at = "queued", None
         await db.commit()

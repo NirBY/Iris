@@ -154,3 +154,17 @@ def test_human_sizes() -> None:
     from app.alerts.format import human_size
 
     assert [human_size(n) for n in (5, 2048, 5 * 1024 * 1024)] == ["5 B", "2 KB", "5.0 MB"]
+
+
+def test_private_summary_omits_quote_scores_and_provider_diagnostics():
+    value = format_alert(
+        facts(verdict="review", review_reason="private provider failure"),
+        "UTC",
+        BASE,
+        KEY,
+        style="summary",
+    )
+    assert "Noa" in value and "Class 5B" in value and "Needs your review" in value
+    assert "I will find you" not in value and "0.94" not in value
+    assert "private provider failure" not in value
+    assert is_own_alert(value, KEY)

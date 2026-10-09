@@ -325,7 +325,9 @@ async def test_only_the_later_check_of_a_message_waits(app_client: Any) -> None:
 
     async def mark(job_id: int, status: str) -> None:
         async with app_client.app.state.session_factory() as s:
-            await s.execute(update(JobModel).where(JobModel.id == job_id).values(status=status))
+            await s.execute(
+                update(JobModel).where(JobModel.id == job_id).values(status=status, attempts=1)
+            )
             await s.commit()
 
     await mark(ids[0], "running")

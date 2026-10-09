@@ -129,14 +129,10 @@ async def test_harmful_message_creates_alert_and_delivers_whatsapp_text(app_clie
     assert req.headers["x-api-key"] == "owa"
     sent = json.loads(req.content)
     assert sent["chatId"] == "972501234567@c.us"
-    assert sent["text"].startswith(
-        f"⚠️ Iris alert\nAlert: #{a.id} · Message: #{a.message_id}\n"
-        "Kid: Noa\nChat: Kid Tester (direct)\nFrom: Kid Tester\n"
-    )
-    assert (
-        f"Open: http://localhost:8080/alerts/{a.id}?s=" in sent["text"]
-        and "violence (0.95)" in sent["text"]
-    )
+    assert sent["text"].startswith("⚠️ Iris alert\nCheck in with your child\nChild: Noa\n")
+    assert "Chat: Kid Tester (contact)" in sent["text"]
+    assert f"Open: http://localhost:8080/alerts/{a.id}?s=" in sent["text"]
+    assert "violence (0.95)" not in sent["text"] and a.quote not in sent["text"]
     await deps.providers.aclose()
 
 
@@ -209,7 +205,7 @@ async def test_cooldown_suppresses_then_plus_n_more_line(app_client: Any) -> Non
     await run_all(deps)
     assert send.call_count == 2
     assert (
-        "+2 more alerts in this chat since last notification"
+        "2 additional alerts in this chat since the last notification."
         in json.loads(send.calls.last.request.content)["text"]
     )
     await deps.providers.aclose()
@@ -308,7 +304,7 @@ async def test_sexual_minors_text_is_redacted_everywhere_and_never_logged_or_for
         (a,) = (await s.execute(select(Alert))).scalars().all()
         assert a.quote is None and a.categories == ["sexual/minors"]
     sent_text = json.loads(send.calls.last.request.content)["text"]
-    assert secret not in sent_text and "Content withheld (sexual content)" in sent_text
+    assert secret not in sent_text and "Open Iris to view details" in sent_text
     assert not any(secret in line for line in logs)
     assert secret not in (await app_client.get("/api/messages")).text
     assert (await app_client.get("/api/messages", params={"q": secret})).json()["total"] == 0
@@ -420,7 +416,9 @@ async def test_a_rejected_follow_up_fails_visibly(
 
 
 @respx.mock
-async def test_pending_reviews_are_notified_after_catchup(app_client: Any) -> None:
+async def test_enabling_review_alerts_does_not_broadcast_historical_backlog(
+    app_client: Any,
+) -> None:
     from app.alerts.service import notify_pending_reviews
 
     deps, token, _ = await setup(app_client)
@@ -436,7 +434,7 @@ async def test_pending_reviews_are_notified_after_catchup(app_client: Any) -> No
     async with deps.session_factory() as db:
         await notify_pending_reviews(db)
         await notify_pending_reviews(db)
-    assert len(await alerts(app_client)) == 1
+    assert await alerts(app_client) == []
     await deps.providers.aclose()
 
 

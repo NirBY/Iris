@@ -1,6 +1,7 @@
 """Alert creation (spec 9.1) and the sexual-content redaction rule (spec 8.5)."""
 
 import asyncio
+from datetime import datetime
 from typing import Any
 
 from loguru import logger
@@ -103,10 +104,9 @@ async def _kid_names(db: AsyncSession, message_id: int) -> list[str]:
 
 
 async def delivery_configured(db: AsyncSession) -> bool:
-    return bool(
-        await get_setting(db, "alerts.sender_instance_id")
-        and await get_setting(db, "alerts.recipient")
-    )
+    from app.alerts.channels import configured
+
+    return await configured(db)
 
 
 async def flagged_union(db: AsyncSession, message_id: int) -> set[str]:
@@ -292,26 +292,33 @@ async def notify_pending_reviews(db: AsyncSession) -> None:
     """Catch up harmful/review notifications and resume held deliveries when configured."""
     if not await delivery_configured(db):
         return
-    sender = await db.get(Instance, await get_setting(db, "alerts.sender_instance_id"))
-    if sender is None or not sender.openwa_api_key_enc:
-        return
-    client = OpenWAClient(
-        sender.openwa_base_url, decrypt(get_settings().key_bytes, sender.openwa_api_key_enc)
-    )
-    try:
-        if not await client.session_ready(sender.openwa_instance_id):
-            return  # preserve the queue while WhatsApp reconnects
-    except OpenWAError:
-        return
-    finally:
-        await client.aclose()
+    if await get_setting(db, "alerts.channel") == "openwa":
+        sender = await db.get(Instance, await get_setting(db, "alerts.sender_instance_id"))
+        if sender is None or not sender.openwa_api_key_enc:
+            return
+        client = OpenWAClient(
+            sender.openwa_base_url, decrypt(get_settings().key_bytes, sender.openwa_api_key_enc)
+        )
+        try:
+            if not await client.session_ready(sender.openwa_instance_id):
+                return  # preserve the queue while WhatsApp reconnects
+        except OpenWAError:
+            return
+        finally:
+            await client.aclose()
     review_enabled = bool(await get_setting(db, "alerts.alert_on_review"))
+    since_value = await get_setting(db, "alerts.review_notify_since")
+    since = (
+        datetime.fromisoformat(since_value).replace(tzinfo=None) if since_value else datetime.min
+    )
+
     held = (
         await db.execute(
             select(Alert, Message)
             .join(Message, Message.id == Alert.message_id)
             .where(
                 Alert.delivery_status == "paused",
+                (Message.verdict != "review") | (Message.received_at >= since),
                 (Message.verdict != "review") | ~Message.id.in_(select(ReviewDataIssue.message_id)),
                 active_source(Message.id),
                 Message.verdict.in_(("harmful", "review") if review_enabled else ("harmful",)),
@@ -353,6 +360,7 @@ async def notify_pending_reviews(db: AsyncSession) -> None:
                 (Message.verdict == "review") & ~Message.id.in_(select(ReviewDataIssue.message_id)),
                 active_source(Message.id),
                 Alert.delivery_status == "failed",
+                Message.received_at >= since,
                 Alert.notified_at.is_(None),
             )
             .order_by(Job.id.desc())
@@ -391,6 +399,7 @@ async def notify_pending_reviews(db: AsyncSession) -> None:
                 .where(
                     (Message.verdict == "review")
                     & ~Message.id.in_(select(ReviewDataIssue.message_id)),
+                    Message.received_at >= since,
                     active_source(Message.id),
                     Message.id.not_in(select(Alert.message_id)),
                 )

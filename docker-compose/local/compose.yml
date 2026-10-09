@@ -4,11 +4,25 @@ services:
     build:
       context: ../..
       args:
-        VERSION: ${IRIS_BUILD_VERSION:-2026.10.0-beta.6}
-    image: ${IRIS_IMAGE:-iris-local:2026.10.0-beta.6}
+        VERSION: ${IRIS_BUILD_VERSION:-2026.10.0-beta.8}
+    image: ${IRIS_IMAGE:-iris-local:2026.10.0-beta.8}
     ports: ["${IRIS_HTTP_PORT:-8182}:8080"]
     volumes: ["${IRIS_DATA_PATH:?Set a persistent data directory}:/data"]
     environment:
+      IRIS_ALERT_CHANNEL: "${IRIS_ALERT_CHANNEL:-openwa}"
+      IRIS_ALERT_RECIPIENTS: "${IRIS_ALERT_RECIPIENTS:-}"
+      IRIS_TELEGRAM_BOT_TOKEN: "${IRIS_TELEGRAM_BOT_TOKEN:-}"
+      IRIS_TELEGRAM_CHAT_ID: "${IRIS_TELEGRAM_CHAT_ID:-}"
+      IRIS_GREENAPI_API_URL: "${IRIS_GREENAPI_API_URL:-}"
+      IRIS_GREENAPI_MEDIA_URL: "${IRIS_GREENAPI_MEDIA_URL:-}"
+      IRIS_GREENAPI_INSTANCE_ID: "${IRIS_GREENAPI_INSTANCE_ID:-}"
+      IRIS_GREENAPI_TOKEN: "${IRIS_GREENAPI_TOKEN:-}"
+      IRIS_SMTP_HOST: "${IRIS_SMTP_HOST:-}"
+      IRIS_SMTP_PORT: "${IRIS_SMTP_PORT:-587}"
+      IRIS_SMTP_TLS: "${IRIS_SMTP_TLS:-starttls}"
+      IRIS_SMTP_USERNAME: "${IRIS_SMTP_USERNAME:-}"
+      IRIS_SMTP_PASSWORD: "${IRIS_SMTP_PASSWORD:-}"
+      IRIS_SMTP_SENDER: "${IRIS_SMTP_SENDER:-}"
       IRIS_SECRET_KEY: ${IRIS_SECRET_KEY:?required}
       IRIS_ADMIN_USERNAME: ${IRIS_ADMIN_USERNAME:-admin}
       IRIS_ADMIN_PASSWORD: ${IRIS_ADMIN_PASSWORD:?required}

@@ -3,7 +3,7 @@
 import asyncio
 import base64
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -26,7 +26,7 @@ from app.classify.stages import StageContext, message_body
 from app.classify.thresholds import effective_thresholds
 from app.config import get_settings
 from app.db.models import Chat, Classification, Job, Message, MessageRevision, ReviewDataIssue
-from app.jobs.queue import ClaimedJob, PermanentError, TransientError
+from app.jobs.queue import ClaimedJob, LostLeaseError, PermanentError, TransientError
 from app.media import ffmpeg
 from app.media.fetch import MAX_AUDIO_SECONDS, MediaSkipped, fetch_original, job_tmpdir
 from app.media.keep import keep_media
@@ -72,7 +72,9 @@ async def _image_data_url(db: AsyncSession, message: Message, deps: Deps, tmp: P
     return "data:image/jpeg;base64," + base64.b64encode(data).decode()
 
 
-async def _transcribe(db: AsyncSession, deps: Deps, tmp: Path, message: Message) -> None:
+async def _transcribe(
+    db: AsyncSession, deps: Deps, tmp: Path, message: Message, job: ClaimedJob | None = None
+) -> None:
     """Fill message.transcript from audio/voice/video; Skip when there is no speech."""
     if message.transcript:  # a retry must not pay for transcription twice
         return
@@ -98,7 +100,10 @@ async def _transcribe(db: AsyncSession, deps: Deps, tmp: Path, message: Message)
     if not result.text:
         raise Skip("empty transcript")
     message.transcript = result.text
-    await db.commit()  # persisted before moderation, so searches and retries see it
+    if job is not None:
+        await _commit_message(db, job)
+    else:
+        await db.commit()  # standalone preparation
 
 
 @dataclass
@@ -114,7 +119,9 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
         return Prepared(
             problem=PermanentError("Unknown message type; attachment cannot be analyzed")
         )
-    if message.type in ("text", "document", "other"):
+    if message.type == "document":
+        return Prepared(problem=PermanentError("Document attachment requires manual review"))
+    if message.type in ("text", "other"):
         return Prepared()  # only text (or a caption/filename) can be moderated
     cfg = get_settings()
     if (
@@ -128,7 +135,7 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
         async with job_tmpdir(deps.data_dir, job.id) as tmp:
             if message.type in ("image", "sticker"):
                 return Prepared(image=await _image_data_url(db, message, deps, tmp))
-            await _transcribe(db, deps, tmp, message)
+            await _transcribe(db, deps, tmp, message, job)
             if cfg.local_safety_mode and message.type == "video":
                 return Prepared(problem=PermanentError("video visuals require manual review"))
             return Prepared()
@@ -163,6 +170,13 @@ def _persist(db: AsyncSession, message: Message, outcome: PipelineOutcome) -> No
 _RANK = {"safe": 0, "review": 1, "harmful": 2}
 
 
+async def _commit_message(db: AsyncSession, job: ClaimedJob) -> None:
+    from app.jobs.queue import ensure_owned
+
+    await ensure_owned(db, job)
+    await db.commit()
+
+
 async def process_message(job: ClaimedJob, deps: Deps) -> None:
     message_id = job.payload.get("message_id")
     if not isinstance(message_id, int):
@@ -174,7 +188,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         if message.redacted:
             message.status = "skipped"  # redacted content is never reprocessed
             message.skip_reason = "Withheld content cannot be reprocessed"
-            await db.commit()
+            await _commit_message(db, job)
             return
 
         # An edit queues a second check while the first may still be running: wait for it, so
@@ -204,11 +218,11 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             message.status = "skipped"
             message.verdict = None
             message.skip_reason = "Confirmed system event: " + message.raw_type
-            await db.commit()
+            await _commit_message(db, job)
             return
         message.status = "processing"
         await db.execute(delete(Classification).where(Classification.message_id == message.id))
-        await db.commit()
+        await _commit_message(db, job)
         # Name the group before anything quotes it (an alert snapshots the chat name). Best effort.
         chat = await db.get(Chat, message.chat_id)
         if chat is not None and chat.is_group and not chat.name:
@@ -218,7 +232,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         legacy = job.payload.get("media")  # jobs queued before the media column existed
         if message.media is None and isinstance(legacy, dict):
             message.media = {**legacy, "instance_id": job.payload.get("instance_id")}
-            await db.commit()
+            await _commit_message(db, job)
 
         try:
             prepared = await _prepare(db, job, deps, message)
@@ -227,7 +241,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             message.status = "skipped"
             message.verdict = None
             message.skip_reason = str(exc)[:255]
-            await db.commit()
+            await _commit_message(db, job)
             return
 
         api_key = await get_secret(db, "openai.api_key", deps.key_bytes)
@@ -266,7 +280,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                     if message.type == "other"
                     else "No analyzable text, transcript or image"
                 )
-                await db.commit()
+                await _commit_message(db, job)
                 return
 
         if cfg.local_safety_mode:
@@ -289,7 +303,9 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                     text=revision.text,
                     sender_name=message.sender_name,
                 )
-                earlier = await run_pipeline(snapshot, ctx)
+                if not (revision.text or "").strip():
+                    continue
+                earlier = await run_pipeline(snapshot, replace(ctx, image_data_url=None))
                 for result in earlier.results:
                     result.stage = "revision_" + result.stage
                 if _RANK[earlier.verdict] > _RANK[outcome.verdict]:
@@ -313,7 +329,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             message.status = "failed" if isinstance(problem, PermanentError) else "skipped"
             if message.status == "skipped":
                 message.skip_reason = str(problem)[:255]
-            await db.commit()
+            await _commit_message(db, job)
             if isinstance(problem, PermanentError):
                 raise problem  # visible on the Jobs page, retryable once the cause is fixed
             return
@@ -355,7 +371,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                 run_after=datetime.now(UTC) + timedelta(minutes=1),
             )
             db.add(notification)
-        await db.commit()
+        await _commit_message(db, job)
         # Metrics only after the commit, so a retried job is never counted twice.
         MESSAGES.labels(message.type, outcome.verdict).inc()
         for r in outcome.results:
@@ -386,7 +402,9 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                 await hook(db, message, outcome)
                 if notification is not None:
                     await db.delete(notification)
-                    await db.commit()
+                    await _commit_message(db, job)
+            except LostLeaseError:
+                raise
             except Exception:
                 # Classification is done and committed: a failing hook must not mark the message
                 # failed or re-run the pipeline. Alert delivery has its own retry.

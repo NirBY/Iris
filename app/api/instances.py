@@ -388,6 +388,15 @@ async def delete_instance(
     await db.commit()
     roles = dict(await get_setting(db, "phones.roles"))
     roles.pop(str(instance_id), None)
+    assignments = await get_setting(db, "alerts.recipient_children")
+    await set_setting(
+        db,
+        "alerts.recipient_children",
+        {
+            parent: [child for child in children if child != instance_id]
+            for parent, children in assignments.items()
+        },
+    )
     names = dict(await get_setting(db, "phones.session_names"))
     names.pop(str(instance_id), None)
     await set_setting(db, "phones.session_names", names)

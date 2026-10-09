@@ -159,7 +159,7 @@ export function Review() {
                 </div>
               </details>
             ))}
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:flex sm:flex-wrap [&>button]:min-w-0 [&>button]:whitespace-normal">
               <Button
                 variant="outline"
                 size="lg"
@@ -180,6 +180,7 @@ export function Review() {
                 variant="outline"
                 size="lg"
                 title="Ignore this item and save a missing-data report without judging safety."
+                className="min-[400px]:col-span-2 sm:col-span-1"
                 disabled={
                   resolve.isPending || missingData || !['admin', 'parent'].includes(me?.role || '')
                 }
@@ -187,7 +188,12 @@ export function Review() {
               >
                 <CircleHelp /> {missingData ? 'Missing data reported' : 'Ignore — missing data'}
               </Button>
-              <Button asChild variant="ghost" size="lg" className="col-span-2 sm:col-span-1">
+              <Button
+                asChild
+                variant="ghost"
+                size="lg"
+                className="min-w-0 whitespace-normal min-[400px]:col-span-2 sm:col-span-1"
+              >
                 <Link to={`/messages/${m.id}`}>
                   <MessagesSquare /> See the conversation
                 </Link>

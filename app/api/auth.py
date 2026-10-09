@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import re
 import secrets
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal, cast
 
@@ -40,6 +41,8 @@ from app.security.two_factor import (
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 limiter = LoginLimiter()
+_login_reservations: dict[str, tuple[str, float]] = {}
+code_requests = LoginLimiter()
 _hash_gate = asyncio.Semaphore(2)
 _inflight_logins = 0
 
@@ -51,8 +54,8 @@ class LoginBody(BaseModel):
 
 
 class PasswordBody(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(max_length=256)
+    new_password: str = Field(min_length=8, max_length=256)
 
 
 def _set_session_cookie(response: Response, settings: Settings, user: User) -> None:
@@ -80,12 +83,13 @@ async def _login(
     ip = _ip(request)
     if limiter.blocked(ip):
         raise HTTPException(status_code=429, detail="Too many failed attempts")
+    reservation: float | None = None
     reserved = settings.local_safety_mode
     if reserved:
         if _hash_gate.locked():
             raise HTTPException(status_code=429, detail="Login capacity reached; retry later")
         # Reserve before the first await, closing the concurrent-attempt limiter race.
-        limiter.record_failure(ip)
+        reservation = limiter.record_failure(ip)
     user = (
         await db.execute(select(User).where(User.username == body.username))
     ).scalar_one_or_none()
@@ -102,19 +106,28 @@ async def _login(
         if not reserved:
             limiter.record_failure(ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Correct credentials are not a failed attempt, including failed delivery.
+    if reservation is not None:
+        limiter.release(ip, reservation)
+        reservation = None
     if await load(db, ENABLED_KEY, False):
-        # Reserve sends too: valid passwords cannot be used to flood recipients.
-        if not reserved:
-            if limiter.blocked(ip):
-                raise HTTPException(429, "Too many code requests")
-            limiter.record_failure(ip)
         channels = await available_channels(db, settings, user)
         if not channels:
             raise HTTPException(403, "Ask your admin to approve your email or WhatsApp number")
-        channel = body.channel or channels[0]
+        channel = body.channel if body.channel in channels else channels[0]
+        request_key = f"{settings.data_dir}:{user.id}"
+        if code_requests.blocked(request_key):
+            raise HTTPException(
+                429, "Too many code requests. Verify the latest code or retry later."
+            )
+        reservation = code_requests.record_failure(request_key)
         challenge_id = secrets.token_urlsafe(32)
         code = f"{secrets.randbelow(1_000_000):06d}"
-        await deliver(db, settings, user, channel, code)
+        try:
+            await deliver(db, settings, user, channel, code)
+        except BaseException:
+            code_requests.release(request_key, reservation)
+            raise
         await db.execute(
             delete(LoginChallenge).where(LoginChallenge.expires_at <= datetime.now(UTC))
         )
@@ -131,8 +144,15 @@ async def _login(
             )
         )
         await db.commit()
+        if reservation is not None:
+            # The reservation belongs only to this login, never all failures at its IP.
+            for previous_id, (_, token) in list(_login_reservations.items()):
+                if time.monotonic() - token > 900:
+                    _login_reservations.pop(previous_id, None)
+            _login_reservations[challenge_id] = (request_key, reservation)
         return {"two_factor_required": True, "challenge_id": challenge_id, "channel": channel}
-    limiter.reset(ip)
+    if reservation is not None:
+        limiter.release(ip, reservation)
     _set_session_cookie(response, settings, user)
     return {"username": user.username}
 
@@ -159,8 +179,16 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(response: Response) -> dict[str, bool]:
-    response.delete_cookie(COOKIE_NAME)
+async def logout(
+    response: Response, settings: Annotated[Settings, Depends(get_settings)]
+) -> dict[str, bool]:
+    response.delete_cookie(
+        COOKIE_NAME,
+        path="/",
+        httponly=True,
+        samesite="strict",
+        secure=settings.public_base_url.startswith("https://"),
+    )
     return {"ok": True}
 
 
@@ -208,7 +236,10 @@ async def login_options(
     db: Annotated[AsyncSession, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
+    from app.settings_store import get_setting
+
     return {
+        "default_channel": await get_setting(db, "auth.default_channel"),
         "two_factor_enabled": bool(await load(db, ENABLED_KEY, False)),
         "secure_login_url": settings.public_base_url
         if settings.public_base_url.startswith("https://")
@@ -225,8 +256,6 @@ async def verify_code(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, str]:
     ip = _ip(request)
-    if limiter.blocked(ip):
-        raise HTTPException(429, "Too many failed attempts")
     now = datetime.now(UTC)
     # Atomic reservation prevents concurrent attempts exceeding the challenge budget.
     result = await db.execute(
@@ -285,7 +314,9 @@ async def verify_code(
     await db.commit()
     if cast(CursorResult[Any], consumed).rowcount != 1:
         raise HTTPException(401, "Verification code already used")
-    limiter.reset(ip)
+    reservation = _login_reservations.pop(body.challenge_id, None)
+    if reservation is not None:
+        code_requests.release(*reservation)
     _set_session_cookie(response, settings, user)
     return {"username": user.username}
 
@@ -294,8 +325,15 @@ async def verify_code(
 async def watch_phones(
     _: Annotated[User, Depends(current_user)], db: Annotated[AsyncSession, Depends(get_db)]
 ) -> list[dict[str, Any]]:
+    from app.settings_store import get_setting
+
+    roles = await get_setting(db, "phones.roles")
     return [
-        {"id": i.id, "kid_name": i.kid_name}
+        {
+            "id": i.id,
+            "kid_name": i.kid_name,
+            "role": roles.get(str(i.id), "child"),
+        }
         for i in (await db.execute(select(Instance).order_by(Instance.id))).scalars()
     ]
 

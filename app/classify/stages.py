@@ -1,5 +1,6 @@
 """Pluggable classification stages (spec 8.4). New stages (LLM judge, video frames) plug in here."""
 
+import json
 import time
 from dataclasses import dataclass
 from datetime import timedelta
@@ -115,7 +116,9 @@ class ModerationStage:
 def _line(m: Message) -> str:
     sender = m.sender_name or "?"
     body = "[redacted]" if m.redacted else (message_body(m) or f"[{m.type}]")
-    return f"{sender}: {body[:MAX_LINE_CHARS]}"
+    return json.dumps(
+        {"sender": sender[:255], "content": body[:MAX_LINE_CHARS]}, ensure_ascii=False
+    )
 
 
 def build_context_input(previous: list[Message], target: Message) -> str:
@@ -141,6 +144,7 @@ class ContextStage:
                         .where(
                             Message.chat_id == message.chat_id,
                             Message.id != message.id,
+                            Message.revoked_at.is_(None),
                             Message.sent_at >= cutoff,
                             Message.sent_at <= message.sent_at,
                         )

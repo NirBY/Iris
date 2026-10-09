@@ -93,11 +93,37 @@ class AlertFacts:
     media: "MediaFact | None" = None  # a kept copy of the media (never set for a redacted alert)
 
 
-def format_alert(f: AlertFacts, timezone: str, base_url: str, key: bytes) -> str:
+def format_alert(
+    f: AlertFacts, timezone: str, base_url: str, key: bytes, *, style: str = "detailed"
+) -> str:
     when = f.sent_at
     if when.tzinfo is None:
         when = when.replace(tzinfo=ZoneInfo("UTC"))  # stored as naive UTC
     local = when.astimezone(ZoneInfo(timezone))
+    if style == "summary":
+
+        def one_line(value: str) -> str:
+            return " ".join(value.split())[:160]
+
+        action = "Needs your review" if f.verdict == "review" else "Check in with your child"
+        lines = [
+            ALERT_PREFIX,
+            action,
+            "Child: " + one_line(", ".join(f.kid_names) or "Unknown"),
+            "Chat: "
+            + one_line(f.chat_name or "Unnamed chat")
+            + (" (group)" if f.is_group else " (contact)"),
+            "Time: " + local.strftime("%d/%m %H:%M"),
+            "Iris could not assess this message."
+            if f.verdict == "review"
+            else "Iris flagged a possible concern. Review the context before deciding.",
+            "Open Iris to view details and mark it reviewed.",
+        ]
+        if f.more_suppressed:
+            lines.append(
+                f"{f.more_suppressed} additional alerts in this chat since the last notification."
+            )
+        return with_signed_link("\n".join(lines), base_url, key, f.alert_id)
     top, others = f.categories[0], f.categories[1:]
     category = (top if f.verdict == "review" else f"{top} ({f.max_score:.2f})") + (
         f", {', '.join(others)}" if others else ""

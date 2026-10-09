@@ -2,7 +2,6 @@ import { useSearchParams } from 'react-router-dom'
 import { ParentConnections } from '../components/PhoneConnections'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Bell,
   Brain,
   CheckCircle2,
   Clock,
@@ -78,6 +77,12 @@ interface Values {
   'scope.monitor_groups': boolean
   'alerts.sender_instance_id': number | null
   'alerts.recipient': string | null
+  'alerts.channel': 'openwa' | 'telegram' | 'smtp' | 'greenapi'
+  'alerts.telegram_bot_token': Secret
+  'auth.default_channel': 'email' | 'whatsapp'
+  'alerts.notification_style': 'summary' | 'detailed'
+  'retention.message_hours': number
+  'media.retention_hours': number
   'alerts.send_interval_seconds': number
   'alerts.send_hourly_limit': number
   'alerts.send_daily_limit': number
@@ -107,7 +112,6 @@ type Change = string | number | boolean | null | Record<string, { low: number; h
 const TABS = [
   'Providers',
   'Classification',
-  'Alerts',
   'Scope',
   'Retention',
   'Media',
@@ -121,6 +125,7 @@ const SECRETS = [
   'transcription.cloudflare_api_token',
   'media.s3_secret_key',
   'runtime.whisper_api_key',
+  'alerts.telegram_bot_token',
 ]
 const NUMBERS = [
   'runtime.workers',
@@ -134,6 +139,8 @@ const NUMBERS = [
   'classification.context_window_size',
   'classification.context_max_age_hours',
   'retention.message_days',
+  'retention.message_hours',
+  'media.retention_hours',
   'retention.alert_days',
   'media.retention_days',
 ]
@@ -162,7 +169,6 @@ const BOOLEANS = [
 const ICON: Record<Tab, LucideIcon> = {
   Providers: KeyRound,
   Classification: Brain,
-  Alerts: Bell,
   Scope: Eye,
   Retention: Clock,
   Media: HardDrive,
@@ -445,7 +451,9 @@ export function Settings() {
     queryFn: () => api<ThresholdRow[]>('/api/settings/thresholds'),
   })
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab: Tab = TABS.find((t) => t === searchParams.get('tab')) ?? 'Providers'
+  const requestedTab =
+    searchParams.get('tab') === 'Alerts' ? 'Notifications' : searchParams.get('tab')
+  const tab: Tab = TABS.find((t) => t === requestedTab) ?? 'Providers'
   const setTab = (value: Tab) =>
     setSearchParams((current) => {
       const next = new URLSearchParams(current)
@@ -849,7 +857,40 @@ export function Settings() {
             </Section>
           </TabsContent>
 
-          <TabsContent value="Alerts" className="flex flex-col gap-5">
+          <TabsContent value="Notifications" className="flex flex-col gap-5">
+            <Section
+              title="Alert delivery"
+              description="Choose one alert channel. Child assignments apply to every channel. Sign-in codes have their own choice below."
+            >
+              <Field label="Send parent alerts using">
+                <Select
+                  value={get('alerts.channel') || 'openwa'}
+                  onChange={(e) => set('alerts.channel')(e.target.value)}
+                >
+                  <option value="openwa">WhatsApp via OpenWA (default)</option>
+                  <option value="telegram">Telegram bot</option>
+                  <option value="smtp">Email via SMTP</option>
+                  <option value="greenapi">WhatsApp via GreenAPI</option>
+                </Select>
+              </Field>
+              <p className="text-sm text-muted-foreground">
+                WhatsApp sends can lead to account restrictions. Choose email or Telegram to keep
+                parent alerts off your WhatsApp number.
+              </p>
+              {get('alerts.channel') === 'telegram' && (
+                <Field
+                  label="Telegram bot token"
+                  hint="Create a bot through BotFather, start a conversation with it, and enter each parent’s chat ID below."
+                >
+                  <SecretInput
+                    value={get('alerts.telegram_bot_token')}
+                    isSet={data['alerts.telegram_bot_token']?.set ?? false}
+                    onChange={set('alerts.telegram_bot_token')}
+                    onClear={() => void save({ 'alerts.telegram_bot_token': null })}
+                  />
+                </Field>
+              )}
+            </Section>
             <Section
               title="Iris links"
               description="Use the public domain parents can open. This URL prefixes alert and media links. The saved value overrides IRIS_PUBLIC_BASE_URL from .env / Docker Compose."
@@ -878,12 +919,14 @@ export function Settings() {
                 />
               </Field>
             </Section>
-            <ParentConnections />
+            <ParentConnections
+              showSender={!get('alerts.channel') || get('alerts.channel') === 'openwa'}
+            />
             <Section
               title="Where alerts go"
-              description="Iris sends each alert to every listed parent from one linked WhatsApp phone. Up to 10 recipients."
+              description="OpenWA uses a linked sender phone. Telegram and email use the parent destinations below; GreenAPI uses the configured account."
             >
-              <Field label="Send alerts from">
+              <Field label="OpenWA sender phone">
                 <Select
                   value={get('alerts.sender_instance_id')}
                   onChange={(e) => set('alerts.sender_instance_id')(e.target.value)}
@@ -905,6 +948,19 @@ export function Settings() {
               />
             </Section>
             <Section title="Frequency and timing">
+              <Field
+                label="Parent notification design"
+                hint="Short summaries keep message content private. Parents open Iris to review the context."
+              >
+                <select
+                  className="rounded border bg-surface p-2"
+                  value={get('alerts.notification_style') || 'summary'}
+                  onChange={(e) => set('alerts.notification_style')(e.target.value)}
+                >
+                  <option value="summary">Private summary (recommended)</option>
+                  <option value="detailed">Detailed message</option>
+                </select>
+              </Field>
               <p className="text-sm text-muted-foreground">
                 A persistent queue spaces sends across all chats and recipients. Resends and
                 follow-ups share these limits. Excess messages wait; these limits do not guarantee
@@ -929,14 +985,15 @@ export function Settings() {
               {bool(
                 'alerts.alert_on_review',
                 'Also alert on items needing review',
-                'Off by default: those wait in the Review page instead.',
+                'When enabled, new review items can notify parents. Existing backlog stays in Review; send individual items explicitly.',
               )}
               {bool(
                 'alerts.notify_changes',
                 'Tell me when an alerted message is edited or deleted',
-                'Sends a short follow-up on WhatsApp. It never repeats the message.',
+                'Sends a short follow-up using the selected alert channel. It never repeats the message.',
               )}
             </Section>
+            <NotificationsSettings />
           </TabsContent>
 
           <TabsContent value="Scope" className="flex flex-col gap-5">
@@ -958,6 +1015,11 @@ export function Settings() {
               description="Messages tied to an alert are kept until that alert expires. Kept media has its own limit under Media."
             >
               {num('retention.message_days', 'Keep messages for (days)', 1)}
+              {num('retention.message_hours', 'Message retention in hours (0 uses days)', 0, 87600)}
+              <p className="text-sm text-muted-foreground">
+                Cleanup runs hourly. Messages linked to retained alerts and unresolved review items
+                remain available; OpenWA retention is managed separately.
+              </p>
               {num('retention.alert_days', 'Keep alerts for (days)', 1)}
             </Section>
           </TabsContent>
@@ -1117,6 +1179,7 @@ export function Settings() {
 
                 <Section title="How long to keep it">
                   {num('media.retention_days', 'Keep media for (days)', 1)}
+                  {num('media.retention_hours', 'Media retention in hours (0 uses days)', 0, 87600)}
                   <p className="max-w-prose text-sm text-muted-foreground">
                     Older files are deleted from the storage. The message and its alert stay until
                     their own limits under Retention.
@@ -1134,11 +1197,8 @@ export function Settings() {
             <UserSettings />
             <Account />
           </TabsContent>
-          <TabsContent value="Notifications">
-            <NotificationsSettings />
-          </TabsContent>
 
-          {dirty && tab !== 'Users' && tab !== 'Database' && tab !== 'Notifications' && (
+          {dirty && tab !== 'Users' && tab !== 'Database' && (
             <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-surface p-3 shadow-overlay md:bottom-4">
               <p className="text-sm text-muted-foreground">You have unsaved changes.</p>
               <div className="flex gap-2">

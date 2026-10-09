@@ -184,3 +184,43 @@ async def test_setup_counts_separate_children_parents_and_senders(app_client: An
     stats = (await app_client.get("/api/stats")).json()
     assert stats["alert_sender_configured"] is False
     assert stats["alert_phones"] == 0
+
+
+async def test_timeline_filters_message_receipts_without_duplicate_counts(app_client: Any):
+    first, token = await make_instance(app_client, "First")
+    second, token2 = await make_instance(app_client, "Second")
+    await post(app_client, token, msg_body("text_received_mixed", "CHILD1", "one"))
+    await post(app_client, token2, msg_body("text_received_mixed", "CHILD2", "two"))
+    for child in (first, second):
+        value = (await app_client.get(f"/api/stats/timeline?instance_id={child}")).json()
+        assert sum(day["other"] for day in value["days"]) == 1
+    value = (await app_client.get("/api/stats/timeline")).json()
+    assert sum(day["other"] for day in value["days"]) == 2
+
+
+def test_storage_distinguishes_missing_from_empty_and_counts_databases(tmp_path):
+    from app.api.stats import measure_directory
+
+    assert measure_directory(None)["bytes"] is None
+    assert measure_directory(tmp_path / "missing")["bytes"] is None
+    folder = tmp_path / "provider"
+    folder.mkdir()
+    (folder / "main.sqlite").write_bytes(b"db")
+    (folder / "media.bin").write_bytes(b"media")
+    value = measure_directory(folder)
+    assert value["bytes"] == 7 and value["database_bytes"] == 2
+
+
+def test_provider_storage_uses_fresh_metadata_and_rejects_stale_report(tmp_path):
+    import json
+    import time
+
+    from app.api.stats import provider_storage
+
+    report = tmp_path / "meter.json"
+    report.write_text(
+        json.dumps({"bytes": 100, "database_bytes": 40, "measured_at": int(time.time())})
+    )
+    assert provider_storage(None, report)["bytes"] == 100
+    report.write_text(json.dumps({"bytes": 100, "database_bytes": 40, "measured_at": 0}))
+    assert provider_storage(None, report)["bytes"] is None

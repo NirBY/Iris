@@ -28,13 +28,17 @@ async def run_retention(
     now = (now or datetime.now(UTC)).replace(tzinfo=None)  # the database stores naive UTC
     async with factory() as db:
         message_days = int(await get_setting(db, "retention.message_days"))
+        message_hours = int(await get_setting(db, "retention.message_hours"))
+        message_age = (
+            timedelta(hours=message_hours) if message_hours else timedelta(days=message_days)
+        )
         alert_days = int(await get_setting(db, "retention.alert_days"))
 
         alerts = await db.execute(
             delete(Alert).where(Alert.created_at < now - timedelta(days=alert_days))
         )
         message_filters = [
-            Message.sent_at < now - timedelta(days=message_days),
+            Message.sent_at < now - message_age,
             Message.id.not_in(select(Alert.message_id)),
         ]
         message_filters.extend(

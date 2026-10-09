@@ -121,6 +121,7 @@ export interface AlertPage {
 }
 
 export interface AlertDetail extends Alert {
+  recipient_delivery?: { recipient: string; status: string }[]
   message_type: string
   sent_at: string
   classifications: Classification[]
@@ -161,6 +162,8 @@ export interface Stats {
   monitoring_window_minutes?: number
   media_policy?: string
   media_files?: number
+  alert_media_not_saved?: number
+  alert_channel?: string
   media_bytes?: number
 }
 

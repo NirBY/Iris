@@ -5,6 +5,20 @@ services:
     volumes:
       - iris-data:/data   # SQLite DB + temp media; named volume keeps non-root ownership
     environment:
+      IRIS_ALERT_CHANNEL: "${IRIS_ALERT_CHANNEL:-openwa}"
+      IRIS_ALERT_RECIPIENTS: "${IRIS_ALERT_RECIPIENTS:-}"
+      IRIS_TELEGRAM_BOT_TOKEN: "${IRIS_TELEGRAM_BOT_TOKEN:-}"
+      IRIS_TELEGRAM_CHAT_ID: "${IRIS_TELEGRAM_CHAT_ID:-}"
+      IRIS_GREENAPI_API_URL: "${IRIS_GREENAPI_API_URL:-}"
+      IRIS_GREENAPI_MEDIA_URL: "${IRIS_GREENAPI_MEDIA_URL:-}"
+      IRIS_GREENAPI_INSTANCE_ID: "${IRIS_GREENAPI_INSTANCE_ID:-}"
+      IRIS_GREENAPI_TOKEN: "${IRIS_GREENAPI_TOKEN:-}"
+      IRIS_SMTP_HOST: "${IRIS_SMTP_HOST:-}"
+      IRIS_SMTP_PORT: "${IRIS_SMTP_PORT:-587}"
+      IRIS_SMTP_TLS: "${IRIS_SMTP_TLS:-starttls}"
+      IRIS_SMTP_USERNAME: "${IRIS_SMTP_USERNAME:-}"
+      IRIS_SMTP_PASSWORD: "${IRIS_SMTP_PASSWORD:-}"
+      IRIS_SMTP_SENDER: "${IRIS_SMTP_SENDER:-}"
       IRIS_SECRET_KEY: ""            # openssl rand -base64 32
       IRIS_ADMIN_USERNAME: admin     # first run only
       IRIS_ADMIN_PASSWORD: ""        # first run only

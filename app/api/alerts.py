@@ -32,6 +32,7 @@ from app.db.jsonq import json_array_contains
 from app.db.models import (
     Alert,
     Classification,
+    Job,
     Message,
     MessageReceipt,
     ReviewDataIssue,
@@ -76,6 +77,7 @@ class AlertDetail(AlertOut):
     message_type: str
     sent_at: datetime
     classifications: list[ClassificationOut]
+    recipient_delivery: list[dict[str, str]] = []
 
 
 class AlertPage(BaseModel):
@@ -200,8 +202,36 @@ async def get_alert(alert_id: int, db: DB) -> AlertDetail:
             .order_by(Classification.id)
         )
     ).scalars()
+    latest = await db.scalar(
+        select(Job)
+        .where(Job.type == DELIVERY_JOB, Job.payload["alert_id"].as_integer() == alert_id)
+        .order_by(Job.id.desc())
+        .limit(1)
+    )
+    deliveries = []
+    if latest is not None:
+        payload = latest.payload
+        for target in payload.get("recipients", []):
+            status = (
+                "delivered"
+                if target in payload.get("delivered_recipients", [])
+                else "uncertain"
+                if target in payload.get("uncertain_recipients", [])
+                else "rejected"
+                if target in payload.get("rejected_recipients", {})
+                else "not sent"
+                if latest.status == "failed"
+                else "pending"
+            )
+            label = (
+                "Email " + target.removeprefix("email:").split("@")[0][:1] + "…"
+                if target.startswith("email:")
+                else "Recipient ending " + target.split("@")[0][-4:]
+            )
+            deliveries.append({"recipient": label, "status": status})
     return AlertDetail(
         **_out(a, m, (await _media_by_message(db, [m.id])).get(m.id)).model_dump(),
+        recipient_delivery=deliveries,
         message_type=m.type,
         sent_at=m.sent_at,
         classifications=[ClassificationOut.model_validate(c, from_attributes=True) for c in cls],
@@ -227,10 +257,20 @@ async def resend_alert(alert_id: int, db: DB) -> dict[str, bool]:
         raise HTTPException(status_code=422, detail="Alert delivery is not configured")
     if await _delivery_active(db, a.id):
         raise HTTPException(status_code=409, detail="Delivery already in progress")
+    payload = {"alert_id": a.id, "force": True}
+    if a.delivery_status in ("partial", "failed"):
+        previous = await db.scalar(
+            select(Job)
+            .where(Job.type == DELIVERY_JOB, Job.payload["alert_id"].as_integer() == a.id)
+            .order_by(Job.id.desc())
+            .limit(1)
+        )
+        if previous is not None:
+            payload = {**previous.payload, **payload}
+            for key in ("delivery_uncertain", "uncertain_recipients", "rejected_recipients"):
+                payload.pop(key, None)
     a.delivery_status, a.delivery_error = "pending", None
-    await enqueue(
-        db, DELIVERY_JOB, {"alert_id": a.id, "force": True}, max_attempts=DELIVERY_ATTEMPTS
-    )
+    await enqueue(db, DELIVERY_JOB, payload, max_attempts=DELIVERY_ATTEMPTS)
     return {"ok": True}
 
 

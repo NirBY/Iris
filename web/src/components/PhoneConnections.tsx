@@ -644,10 +644,67 @@ export function AddPhone({ defaultRole = 'child' }: { defaultRole?: 'child' | 'p
 
 function ParentRecipients() {
   const qc = useQueryClient()
+  const accounts = useQuery({
+    queryKey: ['users'],
+    queryFn: () =>
+      api<
+        {
+          id: number
+          username: string
+          role: string
+          email: string | null
+          email_verified: boolean
+        }[]
+      >('/api/users'),
+  })
+  const emailParents = Array.isArray(accounts.data)
+    ? accounts.data.filter((user) => user.role !== 'watch' && user.email && user.email_verified)
+    : []
   const { data } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api<Record<string, unknown>>('/api/settings'),
   })
+  const children = useQuery({
+    queryKey: ['instances'],
+    queryFn: () => api<Instance[]>('/api/instances'),
+  })
+  const contacts = (data?.['alerts.recipient_contacts'] ?? {}) as Record<
+    string,
+    { email?: string; telegram_chat_id?: string }
+  >
+  const [contactDrafts, setContactDrafts] = useState<
+    Record<string, { email?: string; telegram_chat_id?: string }>
+  >({})
+  const contactSave = useMutation({
+    mutationFn: (value: typeof contacts) =>
+      api('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ settings: { 'alerts.recipient_contacts': value } }),
+      }),
+    onSuccess: () => {
+      setContactDrafts({})
+      return qc.invalidateQueries({ queryKey: ['settings'] })
+    },
+    onError: fail('Could not save parent destinations.'),
+  })
+  const assignments = (data?.['alerts.recipient_children'] ?? {}) as Record<string, number[]>
+  const assign = useMutation({
+    mutationFn: (next: Record<string, number[]>) =>
+      api('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ settings: { 'alerts.recipient_children': next } }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings'] }),
+    onError: fail('Could not save child assignments.'),
+  })
+  const canonical = (value: string) =>
+    value.startsWith('email:')
+      ? value.toLowerCase()
+      : value.includes('@') && !value.endsWith('@c.us') && !value.endsWith('@g.us')
+        ? 'email:' + value.toLowerCase()
+        : value.includes('@')
+          ? value
+          : value.replace(/[^0-9]/g, '') + '@c.us'
   const [phone, setPhone] = useState('')
   const values =
     typeof data?.['alerts.recipient'] === 'string' ? (data['alerts.recipient'] as string) : ''
@@ -659,7 +716,16 @@ function ParentRecipients() {
     mutationFn: (recipient: string) =>
       api('/api/settings', {
         method: 'PUT',
-        body: JSON.stringify({ settings: { 'alerts.recipient': recipient || null } }),
+        body: JSON.stringify({
+          settings: {
+            'alerts.recipient': recipient || null,
+            'alerts.recipient_children': Object.fromEntries(
+              Object.entries(assignments).filter(([parent]) =>
+                recipient.split(/[,;\n]/).some((target) => canonical(target.trim()) === parent),
+              ),
+            ),
+          },
+        }),
       }),
     onSuccess: () => {
       setPhone('')
@@ -672,13 +738,99 @@ function ParentRecipients() {
     <section className="flex flex-col gap-3 rounded-lg border bg-surface p-4">
       <h2 className="text-lg font-semibold">Parent alert recipients</h2>
       <p className="text-sm text-muted-foreground">
-        These numbers receive alerts. They do not need their own OpenWA session. Up to ten
-        recipients.
+        Choose which children each parent receives alerts for. All children is the default.
+        Selecting no children pauses alerts for that parent. Up to ten recipients.
       </p>
       <ul className="flex flex-col gap-2">
         {targets.map((target) => (
           <li key={target} className="flex items-center justify-between gap-3">
             <span dir="ltr">{/^\d+$/.test(target) ? `+${target}` : target}</span>
+            <div className="flex flex-wrap gap-3 text-sm">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={assignments[canonical(target)] === undefined}
+                  disabled={assign.isPending}
+                  onChange={(e) => {
+                    const next = { ...assignments }
+                    if (e.target.checked) delete next[canonical(target)]
+                    else next[canonical(target)] = []
+                    assign.mutate(next)
+                  }}
+                />{' '}
+                All children (default)
+              </label>
+              {assignments[canonical(target)] !== undefined &&
+                children.data
+                  ?.filter((c) => c.role !== 'parent')
+                  .map((c) => (
+                    <label key={c.id}>
+                      <input
+                        type="checkbox"
+                        disabled={assign.isPending}
+                        checked={assignments[canonical(target)].includes(c.id)}
+                        onChange={(e) => {
+                          const current = assignments[canonical(target)]
+                          assign.mutate({
+                            ...assignments,
+                            [canonical(target)]: e.target.checked
+                              ? [...current, c.id]
+                              : current.filter((id) => id !== c.id),
+                          })
+                        }}
+                      />{' '}
+                      {c.kid_name}
+                    </label>
+                  ))}
+            </div>
+            <div className="grid gap-2">
+              <Input
+                type="email"
+                aria-label={`Email for ${target}`}
+                placeholder="Parent email for alerts"
+                value={
+                  (contactDrafts[canonical(target)] ?? contacts[canonical(target)])?.email ?? ''
+                }
+                onChange={(e) =>
+                  setContactDrafts({
+                    ...contactDrafts,
+                    [canonical(target)]: {
+                      ...(contactDrafts[canonical(target)] ?? contacts[canonical(target)]),
+                      email: e.target.value,
+                    },
+                  })
+                }
+              />
+              <Input
+                aria-label={`Telegram chat ID for ${target}`}
+                placeholder="Individual or group Telegram chat ID"
+                value={
+                  (contactDrafts[canonical(target)] ?? contacts[canonical(target)])
+                    ?.telegram_chat_id ?? ''
+                }
+                onChange={(e) =>
+                  setContactDrafts({
+                    ...contactDrafts,
+                    [canonical(target)]: {
+                      ...(contactDrafts[canonical(target)] ?? contacts[canonical(target)]),
+                      telegram_chat_id: e.target.value,
+                    },
+                  })
+                }
+              />
+              <Button
+                variant="outline"
+                disabled={!contactDrafts[canonical(target)] || contactSave.isPending}
+                onClick={() =>
+                  contactSave.mutate({
+                    ...contacts,
+                    [canonical(target)]: contactDrafts[canonical(target)],
+                  })
+                }
+              >
+                Save destinations
+              </Button>
+            </div>
             <Button
               variant="outline"
               onClick={() => change.mutate(targets.filter((value) => value !== target).join(', '))}
@@ -690,6 +842,32 @@ function ParentRecipients() {
         ))}
       </ul>
       {!targets.length && <p>No parent recipients yet.</p>}
+      {emailParents.length > 0 && (
+        <Field
+          label="Add a registered parent by email"
+          hint="Use their approved email without a WhatsApp number."
+        >
+          <Select
+            aria-label="Add a registered parent by email"
+            value=""
+            disabled={change.isPending}
+            onChange={(event) => {
+              if (event.target.value) change.mutate([...targets, event.target.value].join(', '))
+            }}
+          >
+            <option value="">Choose a parent…</option>
+            {emailParents.map((user) => (
+              <option
+                key={user.id}
+                value={user.email!}
+                disabled={targets.some((target) => canonical(target) === canonical(user.email!))}
+              >
+                {user.username} — {user.email}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       <form
         className="flex flex-col items-start gap-3"
         onSubmit={(event) => {
@@ -698,21 +876,21 @@ function ParentRecipients() {
         }}
       >
         <Field
-          label="Parent phone number"
+          label="Parent number, email or WhatsApp group ID"
           className="w-full max-w-sm"
-          hint="Include the country code and omit the local leading zero. The + prefix is optional."
+          hint="Enter a parent email, an international phone number, or a WhatsApp group ID ending in @g.us. Telegram and email destinations are saved per parent above."
         >
           <Input
             aria-label="Parent phone number"
-            type="tel"
-            inputMode="tel"
+            type="text"
+            inputMode="text"
             dir="ltr"
-            pattern="\+?[1-9](?:[0-9]|\s|\(|\)|-){5,24}"
-            title="Enter an international phone number with its country code, for example +15550100101."
+
+            title="Enter a parent email address, an international phone number, or a WhatsApp group ID."
             required
             value={phone}
             onChange={(event) => setPhone(event.target.value)}
-            placeholder="+15550100101"
+            placeholder="parent@example.com or +15550100101"
           />
         </Field>
         <Button type="submit" variant="primary" disabled={change.isPending}>
@@ -726,7 +904,7 @@ function ParentRecipients() {
   )
 }
 
-export function ParentConnections() {
+export function ParentConnections({ showSender = true }: { showSender?: boolean }) {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['instances'],
     queryFn: () => api<Instance[]>('/api/instances'),
@@ -738,6 +916,7 @@ export function ParentConnections() {
   })
   const senderId = Number(alertSettings?.['alerts.sender_instance_id'])
   const parents = data?.filter((phone) => phone.role === 'parent' || phone.id === senderId)
+  if (!showSender) return <ParentRecipients />
   return (
     <div className="flex flex-col gap-4">
       <ParentRecipients />

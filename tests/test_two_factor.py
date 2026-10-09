@@ -430,14 +430,15 @@ async def test_email_approval_uses_public_prefix_and_enables_without_greenapi(
     assert (
         await app_client.put("/api/users/security/two-factor", json={"enabled": True})
     ).status_code == 200
-    # Approving one channel cannot authorize the other.
+    # An unavailable preference falls back to the approved account channel.
+    monkeypatch.setattr(auth, "deliver", AsyncMock())
     app_client.cookies.clear()
     assert (
         await app_client.post(
             "/api/auth/login",
             json={"username": "admin", "password": "correct-horse", "channel": "whatsapp"},
         )
-    ).status_code == 422
+    ).json()["channel"] == "email"
 
 
 async def test_whatsapp_approval_enables_without_smtp(
@@ -697,3 +698,9 @@ async def test_enabled_two_factor_requires_new_user_contact_and_preserves_other_
     async with app_client.app.state.session_factory() as db:
         user = await db.get(User, uid)
         assert user and user.email == "parent2@example.com" and user.email_verified
+
+
+async def test_omitted_role_and_contacts_preserve_account(app_client: Any):
+    response = await app_client.put("/api/users/1", json={"username": "admin"})
+    assert response.status_code == 200 and response.json()["role"] == "admin"
+    assert (await app_client.get("/api/auth/me")).status_code == 200

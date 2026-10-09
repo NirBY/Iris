@@ -66,8 +66,9 @@ async def test_retry_only_failed_parent_and_preserves_target_snapshot(app_client
     await app_client.put("/api/settings", json={"settings": {"alerts.recipient": "15550100103"}})
     fail_second = False
     await run_all(deps)
-    assert delivered == ["15550100101@c.us", "15550100102@c.us"]
-    assert (await alerts(app_client))[0].delivery_status == "sent"
+    # Removing a recipient must revoke the pending send, including persisted snapshots.
+    assert delivered == ["15550100101@c.us"]
+    assert (await alerts(app_client))[0].delivery_status == "suppressed"
 
 
 @respx.mock
@@ -90,7 +91,7 @@ async def test_rejected_first_parent_does_not_block_second(app_client: Any):
     await advance_queue(deps)
     await run_all(deps)
     assert targets == ["15550100101@c.us", "15550100102@c.us"]
-    assert (await alerts(app_client))[0].delivery_status == "failed"
+    assert (await alerts(app_client))[0].delivery_status == "partial"
 
 
 @respx.mock
@@ -112,3 +113,62 @@ async def test_test_button_sends_to_each_unique_parent(app_client: Any):
         "15550100101@c.us",
         "15550100102@c.us",
     ]
+
+
+@respx.mock
+async def test_child_assignment_filters_alert_and_manual_resend(app_client: Any):
+    deps, token, _ = await setup(app_client, recipient="15550100101, 15550100102")
+    await app_client.put(
+        "/api/settings", json={"settings": {"alerts.recipient_children": {"15550100102": []}}}
+    )
+    respx.post(MOD_URL).mock(return_value=mod_response(violence=0.95))
+    send = respx.post(SEND_URL).mock(return_value=httpx.Response(201, json={"id": "sent"}))
+    await post(app_client, token, fx("text_received_mixed"))
+    await run_all(deps)
+    assert [json.loads(call.request.content)["chatId"] for call in send.calls] == [
+        "15550100101@c.us"
+    ]
+    alert = (await alerts(app_client))[0]
+    await app_client.put(
+        "/api/settings",
+        json={"settings": {"alerts.recipient_children": {"15550100101": [], "15550100102": []}}},
+    )
+    await app_client.post(f"/api/alerts/{alert.id}/resend")
+    await advance_queue(deps)
+    await run_all(deps)
+    assert send.call_count == 1
+
+
+@pytest.mark.parametrize("value", [{"15550100101": [-1]}, {"15550100101": [True]}, {"bad": [1]}])
+async def test_invalid_child_assignment_is_rejected(app_client: Any, value: Any):
+    response = await app_client.put(
+        "/api/settings", json={"settings": {"alerts.recipient_children": value}}
+    )
+    assert response.status_code == 422
+
+
+@respx.mock
+async def test_assignment_applies_to_followup_after_parent_is_removed(app_client: Any):
+    from tests.test_alerts import _revoke
+
+    deps, token, _ = await setup(app_client, recipient="15550100101")
+    respx.post(MOD_URL).mock(return_value=mod_response(violence=0.95))
+    send = respx.post(SEND_URL).mock(return_value=httpx.Response(201, json={"id": "sent"}))
+    await post(app_client, token, fx("text_received_mixed"))
+    await run_all(deps)
+    assert send.call_count == 1
+    await app_client.put(
+        "/api/settings", json={"settings": {"alerts.recipient_children": {"15550100101": []}}}
+    )
+    await post(app_client, token, _revoke("text_received_mixed"))
+    await advance_queue(deps)
+    await run_all(deps)
+    assert send.call_count == 1
+    await deps.providers.aclose()
+
+
+async def test_unknown_child_assignment_cannot_attach_to_a_future_phone(app_client: Any):
+    response = await app_client.put(
+        "/api/settings", json={"settings": {"alerts.recipient_children": {"15550100101": [999]}}}
+    )
+    assert response.status_code == 422

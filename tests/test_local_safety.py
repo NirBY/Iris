@@ -367,7 +367,7 @@ async def test_video_transcript_does_not_clear_unchecked_visuals(
     enable(monkeypatch, local=True)
     deps, token = await setup(app_client)
 
-    async def transcribe(db: Any, deps: Any, tmp: Any, message: Message) -> None:
+    async def transcribe(db: Any, deps: Any, tmp: Any, message: Message, job: Any = None) -> None:
         assert tmp.is_relative_to(get_settings().data_dir)
         message.transcript = "harmless speech"
 
@@ -430,3 +430,69 @@ async def test_unknown_messages_and_system_events_have_diagnostics(
     )
     assert not route.called
     await deps.providers.aclose()
+
+
+async def test_document_attachment_is_reviewed_even_with_safe_caption(app_client, monkeypatch):
+    from app.config import get_settings
+    from app.db.models import Message
+    from app.jobs.handlers import Prepared, _prepare
+
+    monkeypatch.setattr(get_settings(), "local_safety_mode", True)
+    async with app_client.app.state.session_factory() as db:
+        prepared = await _prepare(db, None, None, Message(type="document", text="safe filename"))
+    assert isinstance(prepared, Prepared) and prepared.problem is not None
+
+
+async def test_terminal_safety_failure_stays_in_review(app_client, monkeypatch):
+    from sqlalchemy import select
+
+    from app.config import get_settings
+    from app.db.models import Job, Message
+    from app.jobs import queue
+    from tests.test_alerts import setup
+    from tests.test_webhooks import fx, post
+
+    deps, token, _ = await setup(app_client)
+    await post(app_client, token, fx("text_received_mixed"))
+    monkeypatch.setattr(get_settings(), "local_safety_mode", True)
+    job = await queue.claim(deps.session_factory)
+    assert job is not None
+    await queue.fail(deps.session_factory, job, "provider unavailable", transient=False)
+    async with deps.session_factory() as db:
+        message = (await db.scalars(select(Message))).one()
+        assert message.status == "failed" and message.verdict == "review"
+        assert "parent review" in message.review_reason
+        assert await db.scalar(select(Job.id).where(Job.type == "deliver_alert"))
+    await deps.providers.aclose()
+
+
+async def test_startup_quarantines_unreviewed_documents_and_failed_checks(app_client: Any):
+    from app.db.models import Chat
+    from app.legacy_review import quarantine_legacy_unknowns
+
+    async with app_client.app.state.session_factory() as db:
+        chat = Chat(wa_chat_id="legacy-docs")
+        db.add(chat)
+        await db.flush()
+        document = Message(
+            wa_message_id="doc",
+            chat_id=chat.id,
+            type="document",
+            status="done",
+            verdict="safe",
+            sent_at=datetime.now(UTC),
+        )
+        failed = Message(
+            wa_message_id="fail",
+            chat_id=chat.id,
+            type="text",
+            status="failed",
+            sent_at=datetime.now(UTC),
+        )
+        db.add_all([document, failed])
+        await db.commit()
+        await quarantine_legacy_unknowns(db)
+        await db.refresh(document)
+        await db.refresh(failed)
+        assert document.verdict == failed.verdict == "review"
+        assert document.review_reason and failed.review_reason

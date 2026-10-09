@@ -328,7 +328,9 @@ async def test_document_only_caption_is_moderated(app_client: Any) -> None:
     deps, token = await setup(app_client)
     respx.post(MOD_URL).mock(return_value=mod_response())
     await post(app_client, token, fx("document_sent"))  # caption "doc"
-    assert await run_all(deps) == ["done"]
+    assert await run_all(deps) == ["failed"]
+    message, _ = await the_message(app_client)
+    assert message.verdict is None and message.status == "failed"
     assert mod_inputs() == ["doc"]
     assert not any(
         c.request.method == "GET" for c in respx.calls

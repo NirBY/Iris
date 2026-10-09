@@ -6,12 +6,13 @@ Secrets are AES-256-GCM encrypted at rest and never returned by the API (only `{
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.alerts.recipients import validate_recipients
+from app.alerts.recipients import recipients, validate_recipients
 from app.classify.thresholds import validate_thresholds
 from app.config import validate_public_base_url
 from app.db.models import Setting
@@ -171,6 +172,68 @@ def _phone_roles(value: Any) -> dict[str, str]:
     return dict(value)
 
 
+def _timestamp(value: Any) -> str | None:
+    value = _opt_str(value)
+    if value is None:
+        return None
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp must include a timezone")
+    return parsed.astimezone(UTC).isoformat()
+
+
+def _recipient_children(value: Any) -> dict[str, list[int]]:
+    if not isinstance(value, dict):
+        raise ValueError("must map parent numbers to child ID lists")
+    clean = {}
+    for parent, children in value.items():
+        targets = recipients(parent) if isinstance(parent, str) else []
+        if (
+            len(targets) != 1
+            or not isinstance(children, list)
+            or any(
+                isinstance(child, bool) or not isinstance(child, int) or child < 1
+                for child in children
+            )
+        ):
+            raise ValueError("each parent needs one valid number and positive child IDs")
+        clean[targets[0]] = sorted(set(children))
+    return clean
+
+
+def _recipient_contacts(value: Any) -> dict[str, dict[str, str]]:
+    from app.security.two_factor import email_address
+
+    if not isinstance(value, dict):
+        raise ValueError("must map parent numbers to notification contacts")
+    clean = {}
+    for parent, contact in value.items():
+        targets = recipients(parent) if isinstance(parent, str) else []
+        if len(targets) != 1 or not isinstance(contact, dict):
+            raise ValueError("invalid parent notification contact")
+        if set(contact) - {"email", "telegram_chat_id"}:
+            raise ValueError("unknown contact field")
+        result = {}
+        if contact.get("email") and not isinstance(contact["email"], str):
+            raise ValueError("Email must be a string")
+        if contact.get("email"):
+            result["email"] = str(email_address(contact["email"]))
+        if contact.get("telegram_chat_id"):
+            chat_id = str(contact["telegram_chat_id"])
+            if not re.fullmatch(r"-?[0-9]{1,20}", chat_id):
+                raise ValueError("Telegram chat ID must be numeric")
+            result["telegram_chat_id"] = chat_id
+        clean[targets[0]] = result
+    return clean
+
+
+def _telegram_token(value: Any) -> str | None:
+    value = _opt_secret(value)
+    if value and not re.fullmatch(r"[0-9]{5,20}:[A-Za-z0-9_-]{20,100}", value):
+        raise ValueError("Enter a Telegram bot token from BotFather")
+    return str(value) if value is not None else None
+
+
 REGISTRY: dict[str, Spec] = {
     "runtime.webhook_base_url": Spec(
         None, lambda v: None if v is None or v == "" else validate_public_base_url(_str(v))
@@ -222,10 +285,19 @@ REGISTRY: dict[str, Spec] = {
     "scope.monitor_from_me": Spec(True, _bool),
     "scope.monitor_direct": Spec(True, _bool),
     "scope.monitor_groups": Spec(True, _bool),
+    "retention.message_hours": Spec(0, _int_range(0, 87600)),
+    "media.retention_hours": Spec(0, _int_range(0, 87600)),
     "retention.message_days": Spec(90, _int_range(1, 3650)),
     "retention.alert_days": Spec(365, _int_range(1, 3650)),
     "alerts.sender_instance_id": Spec(None, _opt_int),
     "alerts.recipient": Spec(None, lambda v: validate_recipients(_opt_str(v))),
+    "auth.default_channel": Spec("email", _choice("email", "whatsapp")),
+    "alerts.channel": Spec("openwa", _choice("openwa", "telegram", "smtp", "greenapi")),
+    "alerts.recipient_contacts": Spec({}, _recipient_contacts),
+    "alerts.telegram_bot_token": Spec(None, _telegram_token, secret=True),
+    "alerts.recipient_children": Spec({}, _recipient_children),
+    "alerts.review_notify_since": Spec(None, _timestamp),
+    "alerts.notification_style": Spec("summary", _choice("summary", "detailed")),
     "alerts.send_interval_seconds": Spec(30, _int_range(5, 3600)),
     "alerts.send_hourly_limit": Spec(60, _int_range(1, 1000)),
     "alerts.send_daily_limit": Spec(250, _int_range(1, 10000)),

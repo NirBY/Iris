@@ -247,7 +247,7 @@ export function AlertDetail() {
           )}
           <span className="font-medium">
             {{
-              sent: 'Delivered to your WhatsApp',
+              sent: 'Delivered to all recipients',
               partial: 'Delivered to some recipients',
               failed: 'Not delivered',
               paused: 'Held because monitoring is paused',
@@ -279,6 +279,20 @@ export function AlertDetail() {
         >
           <Send /> Send again
         </Button>
+        {(a.recipient_delivery?.length ?? 0) > 0 && (
+          <ul className="w-full space-y-1 text-sm">
+            {a.recipient_delivery?.map((recipient, index) => (
+              <li key={index}>
+                {recipient.recipient}:{' '}
+                <span
+                  className={recipient.status === 'delivered' ? 'text-success' : 'text-warning'}
+                >
+                  {recipient.status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section aria-labelledby="how" className="flex flex-col gap-3">

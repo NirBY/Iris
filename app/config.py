@@ -36,6 +36,20 @@ def validate_public_base_url(value: str) -> str:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="IRIS_", env_file=".env", extra="ignore")
 
+    alert_channel: Literal["openwa", "telegram", "smtp", "greenapi"] = "openwa"
+    alert_recipients: str | None = None
+    telegram_bot_token: str | None = Field(default=None, repr=False)
+    telegram_chat_id: str | None = None
+    greenapi_api_url: str = "https://api.green-api.com"
+    greenapi_media_url: str | None = None
+    greenapi_instance_id: str | None = None
+    greenapi_token: str | None = Field(default=None, repr=False)
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_tls: Literal["starttls", "ssl"] = "starttls"
+    smtp_username: str | None = None
+    smtp_password: str | None = Field(default=None, repr=False)
+    smtp_sender: str | None = None
     two_factor_recovery_key: str | None = Field(default=None, repr=False)
 
     openwa_url: str | None = Field(default=None, validation_alias="OPENWA_URL")
@@ -46,6 +60,8 @@ class Settings(BaseSettings):
     admin_username: str | None = None
     admin_password: str | None = None
     data_dir: Path = Path("/data")
+    openwa_storage_report: Path | None = None
+    openwa_data_dir: Path | None = None  # optional read-only provider volume for space measurements
     port: int = 8080
     workers: int = Field(default=3, ge=0)  # 0 disables the pool (tests)
     log_level: str = "INFO"

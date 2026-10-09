@@ -83,8 +83,16 @@ class LoginLimiter:
     def blocked(self, ip: str) -> bool:
         return len(self._prune(ip, time.monotonic())) >= LOGIN_MAX_FAILURES
 
-    def record_failure(self, ip: str) -> None:
-        self._prune(ip, time.monotonic()).append(time.monotonic())
+    def record_failure(self, ip: str) -> float:
+        token = time.monotonic()
+        self._prune(ip, token).append(token)
+        return token
+
+    def release(self, ip: str, token: float) -> None:
+        """Remove only this successful attempt's reservation; preserve other failures."""
+        q = self._prune(ip, time.monotonic())
+        if token in q:
+            q.remove(token)
 
     def reset(self, ip: str) -> None:
         self._fails.pop(ip, None)

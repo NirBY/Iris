@@ -12,6 +12,7 @@ test('2FA stays disabled before providers and contacts are ready', async () => {
   expect(await screen.findByRole('button', { name: 'Enable 2FA' })).toBeDisabled()
   expect(screen.queryByLabelText('SMTP host')).not.toBeInTheDocument()
   expect(screen.getByRole('option', { name: 'Watch only' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Sign-in verification' })).not.toBeInTheDocument()
 })
 
 test.each(['email', 'whatsapp', 'mixed'])('2FA accepts approved %s channels', async (channel) => {
@@ -90,4 +91,93 @@ test('notifications supports generic SMTP and GreenAPI', async () => {
   expect(
     screen.queryByRole('heading', { name: 'Two-factor authentication' }),
   ).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Sign-in verification' })).not.toBeInTheDocument()
+})
+
+test.each(['email', 'whatsapp'])(
+  'sign-in channel lives under 2FA and offers only ready %s',
+  async (channel) => {
+    renderWithApp(<UserSettings />, {
+      '/api/settings': { 'auth.default_channel': 'email' },
+      '/api/users/security/config': {
+        ...config,
+        smtp: { verified: channel === 'email' },
+        green_api: { verified: channel === 'whatsapp' },
+      },
+      '/api/users': [
+        {
+          ...admin,
+          email: 'parent@example.com',
+          email_verified: true,
+          whatsapp_number: '+15550100101',
+          whatsapp_verified: true,
+        },
+      ],
+    })
+    const heading = await screen.findByRole('heading', { name: 'Sign-in verification' })
+    expect(heading.closest('section')).toHaveTextContent('Two-factor authentication')
+    const select = screen.getByLabelText('Default sign-in code channel')
+    expect(select).toHaveValue(channel)
+    expect(select.querySelectorAll('option')).toHaveLength(1)
+  },
+)
+
+test('sign-in channel stays hidden while a user lacks an approved contact', async () => {
+  renderWithApp(<UserSettings />, {
+    '/api/settings': {},
+    '/api/users/security/config': { ...config, smtp: { verified: true } },
+    '/api/users': [
+      { ...admin, email: 'parent@example.com', email_verified: true },
+      { ...admin, id: 2 },
+    ],
+  })
+  expect(await screen.findByRole('button', { name: 'Enable 2FA' })).toBeDisabled()
+  expect(screen.queryByLabelText('Default sign-in code channel')).not.toBeInTheDocument()
+})
+
+test('2FA sign-in preference saves independently from alert settings', async () => {
+  const calls = renderWithApp(<UserSettings />, {
+    '/api/settings': { 'auth.default_channel': 'email' },
+    '/api/users/security/config': {
+      ...config,
+      smtp: { verified: true },
+      green_api: { verified: true },
+    },
+    '/api/users': [
+      {
+        ...admin,
+        email: 'parent@example.com',
+        email_verified: true,
+        whatsapp_number: '+15550100101',
+        whatsapp_verified: true,
+      },
+    ],
+  })
+  await userEvent.selectOptions(
+    await screen.findByLabelText('Default sign-in code channel'),
+    'whatsapp',
+  )
+  await waitFor(() =>
+    expect(
+      calls.some(
+        (call) =>
+          call.url === '/api/settings' &&
+          call.method === 'PUT' &&
+          JSON.stringify(call.body) ===
+            JSON.stringify({ settings: { 'auth.default_channel': 'whatsapp' } }),
+      ),
+    ).toBe(true),
+  )
+})
+
+test.each([
+  ['Test saved SMTP', '/api/users/security/smtp/test'],
+  ['Test saved GreenAPI', '/api/users/security/whatsapp/test'],
+])('failed %s result is shown as an error', async (button, endpoint) => {
+  renderWithApp(<NotificationsSettings />, {
+    '/api/users/security/config': { ...config, green_api_token_set: true },
+    [endpoint]: { ok: false, detail: 'Provider test failed' },
+  })
+  await userEvent.click(await screen.findByRole('button', { name: button }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Provider test failed')
 })

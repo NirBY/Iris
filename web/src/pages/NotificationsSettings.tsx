@@ -15,7 +15,7 @@ type SMTP = {
   sender: string
   verified?: boolean
 }
-type GreenAPI = { api_url: string; instance_id: string; verified?: boolean }
+type GreenAPI = { media_url?: string; api_url: string; instance_id: string; verified?: boolean }
 const emptyGreen = { api_url: 'https://api.green-api.com', instance_id: '', token: '' }
 const emptySMTP = {
   host: '',
@@ -51,14 +51,17 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
   })
   const [green, setGreen] = useState(() => ({ ...emptyGreen, ...initial.green_api, token: '' }))
   const [greenResult, setGreenResult] = useState('')
+  const [greenFailed, setGreenFailed] = useState(false)
   const [smtp, setSMTP] = useState(() => ({ ...emptySMTP, ...initial.smtp, password: '' }))
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState('')
+  const [smtpFailed, setSMTPFailed] = useState(false)
   async function run(action: () => Promise<unknown>) {
     setBusy(true)
     try {
       await action()
       await qc.invalidateQueries({ queryKey: ['security'] })
+      await qc.invalidateQueries({ queryKey: ['stats'] })
       await qc.invalidateQueries({ queryKey: ['users'] })
       await qc.invalidateQueries({ queryKey: ['me'] })
     } catch (error) {
@@ -72,9 +75,10 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
       <section className="rounded-lg border bg-surface p-5">
         <h2 className="text-lg font-semibold">SMTP server</h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          Enter your email provider’s SMTP host, port, TLS mode and credentials. Configure your
-          admin email in Settings → Users, then save and send a test. Open its approval link to
-          approve the email for 2FA. Approval links use Iris base URL in Settings → Alerts.
+          This SMTP server delivers email alerts and sign-in codes. Enter its host, port, TLS mode
+          and credentials. Configure your admin email in Settings → Users, then save and send a
+          test. Open its approval link to approve the email for 2FA. Approval links use Iris base
+          URL in Settings → Alerts.
         </p>
         <form
           className="grid gap-3 sm:grid-cols-2"
@@ -83,6 +87,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
             void run(async () => {
               await api('/api/users/security/smtp', { method: 'PUT', body: JSON.stringify(smtp) })
               setResult('SMTP saved. Run the test before enabling 2FA.')
+              setSMTPFailed(false)
             })
           }}
         >
@@ -163,6 +168,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
                   { method: 'POST' },
                 )
                 setResult(r.detail)
+                setSMTPFailed(!r.ok)
               })
             }
           >
@@ -175,7 +181,10 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
             or SSL / TLS port 465.
           </p>
         )}
-        <p role="status" className="mt-3 text-sm">
+        <p
+          role={smtpFailed ? 'alert' : 'status'}
+          className={`mt-3 text-sm ${smtpFailed ? 'text-danger' : ''}`}
+        >
           {result ||
             (security.data?.smtp.verified ? 'SMTP test passed.' : 'SMTP has not passed its test.')}
         </p>
@@ -183,10 +192,11 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
       <section className="rounded-lg border bg-surface p-5">
         <h2 className="text-lg font-semibold">GreenAPI — WhatsApp 2FA</h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          WhatsApp verification codes use GreenAPI only, with a Copy code button. Save your GreenAPI
-          credentials, then send a test to your personal WhatsApp number configured in Settings →
-          Users. Open the approval link in the test message. An approved email with tested SMTP or
-          an approved WhatsApp number with tested GreenAPI is enough to enable 2FA.
+          GreenAPI sends WhatsApp alerts to individual numbers or group IDs. Sign-in codes use
+          personal numbers with a Copy code button. Save your GreenAPI credentials, then send a test
+          to your personal WhatsApp number configured in Settings → Users. Open the approval link in
+          the test message. An approved email with tested SMTP or an approved WhatsApp number with
+          tested GreenAPI is enough to enable 2FA.
         </p>
         <form
           className="grid gap-3 sm:grid-cols-2"
@@ -202,6 +212,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
               })
               setGreen((g) => ({ ...g, token: '' }))
               setGreenResult('GreenAPI saved. Run the test before enabling 2FA.')
+              setGreenFailed(false)
             })
           }}
         >
@@ -211,6 +222,16 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
               type="url"
               value={green.api_url}
               onChange={(e) => setGreen({ ...green, api_url: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="GreenAPI media URL"
+            hint="Optional media endpoint from your GreenAPI account. Text alerts use the API URL."
+          >
+            <Input
+              type="url"
+              value={green.media_url ?? ''}
+              onChange={(e) => setGreen({ ...green, media_url: e.target.value })}
             />
           </Field>
           <Field label="GreenAPI instance ID">
@@ -241,10 +262,27 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
               onClick={() =>
                 void run(async () => {
                   const result = await api<{ ok: boolean; detail: string }>(
+                    '/api/users/security/whatsapp/check',
+                    { method: 'POST' },
+                  )
+                  setGreenResult(result.detail)
+                  setGreenFailed(!result.ok)
+                })
+              }
+            >
+              Check account for alerts
+            </Button>
+            <Button
+              type="button"
+              disabled={busy || !security.data?.green_api_token_set}
+              onClick={() =>
+                void run(async () => {
+                  const result = await api<{ ok: boolean; detail: string }>(
                     '/api/users/security/whatsapp/test',
                     { method: 'POST' },
                   )
                   setGreenResult(result.detail)
+                  setGreenFailed(!result.ok)
                 })
               }
             >
@@ -252,7 +290,10 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
             </Button>
           </div>
         </form>
-        <p role="status" className="mt-3 text-sm">
+        <p
+          role={greenFailed ? 'alert' : 'status'}
+          className={`mt-3 text-sm ${greenFailed ? 'text-danger' : ''}`}
+        >
           {greenResult ||
             (security.data?.green_api?.verified
               ? 'GreenAPI test passed.'

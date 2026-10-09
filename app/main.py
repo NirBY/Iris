@@ -4,6 +4,7 @@ import asyncio
 import hmac
 from collections.abc import AsyncIterator, MutableMapping
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -89,13 +90,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.session_factory = make_session_factory(engine)
     async with app.state.session_factory() as session:
         await bootstrap_admin(session, settings)
+        from app.alerts.bootstrap import bootstrap_notifications
+
+        await bootstrap_notifications(session, settings)
         from app.settings_store import reload_runtime_settings
 
         await reload_runtime_settings(session)
         settings = get_settings()
         if settings.local_safety_mode:
             from app.legacy_review import quarantine_legacy_unknowns
+            from app.settings_store import get_setting, set_setting
 
+            if not await get_setting(session, "alerts.review_notify_since"):
+                await set_setting(
+                    session, "alerts.review_notify_since", datetime.now(UTC).isoformat()
+                )
             await quarantine_legacy_unknowns(session)
     providers = Providers()
     pool = WorkerPool(

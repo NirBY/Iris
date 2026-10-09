@@ -18,25 +18,39 @@ const stats: Record<string, unknown> = {
   silent_instances: 1,
 }
 
-function renderPage(over: Record<string, unknown> = {}) {
+function renderPage(over: Record<string, unknown> = {}, alertsError = false) {
   vi.stubGlobal(
     'fetch',
     vi.fn(
       async (url: string) =>
         new Response(
           JSON.stringify(
-            url.startsWith('/api/stats')
-              ? { ...stats, ...over }
-              : url.startsWith('/api/auth/me')
-                ? { username: 'admin', role: 'admin', id: 1 }
-                : { items: [] },
+            url === '/api/stats/storage'
+              ? {
+                  iris: { bytes: 0, database_bytes: 0, status: 'measured' },
+                  openwa: { bytes: null, database_bytes: null, status: 'not configured' },
+                  iris_media_bytes: 0,
+                }
+              : url.startsWith('/api/stats/timeline')
+                ? { days: [], timezone: 'UTC' }
+                : url === '/api/chats' || url === '/api/auth/phones'
+                  ? [{ id: 1, kid_name: 'Noa', role: 'child' }].filter(
+                      () => url === '/api/auth/phones',
+                    )
+                  : url === '/api/stats'
+                    ? { ...stats, ...over }
+                    : url.startsWith('/api/auth/me')
+                      ? { username: 'admin', role: 'admin', id: 1 }
+                      : { items: [] },
           ),
-          { status: 200 },
+          { status: alertsError && url.startsWith('/api/alerts') ? 503 : 200 },
         ),
     ),
   )
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+    >
       <MemoryRouter>
         <Dashboard />
       </MemoryRouter>
@@ -94,6 +108,15 @@ test('shows how much media is kept only when keeping is on', async () => {
   expect(screen.queryByText('Media kept')).not.toBeInTheDocument()
 })
 
+test('recent alert errors show retry instead of an empty state', async () => {
+  renderPage({}, true)
+  expect(
+    await screen.findByText(/Could not load recent alerts/, {}, { timeout: 10000 }),
+  ).toBeInTheDocument()
+  expect(screen.queryByText('No alerts yet')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+})
+
 test('shows the number and size of kept media when it is on', async () => {
   cleanup()
   renderPage({ media_policy: 'harmful', media_files: 7, media_bytes: 3 * 1024 * 1024 })
@@ -113,6 +136,7 @@ test('recent alerts show no quote until the eye is pressed', async () => {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
+      if (url === '/api/chats' || url === '/api/auth/phones') return new Response('[]')
       if (url.startsWith('/api/stats')) return new Response(JSON.stringify(stats))
       const alert = {
         id: 1,
@@ -167,4 +191,16 @@ test('warns when no children, parents or alert sender are configured', async () 
     '/settings?tab=Alerts',
   )
   expect(screen.getByRole('link', { name: 'Alert phones: 0' })).toBeInTheDocument()
+})
+
+test('activity defaults to 14 days and all children, then queries the selected filters', async () => {
+  renderPage()
+  const period = await screen.findByRole('combobox', { name: 'Activity time period' })
+  const child = screen.getByRole('combobox', { name: 'Activity child' })
+  expect(period).toHaveValue('14')
+  expect(child).toHaveValue('')
+  await screen.findByRole('option', { name: 'Noa' })
+  await userEvent.selectOptions(period, '30')
+  await userEvent.selectOptions(child, '1')
+  expect(fetch).toHaveBeenCalledWith('/api/stats/timeline?days=30&instance_id=1', expect.anything())
 })

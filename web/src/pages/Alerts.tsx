@@ -32,12 +32,14 @@ export function Alerts() {
   const status = get('status')
   const kid = get('instance_id')
   const category = get('category')
+  const chatId = get('chat_id')
 
   const params = new URLSearchParams({ page: String(page), page_size: String(PAGE_SIZE) })
   for (const [k, v] of [
     ['status', status],
     ['instance_id', kid],
     ['category', category],
+    ['chat_id', chatId],
   ])
     if (v) params.set(k, v)
 
@@ -54,7 +56,7 @@ export function Alerts() {
     queryFn: () => api<Stats>('/api/stats'),
   })
   const notConfigured = stats?.delivery_configured === false
-  const active = [kid, category].filter(Boolean).length + (status ? 1 : 0)
+  const active = [kid, category, chatId].filter(Boolean).length + (status ? 1 : 0)
 
   return (
     <div className="flex flex-col gap-5">

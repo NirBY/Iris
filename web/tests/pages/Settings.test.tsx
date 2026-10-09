@@ -145,7 +145,7 @@ test('test button reports the result', async () => {
 
 test('alert settings are sent with the right types', async () => {
   const calls = renderPage()
-  await userEvent.click(await screen.findByRole('tab', { name: 'Alerts' }))
+  await userEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))
   const cooldown = await screen.findByLabelText(/Cooldown per chat/)
   await userEvent.clear(cooldown)
   await userEvent.type(cooldown, '30')
@@ -265,7 +265,7 @@ test('clearing a saved key asks first and sends nothing when cancelled', async (
 
 test('the follow-up setting is on by default and can be switched off', async () => {
   const calls = renderPage()
-  await userEvent.click(await screen.findByRole('tab', { name: 'Alerts' }))
+  await userEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))
   await userEvent.click(await screen.findByLabelText(/Tell me when an alerted message is edited/))
   await userEvent.click(screen.getByRole('button', { name: 'Save' }))
   const put = calls.find((c) => c.url === '/api/settings' && c.body)
@@ -403,5 +403,8 @@ test('an in-app link changes the tab while Settings remains mounted', async () =
   renderPage()
   await screen.findByRole('tab', { name: 'Providers' })
   await userEvent.click(screen.getByRole('link', { name: 'Open alert settings' }))
-  expect(screen.getByRole('tab', { name: 'Alerts' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByRole('tab', { name: 'Notifications' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
 })

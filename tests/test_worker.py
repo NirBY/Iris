@@ -106,7 +106,9 @@ async def test_inconclusive_triggers_context_stage_and_stores_both(app_client: A
         assert [c.band for c in cls] == ["inconclusive", "safe"]
         assert cls[1].context_message_ids == [msgs[0].id] and target.verdict == "safe"
     sent = [json.loads(c.request.content)["input"] for c in respx.calls]
-    assert sent[2].startswith("Kid Tester: earlier line in the same chat\n>>> Kid Tester: ")
+    assert sent[2].startswith(
+        '{"sender": "Kid Tester", "content": "earlier line in the same chat"}\n>>> '
+    )
     await deps.providers.aclose()
 
 

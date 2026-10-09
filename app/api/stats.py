@@ -1,7 +1,12 @@
 """/api/stats and /api/chats: dashboard numbers and the known-chats list."""
 
+import asyncio
+import json
+import os
+import time
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
@@ -19,11 +24,12 @@ from app.db.models import (
     Instance,
     Job,
     Message,
+    MessageReceipt,
     ReviewDataIssue,
     StoredMedia,
 )
 from app.deps import get_db
-from app.security.auth import current_user
+from app.security.auth import admin_user, current_user
 from app.settings_store import get_setting
 
 router = APIRouter(prefix="/api", tags=["stats"], dependencies=[Depends(current_user)])
@@ -49,6 +55,8 @@ class Stats(BaseModel):
     media_policy: str  # off | harmful | harmful_review | all
     media_files: int  # kept media that can be shown
     media_bytes: int
+    alert_media_not_saved: int = 0
+    alert_channel: str = "openwa"
     sender_is_recipient: bool = False
     unavailable_instances: int = 0
     monitoring_window_minutes: int = 0
@@ -61,7 +69,13 @@ async def _count(db: AsyncSession, stmt) -> int:  # type: ignore[no-untyped-def]
 @router.get("/stats")
 async def stats(db: DB) -> Stats:
     now = datetime.now(UTC).replace(tzinfo=None)  # stored as naive UTC
-    day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    timezone = ZoneInfo(str(await get_setting(db, "alerts.timezone")))
+    local_today = datetime.now(timezone).date()
+    day = (
+        datetime.combine(local_today, datetime.min.time(), tzinfo=timezone)
+        .astimezone(UTC)
+        .replace(tzinfo=None)
+    )
     by_alert = dict(
         (await db.execute(select(Alert.status, func.count()).group_by(Alert.status))).all()
     )
@@ -122,7 +136,8 @@ async def stats(db: DB) -> Stats:
         children=sum(phone.id not in parent_ids for phone in phones),
         parent_recipients=len(targets),
         alert_phones=len(sender_ids),
-        alert_sender_configured=sender is not None,
+        alert_sender_configured=sender is not None
+        or await get_setting(db, "alerts.channel") != "openwa",
         silent_instances=await _count(
             db,
             select(func.count())
@@ -131,6 +146,22 @@ async def stats(db: DB) -> Stats:
                 Instance.enabled.is_(True),
                 Instance.last_webhook_at.is_(None),
                 Instance.id.not_in(sender_ids),
+            ),
+        ),
+        alert_channel=str(await get_setting(db, "alerts.channel")),
+        alert_media_not_saved=await _count(
+            db,
+            select(func.count())
+            .select_from(Alert)
+            .join(Message, Message.id == Alert.message_id)
+            .where(
+                Message.type.in_(
+                    ("image", "audio", "voice", "ptt", "video", "sticker", "document")
+                ),
+                Message.redacted.is_(False),
+                Message.id.not_in(
+                    select(StoredMedia.message_id).where(StoredMedia.purge.is_(False))
+                ),
             ),
         ),
         media_policy=str(await get_setting(db, "media.policy")),
@@ -231,7 +262,11 @@ class Timeline(BaseModel):
 
 
 @router.get("/stats/timeline")
-async def timeline(db: DB, days: Annotated[int, Query(ge=1, le=90)] = 14) -> Timeline:
+async def timeline(
+    db: DB,
+    days: Annotated[int, Query(ge=1, le=90)] = 14,
+    instance_id: Annotated[int | None, Query(ge=1)] = None,
+) -> Timeline:
     """Messages (by verdict) and alerts per day for the last `days` days, zero-filled.
 
     Days are the parent's days: bucketed in the `alerts.timezone` setting, not in UTC. The
@@ -251,14 +286,16 @@ async def timeline(db: DB, days: Annotated[int, Query(ge=1, le=90)] = 14) -> Tim
     buckets: dict[date, dict[str, int]] = defaultdict(
         lambda: {"safe": 0, "review": 0, "harmful": 0, "other": 0, "alerts": 0}
     )
-    for sent_at, verdict in await db.execute(
-        select(Message.sent_at, Message.verdict).where(Message.sent_at >= start_utc)
-    ):
+    selected = select(MessageReceipt.message_id).where(MessageReceipt.instance_id == instance_id)
+    messages_query = select(Message.sent_at, Message.verdict).where(Message.sent_at >= start_utc)
+    alerts_query = select(Alert.created_at).where(Alert.created_at >= start_utc)
+    if instance_id is not None:
+        messages_query = messages_query.where(Message.id.in_(selected))
+        alerts_query = alerts_query.where(Alert.message_id.in_(selected))
+    for sent_at, verdict in await db.execute(messages_query):
         key = verdict if verdict in ("safe", "review", "harmful") else "other"
         buckets[local_day(sent_at)][key] += 1
-    for (created_at,) in await db.execute(
-        select(Alert.created_at).where(Alert.created_at >= start_utc)
-    ):
+    for (created_at,) in await db.execute(alerts_query):
         buckets[local_day(created_at)]["alerts"] += 1
     return Timeline(
         timezone=str(tz),
@@ -267,3 +304,85 @@ async def timeline(db: DB, days: Annotated[int, Query(ge=1, le=90)] = 14) -> Tim
             for d in (first + timedelta(days=i) for i in range(days))
         ],
     )
+
+
+_storage_cache: dict[str, tuple[float, dict[str, int | str | None]]] = {}
+
+
+def measure_directory(path: Path | None) -> dict[str, int | str | None]:
+    """Measure files without following symlinks; unavailable is never reported as zero."""
+    if path is None:
+        return {"bytes": None, "database_bytes": None, "status": "not configured"}
+    cache_key = str(path)
+    cached = _storage_cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < 60:
+        return cached[1]
+    total = database = count = 0
+    deadline = time.monotonic() + 5
+    try:
+        if not path.is_dir():
+            raise OSError("missing directory")
+        stack = [path]
+        while stack:
+            with os.scandir(stack.pop()) as entries:
+                for entry in entries:
+                    count += 1
+                    if count > 100000 or time.monotonic() > deadline:
+                        raise OSError("measurement limit")
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(Path(entry.path))
+                    elif entry.is_file(follow_symlinks=False):
+                        size = entry.stat(follow_symlinks=False).st_size
+                        total += size
+                        if any(
+                            entry.name.endswith(ext)
+                            for ext in (".db", ".sqlite", ".sqlite3", "-wal", "-shm")
+                        ):
+                            database += size
+        result: dict[str, int | str | None] = {
+            "bytes": total,
+            "database_bytes": database,
+            "status": "measured",
+        }
+    except OSError:
+        result = {"bytes": None, "database_bytes": None, "status": "unavailable"}
+    _storage_cache[cache_key] = (time.monotonic(), result)
+    return result
+
+
+def provider_storage(path: Path | None, report: Path | None) -> dict[str, int | str | None]:
+    if report is not None:
+        try:
+            value = json.loads(report.read_text())
+            age = time.time() - value["measured_at"]
+            if 0 <= age <= 180 and all(
+                type(value.get(key)) is int and value[key] >= 0
+                for key in ("bytes", "database_bytes")
+            ):
+                return {
+                    "bytes": value["bytes"],
+                    "database_bytes": value["database_bytes"],
+                    "status": "measured",
+                }
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    return measure_directory(path)
+
+
+@router.get("/stats/storage", dependencies=[Depends(admin_user)])
+async def storage(db: DB) -> dict[str, object]:
+    cfg = get_settings()
+    iris, openwa = await asyncio.gather(
+        asyncio.to_thread(measure_directory, cfg.data_dir),
+        asyncio.to_thread(provider_storage, cfg.openwa_data_dir, cfg.openwa_storage_report),
+    )
+    return {
+        "iris": iris,
+        "openwa": openwa,
+        "iris_media_bytes": await _count(
+            db,
+            select(func.coalesce(func.sum(StoredMedia.size_bytes), 0)).where(
+                StoredMedia.purge.is_(False)
+            ),
+        ),
+    }
