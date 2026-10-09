@@ -145,6 +145,15 @@ test('test button reports the result', async () => {
   expect(await screen.findByText(/OpenAI Moderation answered/)).toBeInTheDocument()
 })
 
+test.each([false, true])('review buttons save a boolean when initially %s', async (enabled) => {
+  const calls = renderPage({ ...settings, 'alerts.review_buttons': enabled })
+  await userEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))
+  await userEvent.click(screen.getByRole('switch', { name: 'Add review buttons to alerts' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const put = calls.find((c) => c.url === '/api/settings' && c.body)
+  expect(JSON.parse(put!.body!).settings).toEqual({ 'alerts.review_buttons': !enabled })
+})
+
 test('alert settings are sent with the right types', async () => {
   const calls = renderPage()
   await userEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))

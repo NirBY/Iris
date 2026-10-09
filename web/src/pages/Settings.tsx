@@ -169,6 +169,7 @@ const BOOLEANS = [
   'runtime.whisper_use_environment_key',
   'alerts.alert_on_review',
   'alerts.notify_changes',
+  'alerts.review_buttons',
   'scope.monitor_from_me',
   'scope.monitor_direct',
   'scope.monitor_groups',
