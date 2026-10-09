@@ -66,6 +66,16 @@ class ChatInstance(Base):
     )
 
 
+class SkippedGroup(Base):
+    __tablename__ = "skipped_groups"
+    chat_id: Mapped[int] = mapped_column(
+        ForeignKey("chats.id", ondelete="CASCADE"), primary_key=True
+    )
+    instance_id: Mapped[int] = mapped_column(
+        ForeignKey("instances.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
 class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (UniqueConstraint("chat_id", "wa_message_id"),)
@@ -247,6 +257,31 @@ class ReviewDataIssue(Base):
     reported_at: Mapped[datetime] = _ts()
 
 
+class ScheduleRun(Base):
+    __tablename__ = "schedule_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_key: Mapped[str] = mapped_column(String(80), index=True)
+    job_id: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    started_at: Mapped[datetime] = _ts()
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSON(none_as_null=True))
+    error: Mapped[str | None] = mapped_column(Text)
+    traceback: Mapped[str | None] = mapped_column(Text)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(Integer)
+    username: Mapped[str] = mapped_column(String(255))
+    method: Mapped[str] = mapped_column(String(10))
+    path: Mapped[str] = mapped_column(String(512))
+    status_code: Mapped[int] = mapped_column(Integer)
+    changes: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = _ts(index=True)
+
+
 class SendingBudget(Base):
     """Persistent outbound pacing; reservations survive restarts."""
 
@@ -258,3 +293,30 @@ class SendingBudget(Base):
     hour_count: Mapped[int] = mapped_column(Integer, default=0)
     day_start: Mapped[datetime] = mapped_column(UTCDateTime())
     day_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class AlertAction(Base):
+    """Recipient-bound, expiring review buttons; provider credentials are never stored."""
+
+    __tablename__ = "alert_actions"
+    token: Mapped[str] = mapped_column(String(48), primary_key=True)
+    alert_id: Mapped[int] = mapped_column(ForeignKey("alerts.id", ondelete="CASCADE"), index=True)
+    target: Mapped[str] = mapped_column(String(255))
+    destination: Mapped[str] = mapped_column(String(255))
+    channel: Mapped[str] = mapped_column(String(20))
+    provider_key: Mapped[str] = mapped_column(String(64))
+    choice: Mapped[str] = mapped_column(String(20))
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+
+
+class ReviewResponse(Base):
+    __tablename__ = "review_responses"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    actor: Mapped[str] = mapped_column(String(255))
+    choice: Mapped[str] = mapped_column(String(20))
+    applied: Mapped[bool] = mapped_column(Boolean)
+    note: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = _ts()

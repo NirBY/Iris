@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
+import type { AlertReadiness } from '../lib/types'
 import { ConfirmDialog } from '../components/ui/dialog'
 import { Button } from '../components/ui/button'
 import { Field, Input, Select } from '../components/ui/field'
@@ -33,6 +34,11 @@ const emptyUser = {
 
 export function UserSettings() {
   const qc = useQueryClient()
+  const readiness = useQuery({
+    queryKey: ['alert-readiness'],
+    queryFn: () => api<AlertReadiness>('/api/settings/alert-readiness'),
+    refetchInterval: 30_000,
+  })
   const users = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/api/users') })
   const settings = useQuery({
     queryKey: ['settings'],
@@ -61,6 +67,8 @@ export function UserSettings() {
       await qc.invalidateQueries({ queryKey: ['users'] })
       await qc.invalidateQueries({ queryKey: ['me'] })
       await qc.invalidateQueries({ queryKey: ['settings'] })
+      await qc.invalidateQueries({ queryKey: ['alert-readiness'] })
+      await qc.invalidateQueries({ queryKey: ['stats'] })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not save'
       setSaveError(message)
@@ -106,6 +114,17 @@ export function UserSettings() {
                 {u.username} · {u.role} · {u.email || 'No email'} ·{' '}
                 {u.whatsapp_number || 'No WhatsApp number'}
               </span>
+              {readiness.data?.users?.find((status) => status.id === u.id) &&
+                (() => {
+                  const status = readiness.data.users.find((status) => status.id === u.id)!
+                  return (
+                    <span
+                      className={status.eligible ? 'text-sm text-success' : 'text-sm text-warning'}
+                    >
+                      Alerts: {status.eligible ? 'Eligible' : status.reason}
+                    </span>
+                  )
+                })()}
               {u.email &&
                 (u.email_verified ? (
                   <span className="text-sm text-success">Email approved</span>

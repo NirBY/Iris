@@ -9,12 +9,11 @@ from loguru import logger
 from sqlalchemy.exc import OperationalError
 
 from app.alerts.delivery import deliver_alert, deliver_test, notify_change
-from app.chats import resolve_group_names
 from app.config import get_settings
 from app.jobs import queue
 from app.jobs.handlers import Deps, prepare_alert, process_message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
-from app.media.sweep import sweep_media
+from app.schedules import due_schedules, run_schedule
 
 Handler = Callable[[ClaimedJob, Deps], Awaitable[None]]
 HANDLERS: dict[str, Handler] = {
@@ -23,6 +22,7 @@ HANDLERS: dict[str, Handler] = {
     "deliver_alert": deliver_alert,
     "notify_change": notify_change,
     "test_alert": deliver_test,
+    "run_schedule": run_schedule,
 }
 
 
@@ -190,36 +190,13 @@ class WorkerPool:
         first = True
         while True:
             if not first:
-                await asyncio.sleep(60)
+                await asyncio.sleep(5)
             first = False
-            try:
-                await queue.recover_stale(self._deps.session_factory)
-            except Exception:
-                logger.exception("stale job recovery failed")
-            if get_settings().monitoring_silence_minutes:
-                from app.monitoring import probe_sessions
-
+            if self._size:
                 try:
-                    await probe_sessions(self._deps.session_factory, self._deps.key_bytes)
+                    await due_schedules(self._deps)
                 except Exception:
-                    logger.warning("monitoring session probe failed")
-            try:
-                from app.alerts.service import notify_pending_reviews
-
-                async with self._deps.session_factory() as db:
-                    await notify_pending_reviews(db)
-            except Exception:
-                logger.exception("review notification catch-up failed; retrying")
-            try:
-                await resolve_group_names(self._deps.session_factory, self._deps.key_bytes)
-            except Exception:
-                logger.exception("group name lookup failed")
-            try:
-                await sweep_media(
-                    self._deps.session_factory, self._deps.key_bytes, self._deps.data_dir
-                )
-            except Exception:
-                logger.exception("media cleanup failed")
+                    logger.exception("Schedule dispatch failed")
 
     async def _loop(self, n: int, delivery: bool = False, generation: int = 0) -> None:
         while generation == self._generation:

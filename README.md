@@ -16,6 +16,33 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
 
 ## Contents
 
+### Operational settings
+
+Settings → Notifications checks the selected channel against current provider readiness and
+recipient eligibility. Only explicitly selected recipients receive alerts. GreenAPI requires a verified
+provider connection but no individual phone approval. OpenWA numbers and SMTP emails require current
+approval; standalone legacy destinations remain supported. One eligible
+recipient is sufficient, while ineligible recipients stay visible in Settings and Home.
+
+Device checks can automatically refresh a disconnected child connection. Settings → Schedules controls
+the number of attempts, time between attempts, and delay before notifying parents. Defaults are one
+attempt and a ten-minute notification delay; Home shows the outage immediately.
+Chats and groups can be skipped per child with confirmation, then their history can be deleted separately.
+Review can reveal original media, queue another AI check, and copy the full saved execution trace.
+Local transcription HTTP 422 and 503 failures use bounded job retries before requiring parent review.
+
+Settings → Schedules includes daily summaries, device/webhook verification, incident notifications,
+retention, media cleanup, stale job recovery, pending alert catch-up, group names and pairing cleanup.
+Daily summaries are disabled by default. Notifications respect child assignments and sending budgets.
+Run history retains at most ten runs per schedule, reserving space for three failures within those ten;
+failed runs expire after four days. Errors and stack traces are retained with credentials redacted.
+Message, alert and media retention controls remain in Settings → Retention.
+
+Settings → Audit records user actions and committed before/after values from the update onward.
+Passwords, credentials and message content are redacted. Existing actions cannot be reconstructed.
+Group skipping is available per child from Messages, Review and Alerts, with optional history deletion
+and a resume control on Phones. Shared records remain available for the other children.
+
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
@@ -882,3 +909,25 @@ For a multi-parent alert test, Iris may send the first test immediately and queu
 remaining tests behind the same sender budget. Successful recipients are not repeated;
 Settings reports that the rest are queued, and Jobs shows completion or failure. A repeated
 single-recipient test during its limit returns a retry delay instead of sending again.
+
+
+### Phone alert review (beta.10)
+
+Notifications includes a private-summary/message-preview design and an opt-in review button setting.
+GreenAPI and Telegram personal alert recipients can choose SAFE, Harmful or Ignore. The first
+accepted parent response is final; subsequent choices become notes in Review → Parent responses &
+notes and the alert detail. Buttons are bound to their recipient, provider and alert, expire after
+four days, and revalidate current recipient eligibility and child assignment before accepting.
+GreenAPI buttons are a beta provider feature. Use dedicated notification connections without a
+webhook or another polling consumer, and enable incoming messages for GreenAPI. Iris consumes that
+instance's notification queue. Telegram polls callback updates. The Parent alert responses schedule
+checks every 30 seconds by default; it supports run-now, bounded history and dashboard failures.
+Decisions and notes are committed before provider acknowledgement; replayed responses are ignored.
+Private summaries continue to omit message content. All notices include the configured Iris server
+address. WhatsApp and Telegram control their native fonts; Iris and HTML email use lighter type.
+
+
+GreenAPI recipient phones do not need individual approval. A successfully verified GreenAPI
+connection and a valid selected recipient number are sufficient. Missing optional phone numbers,
+watch users, deleted accounts and empty child assignments remain ineligible. The same policy is
+used for channel selection, delivery, review-button responses and dashboard readiness.

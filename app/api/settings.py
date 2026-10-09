@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.alerts import ALERT_PREFIX
 from app.alerts.format import with_signed_link
 from app.alerts.pacing import reserve
+from app.alerts.readiness import bind_recipient_users, delivery_readiness
 from app.alerts.recipients import recipients
 from app.classify.moderation import ModerationClient
 from app.classify.ollama import OllamaModerator
@@ -44,6 +45,29 @@ router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depe
 
 class SettingsUpdate(BaseModel):
     settings: dict[str, Any]
+
+
+@router.get("/alert-readiness")
+async def alert_readiness(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    channel: Literal["openwa", "telegram", "smtp", "greenapi"] | None = None,
+) -> dict[str, Any]:
+    return (await delivery_readiness(db, channel)).public()
+
+
+@router.post("/alert-readiness")
+async def preview_alert_readiness(
+    body: SettingsUpdate, db: Annotated[AsyncSession, Depends(get_db)]
+) -> dict[str, Any]:
+    clean = {}
+    for key, value in body.settings.items():
+        if key not in REGISTRY or not key.startswith("alerts."):
+            raise HTTPException(422, "Only alert settings can be previewed")
+        try:
+            clean[key] = REGISTRY[key].validate(value)
+        except ValueError as exc:
+            raise HTTPException(422, {key: str(exc)}) from None
+    return (await delivery_readiness(db, overrides=clean)).public()
 
 
 @router.get("")
@@ -127,6 +151,13 @@ async def update_settings(
             errors["alerts.recipient_children"] = "Select existing child phones"
     if errors:
         raise HTTPException(status_code=422, detail=errors)
+    if "alerts.channel" in body.settings:
+        # Recheck even when returning to a previously saved channel. Approval
+        # belongs to the current contact, never to a prior channel selection.
+        clean = {key: REGISTRY[key].validate(value) for key, value in body.settings.items()}
+        readiness = await delivery_readiness(db, overrides=clean)
+        if not readiness.ready:
+            raise HTTPException(422, {"alerts.channel": readiness.error})
     # Changing a host must not send a saved credential to that new host unnoticed.
     if body.settings.get("runtime.whisper_url") and cfg.whisper_api_key:
         from urllib.parse import urlsplit
@@ -150,6 +181,9 @@ async def update_settings(
         )
     for key, value in body.settings.items():
         await set_setting(db, key, value, cfg.key_bytes)
+    if any(key.startswith("alerts.") for key in body.settings):
+        await bind_recipient_users(db)
+        await db.commit()
     if any(key.startswith("runtime.") for key in body.settings):
         await reload_runtime_settings(db)
         updated = get_settings()
@@ -320,10 +354,9 @@ async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
     """Send a real WhatsApp test message with the entered (or saved) sender and recipient."""
     channel = str(await get_setting(db, "alerts.channel"))
     if channel != "openwa":
-        from app.alerts.channels import configured
-
-        if not await configured(db, channel):
-            return TestResult(ok=False, detail="Save and test the selected provider first")
+        readiness = await delivery_readiness(db, channel)
+        if not readiness.ready:
+            return TestResult(ok=False, detail=readiness.error)
         targets = recipients(await get_setting(db, "alerts.recipient"))
         text = with_signed_link(
             f"{ALERT_PREFIX} (test)\nAlert delivery is working.",
@@ -352,6 +385,16 @@ async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
         return TestResult(ok=False, detail=str(exc))
     if not targets:
         return TestResult(ok=False, detail="Enter at least one parent recipient")
+    readiness = await delivery_readiness(
+        db, channel, {"alerts.recipient": recipient, "alerts.sender_instance_id": sender_id}
+    )
+    if not readiness.ready or any(not r.eligible for r in readiness.recipients):
+        return TestResult(
+            ok=False,
+            detail=readiness.error
+            or " ".join(f"{r.name}: {r.reason}" for r in readiness.recipients if not r.eligible),
+        )
+    destinations = {r.target: r.destination for r in readiness.recipients if r.destination}
     client = OpenWAClient(sender.openwa_base_url, decrypt(cfg.key_bytes, sender.openwa_api_key_enc))
     errors: list[str] = []
     completed: list[str] = []
@@ -392,7 +435,7 @@ async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
             try:
                 await client.send_text(
                     sender.openwa_instance_id,
-                    target,
+                    destinations[target],
                     test_text,
                 )
                 completed.append(target)

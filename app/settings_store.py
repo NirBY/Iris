@@ -234,7 +234,47 @@ def _telegram_token(value: Any) -> str | None:
     return str(value) if value is not None else None
 
 
+def _schedules(value: Any) -> dict[str, Any]:
+    from app.schedules import CATALOG
+
+    if not isinstance(value, dict):
+        raise ValueError("Schedules must be an object")
+    clean = {}
+    for key, config in value.items():
+        if key not in CATALOG or not isinstance(config, dict):
+            raise ValueError("Unknown schedule")
+        recovery_fields = {"retry_count", "retry_wait_minutes", "notify_wait_minutes"}
+        allowed = {"enabled", "interval", "time"} | (
+            recovery_fields if key == "connections" else set()
+        )
+        if set(config) - allowed:
+            raise ValueError("Unknown schedule option")
+        result: dict[str, Any] = {}
+        if "enabled" in config:
+            result["enabled"] = _bool(config["enabled"])
+        if "interval" in config:
+            if CATALOG[key]["interval"] is None:
+                raise ValueError("This schedule does not use an interval")
+            result["interval"] = _int_range(15, 86400)(config["interval"])
+        if "time" in config:
+            if (
+                key != "daily_summary"
+                or not isinstance(config["time"], str)
+                or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", config["time"])
+            ):
+                raise ValueError("Daily summary time must be HH:MM")
+            result["time"] = config["time"]
+        for field in recovery_fields:
+            if field in config:
+                result[field] = _int_range(
+                    0 if field == "retry_count" else 1, 10 if field == "retry_count" else 1440
+                )(config[field])
+        clean[key] = result
+    return clean
+
+
 REGISTRY: dict[str, Spec] = {
+    "schedules.config": Spec({}, _schedules),
     "runtime.webhook_base_url": Spec(
         None, lambda v: None if v is None or v == "" else validate_public_base_url(_str(v))
     ),
@@ -297,6 +337,7 @@ REGISTRY: dict[str, Spec] = {
     "alerts.telegram_bot_token": Spec(None, _telegram_token, secret=True),
     "alerts.recipient_children": Spec({}, _recipient_children),
     "alerts.review_notify_since": Spec(None, _timestamp),
+    "alerts.review_buttons": Spec(False, _bool),
     "alerts.notification_style": Spec("summary", _choice("summary", "detailed")),
     "alerts.send_interval_seconds": Spec(30, _int_range(5, 3600)),
     "alerts.send_hourly_limit": Spec(60, _int_range(1, 1000)),

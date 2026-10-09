@@ -36,6 +36,30 @@ interface Item {
 
 function attentionItems(s: Stats): Item[] {
   const items: Item[] = []
+  for (const incident of s.monitoring_issues ?? [])
+    items.push({
+      icon: ServerCrash,
+      to: '/instances',
+      action: 'Repair monitoring',
+      tone: 'danger',
+      text: `${incident.kid_name}: ${incident.issues.join('; ')}${incident.notify_after ? ` · Auto refresh ${incident.refresh_attempts ?? 0}/${incident.refresh_limit ?? 1}; parent alert after ${new Date(incident.notify_after).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}${incident.refresh_error ? ` · ${incident.refresh_error}` : ''}`,
+    })
+  for (const failure of s.schedule_failures ?? [])
+    items.push({
+      icon: Activity,
+      to: '/settings?tab=Schedules',
+      action: 'View failed run',
+      tone: 'warning',
+      text: `${failure.key}: ${failure.error}`,
+    })
+  for (const issue of s.alert_delivery_issues ?? [])
+    items.push({
+      icon: Settings,
+      to: '/settings?tab=Notifications',
+      action: 'Fix alert delivery',
+      tone: 'warning',
+      text: issue,
+    })
   if ((s.children ?? s.instances) === 0)
     items.push({
       icon: Smartphone,
@@ -50,7 +74,7 @@ function attentionItems(s: Stats): Item[] {
       to: '/settings?tab=Alerts',
       action: 'Add parents',
       tone: 'warning',
-      text: 'No parent recipients are configured. Add a parent phone number to receive alerts.',
+      text: 'No parent recipients are configured. Select parents and add destinations for your alert channel.',
     })
   if (s.alert_sender_configured === false && (!s.alert_channel || s.alert_channel === 'openwa'))
     items.push({
@@ -117,7 +141,7 @@ function attentionItems(s: Stats): Item[] {
       to: '/alerts',
       action: 'See alerts',
       tone: 'danger',
-      text: `${undelivered} ${plural(undelivered, 'alert was', 'alerts were')} not delivered to your WhatsApp`,
+      text: `${undelivered} ${plural(undelivered, 'alert was', 'alerts were')} not delivered through the selected alert channel`,
     })
   if (s.failed_jobs > 0)
     items.push({

@@ -10,6 +10,7 @@ import {
 import type { Message } from '../lib/types'
 import { useReveal } from '../lib/useReveal'
 import { Concealed, RevealButton } from './Reveal'
+import { OriginalMedia } from './OriginalMedia'
 import { Badge } from './ui/badge'
 
 /** The message's words. Hidden unless `revealed`; withheld messages never show anything. */
@@ -33,19 +34,29 @@ export function MessageBody({ m, revealed = false }: { m: Message; revealed?: bo
 }
 
 /** A message with its own eye (for cards, which are not links). */
-export function RevealableMessage({ m }: { m: Message }) {
+export function RevealableMessage({ m, showMedia = false }: { m: Message; showMedia?: boolean }) {
   const { revealed, toggle } = useReveal()
+  const hasMedia =
+    showMedia &&
+    ['image', 'sticker', 'voice', 'audio', 'video'].includes(m.type) &&
+    !m.redacted &&
+    !m.revoked_at
   return (
     <span className="flex flex-wrap items-start gap-x-3 gap-y-2">
       <span className="min-w-0 flex-1 basis-60">
         <MessageBody m={m} revealed={revealed} />
       </span>
-      {!m.redacted && (m.text || m.transcript) && (
+      {!m.redacted && (m.text || m.transcript || hasMedia) && (
         <RevealButton
           revealed={revealed}
           onToggle={toggle}
           context={`message from ${m.sender_name ?? 'unknown sender'}`}
         />
+      )}
+      {hasMedia && (
+        <span className="basis-full">
+          <OriginalMedia id={m.id} type={m.type} revealed={revealed} />
+        </span>
       )}
     </span>
   )

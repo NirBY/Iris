@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { SkipGroup } from '../components/SkipGroup'
 import { Search, SearchX } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -222,6 +223,9 @@ export function Messages() {
               </span>
               <Failure m={m} />
             </Link>
+            <div className="px-4 pb-3">
+              <SkipGroup messageId={m.id} isGroup={m.is_group} />
+            </div>
           </li>
         ))}
         {data && data.items.length === 0 && (

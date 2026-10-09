@@ -415,39 +415,37 @@ async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Ow
         return await instance_out(db, inst, cfg)
 
 
+async def cleanup_once(factory: async_sessionmaker[AsyncSession]) -> None:
+    async with _lock, factory() as db:
+        cfg = get_settings()
+        completed = (
+            await db.scalars(select(Setting).where(Setting.key.startswith(COMPLETED_PREFIX)))
+        ).all()
+        for receipt in completed:
+            if receipt.value.get("expires", 0) <= time.time():
+                await db.execute(delete(Setting).where(Setting.key == receipt.key))
+        await db.commit()
+        keys = list(await db.scalars(select(Setting.key).where(Setting.key.startswith(PREFIX))))
+        for key in keys:
+            row = await db.get(Setting, key)
+            if row is None:
+                continue
+            data = _decode(row, cfg)
+            if data["expires"] <= time.time() or time.time() - data["created"] >= MAX_AGE:
+                await _remove(db, row, data, cfg)
+
+
 async def cleanup_loop(factory: async_sessionmaker[AsyncSession]) -> None:
+    from app.schedules import schedule_config, tracked
+
     while True:
+        interval = 15
         try:
-            async with _lock, factory() as db:
-                cfg = get_settings()
-                completed = (
-                    await db.scalars(
-                        select(Setting).where(Setting.key.startswith(COMPLETED_PREFIX))
-                    )
-                ).all()
-                for receipt in completed:
-                    if receipt.value.get("expires", 0) <= time.time():
-                        await db.execute(delete(Setting).where(Setting.key == receipt.key))
-                await db.commit()
-                keys = list(
-                    (
-                        await db.scalars(select(Setting.key).where(Setting.key.startswith(PREFIX)))
-                    ).all()
-                )
-                for key in keys:
-                    row = await db.get(Setting, key)
-                    if row is None:
-                        continue
-                    try:
-                        data = _decode(row, cfg)
-                        if (
-                            data["expires"] <= time.time()
-                            or time.time() - data["created"] >= MAX_AGE
-                        ):
-                            await _remove(db, row, data, cfg)
-                    except (OpenWAError, HTTPException, ValueError):
-                        logger.warning("temporary pairing cleanup failed; retrying")
-                        await db.rollback()  # retain the encrypted draft for the next attempt
+            async with factory() as db:
+                config = await schedule_config(db, "pairing_cleanup")
+            interval = config["interval"]
+            if config["enabled"]:
+                await tracked(factory, "pairing_cleanup", lambda: cleanup_once(factory))
         except Exception:
             logger.exception("pairing cleanup pass failed; retrying")
-        await asyncio.sleep(15)
+        await asyncio.sleep(interval)

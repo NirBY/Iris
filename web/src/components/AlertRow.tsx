@@ -9,6 +9,7 @@ import { KidStack } from './KidAvatar'
 import { MediaBadge } from './MediaPlayer'
 import { Concealed } from './Reveal'
 import { Badge } from './ui/badge'
+import { SkipGroup } from './SkipGroup'
 
 const DELIVERY: Record<
   string,
@@ -29,6 +30,9 @@ export function AlertRow({ alert: a, revealed = false }: { alert: Alert; reveale
   const voice = a.quote?.startsWith('🎤')
   return (
     <li>
+      <div className="px-5 pt-2">
+        <SkipGroup messageId={a.message_id} />
+      </div>
       <Link
         to={`/alerts/${a.id}`}
         className={cn(
@@ -51,7 +55,10 @@ export function AlertRow({ alert: a, revealed = false }: { alert: Alert; reveale
             {relativeTime(a.created_at)}
           </span>
         </span>
-        <span className="line-clamp-2 max-w-prose text-[15px]" dir="auto">
+        <span
+          className="line-clamp-3 max-w-prose rounded-xl rounded-ss-sm bg-success-soft/40 px-4 py-3 text-[15px] font-normal leading-relaxed"
+          dir="auto"
+        >
           {a.redacted ? (
             <span className="inline-flex items-center gap-1.5 italic text-muted-foreground">
               <ShieldOff className="size-4" /> Content withheld. Review the chat directly.

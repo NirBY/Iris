@@ -107,6 +107,7 @@ async def _login(
             limiter.record_failure(ip)
         raise HTTPException(status_code=401, detail="Invalid credentials")
     # Correct credentials are not a failed attempt, including failed delivery.
+    request.scope["audit_actor"] = (user.id, user.username)
     if reservation is not None:
         limiter.release(ip, reservation)
         reservation = None

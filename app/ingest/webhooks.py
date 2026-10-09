@@ -18,9 +18,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.format import is_own_alert
-from app.api.instances import webhook_secret
+from app.api.instances import save_webhook_status, webhook_secret
 from app.config import Settings, get_settings
-from app.db.models import Chat, ChatInstance, Instance, Job, Message, MessageReceipt
+from app.db.models import Chat, ChatInstance, Instance, Job, Message, MessageReceipt, SkippedGroup
 from app.deps import get_db
 from app.ingest.changes import apply_change
 from app.metrics import WEBHOOKS
@@ -103,6 +103,16 @@ def _remember_media_ref(message: Message, inst_id: int, msg: IncomingMessage) ->
 
 
 async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: IncomingMessage) -> str:
+    if (
+        await db.scalar(
+            select(SkippedGroup.chat_id)
+            .join(Chat)
+            .where(Chat.wa_chat_id == msg.wa_chat_id, SkippedGroup.instance_id == inst_id)
+        )
+        is not None
+    ):
+        await db.commit()
+        return "skipped"
     # The message hash is identical for everyone who sees the message, but in a DIRECT chat each
     # monitored session sees the other party under its own chat id. So dedupe on the hash alone:
     # a message between two monitored kids is one message with two receipts, not two copies.
@@ -207,6 +217,7 @@ async def receive(
 
     sig = request.headers.get("x-openwa-signature")
     if sig is None and (inst.signature_required or settings.require_webhook_signatures):
+        await save_webhook_status(db, inst.id, "failed", "Webhook signature is missing")
         WEBHOOKS.labels(str(inst_id), "rejected").inc()
         raise HTTPException(status_code=401, detail="signature required")
     if sig is not None:
@@ -215,6 +226,9 @@ async def receive(
             + hmac.new(webhook_secret(settings, token).encode(), raw, hashlib.sha256).hexdigest()
         )
         if not hmac.compare_digest(sig, expected):
+            await save_webhook_status(
+                db, inst.id, "failed", "Webhook signature verification failed"
+            )
             WEBHOOKS.labels(str(inst_id), "rejected").inc()
             raise HTTPException(status_code=401, detail="bad signature")
 
@@ -231,8 +245,23 @@ async def receive(
         return {"result": "rejected"}
 
     inst.last_webhook_at = datetime.now(UTC)
+    if sig is not None:
+        await save_webhook_status(db, inst.id, "registered", None)
     if change is not None:
         async with _STORE_LOCK:
+            if (
+                await db.scalar(
+                    select(SkippedGroup.chat_id)
+                    .join(Message, Message.chat_id == SkippedGroup.chat_id)
+                    .where(
+                        Message.wa_message_id == change.wa_message_id,
+                        SkippedGroup.instance_id == inst_id,
+                    )
+                )
+                is not None
+            ):
+                await db.commit()
+                return {"result": "skipped"}
             result = await apply_change(db, change)
             await db.commit()  # keeps last_webhook_at even when the change was a no-op
         WEBHOOKS.labels(str(inst_id), result).inc()  # edited | revoked | duplicate | ignored

@@ -77,3 +77,34 @@ async def test_auto_rejection_retries_local_hebrew_model_once(tmp_path):
         assert b"ivrit-large-v3" in route.calls[1].request.content
     finally:
         await client.aclose()
+
+
+@respx.mock
+async def test_local_memory_failure_is_retryable_without_hebrew_fallback(tmp_path):
+    path = tmp_path / "sample.wav"
+    path.write_bytes(b"audio")
+    route = respx.post("http://mac/v1/audio/transcriptions").mock(
+        return_value=httpx.Response(503, headers={"Retry-After": "60"})
+    )
+    client = WhisperTranscriber("http://mac/v1/audio/transcriptions")
+    try:
+        with pytest.raises(TransientError) as error:
+            await client.transcribe(path, "audio/wav")
+        assert error.value.retry_after == 60
+        assert len(route.calls) == 1
+    finally:
+        await client.aclose()
+
+
+@respx.mock
+async def test_422_after_fallback_is_retryable(tmp_path):
+    path = tmp_path / "sample.wav"
+    path.write_bytes(b"audio")
+    route = respx.post("http://mac/v1/audio/transcriptions").mock(return_value=httpx.Response(422))
+    client = WhisperTranscriber("http://mac/v1/audio/transcriptions")
+    try:
+        with pytest.raises(TransientError, match="422"):
+            await client.transcribe(path, "audio/wav")
+        assert len(route.calls) == 2
+    finally:
+        await client.aclose()

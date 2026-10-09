@@ -129,7 +129,7 @@ async def test_harmful_message_creates_alert_and_delivers_whatsapp_text(app_clie
     assert req.headers["x-api-key"] == "owa"
     sent = json.loads(req.content)
     assert sent["chatId"] == "972501234567@c.us"
-    assert sent["text"].startswith("⚠️ Iris alert\nCheck in with your child\nChild: Noa\n")
+    assert sent["text"].startswith("⚠️ Iris alert\n\nCheck in with your child\n\nChild: Noa\n")
     assert "Chat: Kid Tester (contact)" in sent["text"]
     assert f"Open: http://localhost:8080/alerts/{a.id}?s=" in sent["text"]
     assert "violence (0.95)" not in sent["text"] and a.quote not in sent["text"]
@@ -156,7 +156,9 @@ async def test_delivery_not_configured_is_recorded_not_queued(app_client: Any) -
     await post(app_client, token, fx("text_received_mixed"))
     assert await run_all(deps) == ["done"]  # only the classification job exists
     (a,) = await alerts(app_client)
-    assert a.delivery_status == "failed" and a.delivery_error == "alert delivery not configured"
+    assert a.delivery_status == "failed" and a.delivery_error.startswith(
+        "alert delivery not configured:"
+    )
     await deps.providers.aclose()
 
 

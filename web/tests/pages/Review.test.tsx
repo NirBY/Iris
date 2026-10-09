@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithApp } from '../test-utils'
 import { Review } from '../../src/pages/Review'
@@ -36,6 +36,77 @@ const item = {
     },
   ],
 }
+
+test('rejudges with AI and copies the saved trace', async () => {
+  const user = userEvent.setup()
+  const clipboard = vi.spyOn(navigator.clipboard, 'writeText')
+  const trace = { trace_kind: 'Saved execution trace', jobs: [] }
+  const calls = renderWithApp(<Review />, {
+    '/api/review/9/trace': trace,
+    '/api/review': { items: [item], total: 1, page: 1, page_size: 25 },
+  })
+  await user.click(await screen.findByRole('button', { name: 'Copy full trace' }))
+  await waitFor(() => expect(clipboard).toHaveBeenCalledWith(JSON.stringify(trace, null, 2)))
+  await user.click(screen.getByRole('button', { name: 'Ask AI to judge again' }))
+  await waitFor(() =>
+    expect(calls.some((c) => c.method === 'POST' && c.url === '/api/messages/9/reprocess')).toBe(
+      true,
+    ),
+  )
+})
+
+test('review voice content is revealed before its audio player is mounted', async () => {
+  renderWithApp(<Review />, {
+    '/api/review': {
+      items: [{ ...item, message: { ...item.message, type: 'voice', text: null } }],
+      total: 1,
+      page: 1,
+      page_size: 25,
+    },
+  })
+  expect(document.querySelector('audio')).toBeNull()
+  await userEvent.click(await screen.findByRole('button', { name: /^Show content/ }))
+  expect(document.querySelector('audio')).toHaveAttribute('src', '/api/media/message/9')
+})
+
+test('parent response history keeps the first choice and shows later conflict notes', async () => {
+  const calls = renderWithApp(<Review />, {
+    '/api/auth/me': { username: 'admin', role: 'admin', id: 1 },
+    '/api/review': {
+      items: [
+        {
+          ...item,
+          message: { ...item.message, verdict: 'safe' },
+          response_notes: [
+            {
+              actor: 'Parent A',
+              choice: 'safe',
+              applied: true,
+              note: 'Parent A chose SAFE. First response accepted.',
+              created_at: item.message.sent_at,
+            },
+            {
+              actor: 'Parent B',
+              choice: 'harmful',
+              applied: false,
+              note: 'Parent B chose Harmful. Kept the first decision: SAFE.',
+              created_at: item.message.sent_at,
+            },
+          ],
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 25,
+    },
+  })
+  await userEvent.click(await screen.findByRole('button', { name: 'Parent responses & notes' }))
+  expect(
+    await screen.findByText('Parent B chose Harmful. Kept the first decision: SAFE.'),
+  ).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Mark harmful/ })).toBeDisabled()
+  expect(calls.some((c) => c.url.includes('view=responses'))).toBe(true)
+})
 
 test('shows the message with who and where, and explains why it is unclear on request', async () => {
   renderWithApp(<Review />, {

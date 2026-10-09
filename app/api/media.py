@@ -185,7 +185,19 @@ async def original_media(
             await cleanup()
             raise
     except PermanentError as exc:
-        raise HTTPException(404, "The original media is no longer available from OpenWA") from exc
+        reason = str(exc)
+        if "API key" in reason:
+            raise HTTPException(
+                503, "The OpenWA media connection needs its API key checked."
+            ) from exc
+        if "media reference" in reason:
+            detail = "Only message metadata is available; no original media reference was saved."
+        else:
+            detail = (
+                "OpenWA has no saved copy of this media. It was omitted or removed. "
+                "Open the original WhatsApp chat to view it."
+            )
+        raise HTTPException(404, detail) from exc
     except MediaSkipped as exc:
         raise HTTPException(413, "Media exceeds the 250 MB viewing limit") from exc
     except TransientError as exc:

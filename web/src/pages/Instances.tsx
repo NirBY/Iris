@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { SkippedGroups } from '../components/SkippedGroups'
 import { Smartphone } from 'lucide-react'
 import { EmptyState } from '../components/EmptyState'
 import { PageHeader } from '../components/PageHeader'
@@ -30,6 +31,7 @@ export function Instances() {
       {isError && <QueryError what="your phones" onRetry={() => void refetch()} />}
       <h2 className="text-lg font-semibold">Children</h2>
       <AddPhone defaultRole="child" />
+      <SkippedGroups />
       <ul className="flex flex-col gap-4">
         {children?.map((phone) => (
           <PhoneCard key={phone.id} i={phone} />

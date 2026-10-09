@@ -1,6 +1,6 @@
 """/api/alerts and /api/review: alert list/detail/actions and the review queue."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -11,11 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.alerts.service import (
     DELIVERY_ATTEMPTS,
     DELIVERY_JOB,
-    create_alert,
     delivery_configured,
-    flagged_union,
-    redact_for_alert,
-    scores_from_classifications,
 )
 from app.api.media import MediaOut, media_out
 from app.api.messages import (
@@ -26,7 +22,6 @@ from app.api.messages import (
     _load,
     _to_out,
 )
-from app.classify.thresholds import effective_thresholds
 from app.config import Settings, get_settings
 from app.db.jsonq import json_array_contains
 from app.db.models import (
@@ -41,8 +36,6 @@ from app.db.models import (
 )
 from app.deps import get_db
 from app.jobs.queue import enqueue
-from app.media.keep import keep_media, wants
-from app.media.records import mark_purge
 from app.security.auth import current_user, parent_user
 from app.settings_store import get_setting
 
@@ -78,6 +71,8 @@ class AlertDetail(AlertOut):
     sent_at: datetime
     classifications: list[ClassificationOut]
     recipient_delivery: list[dict[str, str]] = []
+    response_notes: list[dict[str, Any]] = []
+    sending_server: str = ""
 
 
 class AlertPage(BaseModel):
@@ -232,6 +227,10 @@ async def get_alert(alert_id: int, db: DB) -> AlertDetail:
     return AlertDetail(
         **_out(a, m, (await _media_by_message(db, [m.id])).get(m.id)).model_dump(),
         recipient_delivery=deliveries,
+        sending_server=str(
+            await get_setting(db, "runtime.public_base_url") or get_settings().public_base_url
+        ),
+        response_notes=await response_notes(db, m.id),
         message_type=m.type,
         sent_at=m.sent_at,
         classifications=[ClassificationOut.model_validate(c, from_attributes=True) for c in cls],
@@ -254,7 +253,11 @@ async def patch_alert(alert_id: int, body: AlertPatch, db: DB) -> AlertOut:
 async def resend_alert(alert_id: int, db: DB) -> dict[str, bool]:
     a, _ = await _alert(db, alert_id)
     if not await delivery_configured(db):
-        raise HTTPException(status_code=422, detail="Alert delivery is not configured")
+        from app.alerts.readiness import delivery_readiness
+
+        raise HTTPException(
+            422, "Alert delivery is not configured: " + (await delivery_readiness(db)).error
+        )
     if await _delivery_active(db, a.id):
         raise HTTPException(status_code=409, detail="Delivery already in progress")
     payload = {"alert_id": a.id, "force": True}
@@ -294,7 +297,27 @@ async def _delivery_active(db: AsyncSession, alert_id: int) -> bool:
 # --- review queue -------------------------------------------------------------------------------
 
 
+async def response_notes(db: AsyncSession, message_id: int) -> list[dict[str, Any]]:
+    from app.db.models import ReviewResponse
+
+    return [
+        {
+            "actor": r.actor,
+            "choice": r.choice,
+            "applied": r.applied,
+            "note": r.note,
+            "created_at": r.created_at,
+        }
+        for r in await db.scalars(
+            select(ReviewResponse)
+            .where(ReviewResponse.message_id == message_id)
+            .order_by(ReviewResponse.created_at, ReviewResponse.id)
+        )
+    ]
+
+
 class ReviewItem(BaseModel):
+    response_notes: list[dict[str, Any]] = []
     missing_data: bool = False
     message: MessageOut
     classifications: list[ClassificationOut]
@@ -313,12 +336,16 @@ async def review_queue(
     db: DB,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-    view: Literal["pending", "missing_data"] = "pending",
+    view: Literal["pending", "missing_data", "responses"] = "pending",
 ) -> ReviewPage:
     from app.db.models import Chat
 
     reported = exists().where(ReviewDataIssue.message_id == Message.id)
-    cond = and_(Message.verdict == "review", reported if view == "missing_data" else ~reported)
+    cond = (
+        exists().where(ReviewFeedback.message_id == Message.id)
+        if view == "responses"
+        else and_(Message.verdict == "review", reported if view == "missing_data" else ~reported)
+    )
     total = int(
         (await db.execute(select(func.count()).select_from(Message).where(cond))).scalar_one()
     )
@@ -345,6 +372,7 @@ async def review_queue(
         ).scalars()
         items.append(
             ReviewItem(
+                response_notes=await response_notes(db, m.id),
                 missing_data=view == "missing_data",
                 message=_to_out(m, c, kids.get(m.id, []), failure=failures.get(m.id)),
                 classifications=[
@@ -370,7 +398,7 @@ async def review_queue(
 
 
 class ReviewResolution(BaseModel):
-    resolution: Literal["safe", "harmful"]
+    resolution: Literal["safe", "harmful", "ignored"]
 
 
 @router.post("/review/{message_id}", dependencies=[Depends(parent_user)])
@@ -382,45 +410,27 @@ async def resolve_review(
     cfg: Annotated[Settings, Depends(get_settings)],
 ) -> dict[str, Any]:
     m, _ = await _load(db, message_id)
-    if m.verdict != "review":
+    if m.verdict != "review" and await db.get(ReviewFeedback, m.id) is None:
         raise HTTPException(status_code=409, detail="Message is not awaiting review")
-    m.verdict = body.resolution
-    m.review_reason = None
-    # Separate human labels from original scores/categories used to build alerts.
-    feedback = await db.get(ReviewFeedback, m.id)
-    if feedback:
-        feedback.verdict = body.resolution
-        feedback.reviewed_at = datetime.now(UTC)
-    else:
-        db.add(ReviewFeedback(message_id=m.id, verdict=body.resolution))
-    alert_id: int | None = None
-    policy = str(await get_setting(db, "media.policy"))
-    if body.resolution == "harmful":
-        scores = await scores_from_classifications(db, m)
-        thresholds = effective_thresholds(await get_setting(db, "classification.thresholds"))
-        flags = await flagged_union(db, m.id)
-        if redact_for_alert(m.type, {**{c: 0.0 for c in flags}, **scores}, thresholds, True):
-            # Withheld content: the verdict and the redaction commit together, with nothing kept.
-            alert = await create_alert(db, m, scores, confirmed=True)
-        else:
-            await db.commit()
-            # Before the alert is built, so its text carries the link (best effort, never fails).
-            await keep_media(
-                request.app.state.session_factory,
-                m.id,
-                list(scores),
-                cfg.key_bytes,
-                cfg.data_dir,
-                f"review-{m.id}",
-            )
-            await db.refresh(m)  # the other session may have flagged or changed it meanwhile
-            alert = await create_alert(db, m, scores, confirmed=True)
-        alert_id = alert.id
-    else:
-        if not wants(policy, "safe"):
-            await mark_purge(db, m.id)  # kept only because it was awaiting review
-        await db.commit()
-    return {"ok": True, "verdict": body.resolution, "alert_id": alert_id}
+    import secrets
+
+    from app.alerts.actions import decide
+    from app.security.auth import current_user
+
+    user = await current_user(request, db, cfg)
+    result = await decide(
+        db,
+        m,
+        body.resolution,
+        user.username,
+        secrets.token_hex(32),
+        request.app.state.session_factory,
+        user.id,
+        record_audit=False,
+    )
+    if not result.get("applied"):
+        raise HTTPException(status_code=409, detail=result["note"])
+    return {"ok": True, "verdict": result["verdict"], "alert_id": result["alert_id"]}
 
 
 class ReviewDataReport(BaseModel):
@@ -436,3 +446,49 @@ async def report_review_data(message_id: int, body: ReviewDataReport, db: DB) ->
         db.add(ReviewDataIssue(message_id=message_id, issue=body.issue))
         await db.commit()
     return {"ok": True, "ignored": True, "issue": body.issue}
+
+
+@router.get("/review/{message_id}/trace")
+async def review_trace(message_id: int, db: DB) -> dict[str, Any]:
+    from app.api.messages import get_message
+    from app.schedules import redact_error
+
+    detail = await get_message(message_id, db)
+    context_ids = {mid for row in detail.classifications for mid in row.context_message_ids or []}
+    context = []
+    for mid in sorted(context_ids):
+        row = await db.get(Message, mid)
+        if row:
+            context.append(
+                {
+                    "id": row.id,
+                    "sent_at": row.sent_at,
+                    "redacted": row.redacted,
+                    "text": None if row.redacted else row.text,
+                    "transcript": None if row.redacted else row.transcript,
+                }
+            )
+    jobs = []
+    for job in await db.scalars(
+        select(Job)
+        .where(Job.payload["message_id"].as_integer() == message_id)
+        .order_by(Job.id.desc())
+        .limit(20)
+    ):
+        jobs.append(
+            {
+                "id": job.id,
+                "type": job.type,
+                "status": job.status,
+                "attempts": job.attempts,
+                "error": await redact_error(db, job.last_error) if job.last_error else None,
+            }
+        )
+    return {
+        "trace_kind": "Saved execution trace",
+        "message": detail.model_dump(),
+        "context": context,
+        "jobs": jobs,
+        "thresholds": await get_setting(db, "classification.thresholds"),
+        "parent_response_notes": await response_notes(db, message_id),
+    }

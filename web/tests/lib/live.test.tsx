@@ -56,7 +56,7 @@ test('a change refetches only the queries of the topics that changed', () => {
   spy.mockClear()
   act(() => source().emit('change', { topics: ['alerts', 'stats'] }))
   const keys = spy.mock.calls.map((c) => (c[0] as { queryKey: string[] }).queryKey[0])
-  expect(keys).toEqual(['alerts', 'alert', 'stats'])
+  expect(keys).toEqual(['alerts', 'alert', 'stats', 'alert-readiness', 'schedules', 'audit'])
 })
 
 test('an unknown topic or a broken frame does nothing', () => {

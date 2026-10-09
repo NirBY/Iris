@@ -743,8 +743,13 @@ function ParentRecipients() {
       </p>
       <ul className="flex flex-col gap-2">
         {targets.map((target) => (
-          <li key={target} className="flex items-center justify-between gap-3">
-            <span dir="ltr">{/^\d+$/.test(target) ? `+${target}` : target}</span>
+          <li
+            key={target}
+            className="grid min-w-0 gap-3 rounded-md border p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-center"
+          >
+            <span dir="ltr" className="break-all">
+              {/^\d+$/.test(target) ? `+${target}` : target}
+            </span>
             <div className="flex flex-wrap gap-3 text-sm">
               <label>
                 <input
@@ -783,7 +788,7 @@ function ParentRecipients() {
                     </label>
                   ))}
             </div>
-            <div className="grid gap-2">
+            <div className="grid min-w-0 gap-2">
               <Input
                 type="email"
                 aria-label={`Email for ${target}`}

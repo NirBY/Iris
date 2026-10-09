@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.alerts.readiness import bind_recipient_users
 from app.api.auth import _set_session_cookie
 from app.config import Settings, get_settings
 from app.db.models import LoginChallenge, Setting, User
@@ -115,6 +116,7 @@ async def commit_user(db: AsyncSession, user: User, body: UserBody) -> None:
     user.email_contact_key = body.email.strip().lower() if body.email else None
     user.whatsapp_contact_key = body.whatsapp_number
     try:
+        await bind_recipient_users(db)
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -177,6 +179,7 @@ async def _update_user(
     ).first():
         raise HTTPException(409, "Username is already in use")
     await unique_contacts(db, body, user_id)
+    await bind_recipient_users(db)
     was_ready = bool(await available_channels(db, cfg, user))
     if user.email != body.email:
         user.email_verified = False
@@ -460,6 +463,7 @@ async def delete_user(user_id: int, db: DB) -> Response:
         raise HTTPException(404, "User not found")
     if user.role == "admin":
         raise HTTPException(422, "Admin accounts cannot be deleted")
+    await bind_recipient_users(db)
     await db.execute(delete(LoginChallenge).where(LoginChallenge.user_id == user_id))
     await db.execute(
         delete(Setting).where(

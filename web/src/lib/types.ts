@@ -120,7 +120,17 @@ export interface AlertPage {
   page_size: number
 }
 
+export interface ResponseNote {
+  actor: string
+  choice: string
+  applied: boolean
+  note: string
+  created_at: string
+}
+
 export interface AlertDetail extends Alert {
+  response_notes?: ResponseNote[]
+  sending_server?: string
   recipient_delivery?: { recipient: string; status: string }[]
   message_type: string
   sent_at: string
@@ -128,6 +138,7 @@ export interface AlertDetail extends Alert {
 }
 
 export interface ReviewItem {
+  response_notes?: ResponseNote[]
   missing_data?: boolean
   message: Message
   classifications: Classification[]
@@ -142,6 +153,19 @@ export interface ReviewPage {
 }
 
 export interface Stats {
+  monitoring_issues?: {
+    instance_id: number
+    kid_name: string
+    issues: string[]
+    refresh_attempts?: number
+    refresh_limit?: number
+    refresh_error?: string | null
+    notify_after?: string | null
+  }[]
+  schedule_failures?: { key: string; error: string }[]
+  alert_delivery_issues?: string[]
+  eligible_alert_recipients?: number
+  invalid_alert_recipients?: number
   messages_today: number
   messages_7d: number
   alerts_by_status: Record<string, number>
@@ -165,6 +189,32 @@ export interface Stats {
   alert_media_not_saved?: number
   alert_channel?: string
   media_bytes?: number
+}
+
+export interface AlertReadiness {
+  channel: string
+  ready: boolean
+  provider_ready: boolean
+  provider_error: string | null
+  eligible_count: number
+  invalid_count: number
+  error: string | null
+  issues: string[]
+  recipients: {
+    target: string
+    user_id: number | null
+    name: string
+    eligible: boolean
+    reason: string | null
+    legacy: boolean
+  }[]
+  users: {
+    id: number
+    username: string
+    selected: boolean
+    eligible: boolean
+    reason: string | null
+  }[]
 }
 
 export interface Chat {

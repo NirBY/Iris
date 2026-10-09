@@ -64,6 +64,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
       await qc.invalidateQueries({ queryKey: ['stats'] })
       await qc.invalidateQueries({ queryKey: ['users'] })
       await qc.invalidateQueries({ queryKey: ['me'] })
+      await qc.invalidateQueries({ queryKey: ['alert-readiness'] })
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not save')
     } finally {
@@ -73,7 +74,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-lg border bg-surface p-5">
-        <h2 className="text-lg font-semibold">SMTP server</h2>
+        <h2 className="text-lg font-medium">SMTP server</h2>
         <p className="mb-4 text-sm text-muted-foreground">
           This SMTP server delivers email alerts and sign-in codes. Enter its host, port, TLS mode
           and credentials. Configure your admin email in Settings → Users, then save and send a
@@ -190,7 +191,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
         </p>
       </section>
       <section className="rounded-lg border bg-surface p-5">
-        <h2 className="text-lg font-semibold">GreenAPI — WhatsApp 2FA</h2>
+        <h2 className="text-lg font-medium">GreenAPI — WhatsApp 2FA</h2>
         <p className="mb-4 text-sm text-muted-foreground">
           GreenAPI sends WhatsApp alerts to individual numbers or group IDs. Sign-in codes use
           personal numbers with a Copy code button. Save your GreenAPI credentials, then send a test

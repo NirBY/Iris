@@ -1,8 +1,17 @@
 import { Pagination } from '../components/Pagination'
+import { SkipGroup } from '../components/SkipGroup'
 import { useUrlState } from '../lib/urlState'
 import { ConfirmDialog } from '../components/ui/dialog'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, CircleHelp, ListChecks, MessagesSquare, ShieldAlert } from 'lucide-react'
+import {
+  Check,
+  CircleHelp,
+  ListChecks,
+  MessagesSquare,
+  ShieldAlert,
+  RotateCcw,
+  Copy,
+} from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { EmptyState } from '../components/EmptyState'
@@ -23,7 +32,12 @@ import { QueryError } from '../components/QueryError'
 
 export function Review() {
   const { get, page, update } = useUrlState()
-  const view = get('view') === 'missing_data' ? 'missing_data' : 'pending'
+  const view =
+    get('view') === 'responses'
+      ? 'responses'
+      : get('view') === 'missing_data'
+        ? 'missing_data'
+        : 'pending'
   const pageSize = 25
   const qc = useQueryClient()
   const { data: me } = useMe()
@@ -62,6 +76,23 @@ export function Review() {
     onError: (e) =>
       toast.error(e instanceof ApiError ? e.message : 'Could not save your decision. Try again.'),
   })
+  const judgeAgain = useMutation({
+    mutationFn: (id: number) => api(`/api/messages/${id}/reprocess`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success('AI judgment queued. Review and the dashboard update when it completes.')
+      return qc.invalidateQueries()
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not queue AI judgment.'),
+  })
+  async function copyTrace(id: number) {
+    try {
+      const trace = await api<unknown>(`/api/review/${id}/trace`)
+      await navigator.clipboard.writeText(JSON.stringify(trace, null, 2))
+      toast.success('Full saved trace copied to clipboard.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not copy the trace.')
+    }
+  }
   return (
     <div className="flex max-w-3xl flex-col gap-5">
       <PageHeader
@@ -94,11 +125,22 @@ export function Review() {
         >
           Ignored: missing data
         </Button>
+        <Button
+          variant={view === 'responses' ? 'primary' : 'outline'}
+          onClick={() => update({ view: 'responses' })}
+        >
+          Parent responses & notes
+        </Button>
       </div>
       {data && (
         <p className="text-sm text-muted-foreground">
-          {data.total} {view === 'missing_data' ? 'ignored for missing data' : 'awaiting review'};{' '}
-          {data.reviewed_total ?? 0} judged. Human labels are review records, not proof of AI
+          {data.total}{' '}
+          {view === 'responses'
+            ? 'with parent responses'
+            : view === 'missing_data'
+              ? 'ignored for missing data'
+              : 'awaiting review'}
+          ; {data.reviewed_total ?? 0} judged. Human labels are review records, not proof of AI
           accuracy.
         </p>
       )}
@@ -117,90 +159,143 @@ export function Review() {
         </div>
       )}
       <ul className="flex flex-col gap-4">
-        {data?.items.map(({ message: m, classifications, missing_data: missingData }) => (
-          <li
-            key={m.id}
-            className={cn(
-              'flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5',
-              revokedClass(m, 'row'),
-            )}
-          >
-            <div className="flex flex-wrap items-center gap-3">
-              <KidStack names={m.kids.map((k) => k.kid_name)} />
-              <span className="font-medium">{m.kids.map((k) => k.kid_name).join(' and ')}</span>
-              {m.chat_name && (
-                <span className="text-sm text-muted-foreground">in {m.chat_name}</span>
+        {data?.items.map(
+          ({ message: m, classifications, missing_data: missingData, response_notes: notes }) => (
+            <li
+              key={m.id}
+              className={cn(
+                'flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5',
+                revokedClass(m, 'row'),
               )}
-              <span className="ms-auto text-xs text-muted-foreground">
-                {relativeTime(m.sent_at)}
-              </span>
-            </div>
-            <p className="max-w-prose text-lg leading-relaxed">
-              {m.sender_name && (
-                <span className="me-2 text-sm text-muted-foreground">{m.sender_name}:</span>
+            >
+              <div className="flex flex-wrap items-center gap-3">
+                <SkipGroup messageId={m.id} isGroup={m.is_group} />
+                <KidStack names={m.kids.map((k) => k.kid_name)} />
+                <span className="font-medium">{m.kids.map((k) => k.kid_name).join(' and ')}</span>
+                {m.chat_name && (
+                  <span className="text-sm text-muted-foreground">in {m.chat_name}</span>
+                )}
+                <span className="ms-auto text-xs text-muted-foreground">
+                  {relativeTime(m.sent_at)}
+                </span>
+              </div>
+              <div className="max-w-prose text-lg leading-relaxed">
+                {m.sender_name && (
+                  <span className="me-2 text-sm text-muted-foreground">{m.sender_name}:</span>
+                )}
+                <RevealableMessage m={m} showMedia />
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
+                <MessageFlags m={m} history />
+              </div>
+              {missingData && (
+                <p role="status" className="rounded-md bg-warning-soft p-3 text-sm text-warning">
+                  Ignored because data is missing. This report is saved separately from safety
+                  decisions.
+                </p>
               )}
-              <RevealableMessage m={m} />
-            </p>
-            <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
-              <MessageFlags m={m} history />
-            </div>
-            {missingData && (
-              <p role="status" className="rounded-md bg-warning-soft p-3 text-sm text-warning">
-                Ignored because data is missing. This report is saved separately from safety
-                decisions.
-              </p>
-            )}
-            {m.review_reason && <p className="text-sm text-muted-foreground">{m.review_reason}</p>}
-            {classifications.slice(-1).map((c) => (
-              <details key={c.id} className="group rounded-md bg-surface-2/60 p-3">
-                <summary className="cursor-pointer text-sm font-medium">Why it is unclear</summary>
-                <div className="mt-3">
-                  <Scores scores={c.scores} min={0.05} />
-                </div>
-              </details>
-            ))}
-            <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:flex sm:flex-wrap [&>button]:min-w-0 [&>button]:whitespace-normal">
-              <Button
-                variant="outline"
-                size="lg"
-                disabled={resolve.isPending || !['admin', 'parent'].includes(me?.role || '')}
-                onClick={() => resolve.mutate({ id: m.id, resolution: 'safe' })}
-              >
-                <Check /> Mark safe
-              </Button>
-              <Button
-                variant="danger"
-                size="lg"
-                disabled={resolve.isPending || !['admin', 'parent'].includes(me?.role || '')}
-                onClick={() => resolve.mutate({ id: m.id, resolution: 'harmful' })}
-              >
-                <ShieldAlert /> Mark harmful
-              </Button>
-              <Button
-                variant="outline"
-                size="lg"
-                title="Ignore this item and save a missing-data report without judging safety."
-                className="min-[400px]:col-span-2 sm:col-span-1"
-                disabled={
-                  resolve.isPending || missingData || !['admin', 'parent'].includes(me?.role || '')
-                }
-                onClick={() => resolve.mutate({ id: m.id, resolution: 'missing_data' })}
-              >
-                <CircleHelp /> {missingData ? 'Missing data reported' : 'Ignore — missing data'}
-              </Button>
-              <Button
-                asChild
-                variant="ghost"
-                size="lg"
-                className="min-w-0 whitespace-normal min-[400px]:col-span-2 sm:col-span-1"
-              >
-                <Link to={`/messages/${m.id}`}>
-                  <MessagesSquare /> See the conversation
-                </Link>
-              </Button>
-            </div>
-          </li>
-        ))}
+              {!!notes?.length && (
+                <section className="rounded-lg bg-surface-2/40 p-3">
+                  <h3 className="mb-2 text-sm font-medium">Parent response notes</h3>
+                  <ul className="flex flex-col gap-2">
+                    {notes.map((note, i) => (
+                      <li key={i} className="text-sm">
+                        <p>{note.note}</p>
+                        <time className="text-xs text-muted-foreground">
+                          {relativeTime(note.created_at)}
+                        </time>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {m.review_reason && (
+                <p className="text-sm text-muted-foreground">{m.review_reason}</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  disabled={
+                    judgeAgain.isPending ||
+                    m.redacted ||
+                    view === 'responses' ||
+                    !['admin', 'parent'].includes(me?.role || '') ||
+                    ['pending', 'processing'].includes(m.status)
+                  }
+                  onClick={() => judgeAgain.mutate(m.id)}
+                >
+                  <RotateCcw />
+                  Ask AI to judge again
+                </Button>
+                <Button variant="outline" onClick={() => void copyTrace(m.id)}>
+                  <Copy />
+                  Copy full trace
+                </Button>
+              </div>
+              {classifications.slice(-1).map((c) => (
+                <details key={c.id} className="group rounded-md bg-surface-2/60 p-3">
+                  <summary className="cursor-pointer text-sm font-medium">
+                    Why it is unclear
+                  </summary>
+                  <div className="mt-3">
+                    <Scores scores={c.scores} min={0.05} />
+                  </div>
+                </details>
+              ))}
+              <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:flex sm:flex-wrap [&>button]:min-w-0 [&>button]:whitespace-normal">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  disabled={
+                    view === 'responses' ||
+                    resolve.isPending ||
+                    !['admin', 'parent'].includes(me?.role || '')
+                  }
+                  onClick={() => resolve.mutate({ id: m.id, resolution: 'safe' })}
+                >
+                  <Check /> Mark safe
+                </Button>
+                <Button
+                  variant="danger"
+                  size="lg"
+                  disabled={
+                    view === 'responses' ||
+                    resolve.isPending ||
+                    !['admin', 'parent'].includes(me?.role || '')
+                  }
+                  onClick={() => resolve.mutate({ id: m.id, resolution: 'harmful' })}
+                >
+                  <ShieldAlert /> Mark harmful
+                </Button>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  title="Ignore this item and save a missing-data report without judging safety."
+                  className="min-[400px]:col-span-2 sm:col-span-1"
+                  disabled={
+                    view === 'responses' ||
+                    resolve.isPending ||
+                    missingData ||
+                    !['admin', 'parent'].includes(me?.role || '')
+                  }
+                  onClick={() => resolve.mutate({ id: m.id, resolution: 'missing_data' })}
+                >
+                  <CircleHelp /> {missingData ? 'Missing data reported' : 'Ignore — missing data'}
+                </Button>
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="lg"
+                  className="min-w-0 whitespace-normal min-[400px]:col-span-2 sm:col-span-1"
+                >
+                  <Link to={`/messages/${m.id}`}>
+                    <MessagesSquare /> See the conversation
+                  </Link>
+                </Button>
+              </div>
+            </li>
+          ),
+        )}
       </ul>
       {data && (
         <Pagination

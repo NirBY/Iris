@@ -3,29 +3,152 @@
 from datetime import datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy import ColumnElement, and_, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.media import MediaOut, media_out
 from app.db.models import (
+    Alert,
     Chat,
+    ChatInstance,
     Classification,
     Instance,
     Job,
     Message,
     MessageReceipt,
     MessageRevision,
+    SkippedGroup,
     StoredMedia,
 )
 from app.db.search import MARK_END, MARK_START, find_matches, search_tokens  # noqa: F401
 from app.deps import get_db
 from app.jobs.queue import has_active_job
 from app.security.auth import current_user, parent_user
+from app.settings_store import get_setting
 
 router = APIRouter(prefix="/api/messages", tags=["messages"], dependencies=[Depends(current_user)])
 DB = Annotated[AsyncSession, Depends(get_db)]
+
+
+@router.get("/chats/{chat_id}/children")
+@router.get("/groups/{chat_id}/children")
+async def group_children(chat_id: int, db: DB, request: Request) -> list[dict[str, Any]]:
+    chat = await db.get(Chat, chat_id)
+    if chat is None or (request.url.path.startswith("/api/messages/groups/") and not chat.is_group):
+        raise HTTPException(404, "Group not found")
+    rows = await db.execute(
+        select(Instance).join(ChatInstance).where(ChatInstance.chat_id == chat_id)
+    )
+    roles = await get_setting(db, "phones.roles")
+    sender_id = await get_setting(db, "alerts.sender_instance_id")
+    return [
+        {
+            "id": i.id,
+            "kid_name": i.kid_name,
+            "skipped": await db.get(SkippedGroup, (chat_id, i.id)) is not None,
+        }
+        for i in rows.scalars()
+        if roles.get(str(i.id)) != "parent" and i.id != sender_id
+    ]
+
+
+@router.get("/chats/skipped/list")
+@router.get("/groups/skipped/list")
+async def skipped_groups(db: DB) -> list[dict[str, Any]]:
+    rows = await db.execute(
+        select(Chat, Instance).select_from(SkippedGroup).join(Chat).join(Instance)
+    )
+    return [
+        {
+            "is_group": chat.is_group,
+            "chat_id": chat.id,
+            "chat_name": chat.name or chat.wa_chat_id,
+            "instance_id": child.id,
+            "kid_name": child.kid_name,
+        }
+        for chat, child in rows
+    ]
+
+
+class GroupSkipIn(BaseModel):
+    skipped: bool = True
+
+
+@router.put("/chats/{chat_id}/children/{instance_id}", dependencies=[Depends(parent_user)])
+@router.put("/groups/{chat_id}/children/{instance_id}", dependencies=[Depends(parent_user)])
+async def skip_group(
+    chat_id: int, instance_id: int, body: GroupSkipIn, db: DB, request: Request
+) -> dict[str, bool]:
+    from app.ingest.webhooks import _STORE_LOCK
+
+    async with _STORE_LOCK:
+        children = await group_children(chat_id, db, request)
+        if instance_id not in {child["id"] for child in children}:
+            raise HTTPException(404, "Child is not connected to this group")
+        row = await db.get(SkippedGroup, (chat_id, instance_id))
+        if body.skipped and row is None:
+            db.add(SkippedGroup(chat_id=chat_id, instance_id=instance_id))
+        elif not body.skipped and row is not None:
+            await db.delete(row)
+        await db.commit()
+    return {"skipped": body.skipped}
+
+
+@router.delete(
+    "/chats/{chat_id}/children/{instance_id}/history", dependencies=[Depends(parent_user)]
+)
+@router.delete(
+    "/groups/{chat_id}/children/{instance_id}/history", dependencies=[Depends(parent_user)]
+)
+async def delete_group_history(chat_id: int, instance_id: int, db: DB) -> dict[str, int]:
+    from app.ingest.webhooks import _STORE_LOCK
+
+    async with _STORE_LOCK:
+        if await db.get(SkippedGroup, (chat_id, instance_id)) is None:
+            raise HTTPException(409, "Skip this group for the child before deleting history")
+        ids = list(
+            (
+                await db.scalars(
+                    select(Message.id)
+                    .join(MessageReceipt)
+                    .where(Message.chat_id == chat_id, MessageReceipt.instance_id == instance_id)
+                )
+            ).all()
+        )
+        await db.execute(
+            delete(MessageReceipt).where(
+                MessageReceipt.instance_id == instance_id, MessageReceipt.message_id.in_(ids)
+            )
+        )
+        exclusive = list(
+            (
+                await db.scalars(
+                    select(Message.id).where(
+                        Message.id.in_(ids), Message.id.not_in(select(MessageReceipt.message_id))
+                    )
+                )
+            ).all()
+        )
+        alert_ids = select(Alert.id).where(Alert.message_id.in_(exclusive))
+        await db.execute(
+            delete(Job).where(
+                Job.payload["message_id"].as_integer().in_(exclusive)
+                | Job.payload["alert_id"].as_integer().in_(alert_ids)
+            )
+        )
+        await db.execute(
+            update(StoredMedia).where(StoredMedia.message_id.in_(exclusive)).values(purge=True)
+        )
+        await db.execute(delete(Message).where(Message.id.in_(exclusive)))
+        # Shared alerts still belong to the children whose receipts remain.
+        shared = set(ids) - set(exclusive)
+        kids = await _kids(db, list(shared))
+        for alert in (await db.scalars(select(Alert).where(Alert.message_id.in_(shared)))).all():
+            alert.kid_names = [k.kid_name for k in kids.get(alert.message_id, [])]
+        await db.commit()
+    return {"removed_receipts": len(ids), "deleted_messages": len(exclusive)}
 
 
 class KidRef(BaseModel):

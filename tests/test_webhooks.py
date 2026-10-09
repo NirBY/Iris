@@ -330,5 +330,5 @@ async def test_manual_phone_requires_signed_webhooks_from_creation(app_client: A
     assert await count(app_client, Message) == 0
     assert (await post(app_client, token, raw)).json()["result"] == "accepted"
     phone = (await app_client.get(f"/api/instances/{iid}")).json()
-    assert phone["monitoring_status"] == "failed"
-    assert "Register the signed webhook" in phone["monitoring_error"]
+    assert phone["monitoring_status"] == "registered"
+    assert phone["monitoring_error"] is None

@@ -24,6 +24,7 @@ from app.api import (
     jobs,
     media,
     messages,
+    operations,
     pairing,
     stats,
     system,
@@ -33,6 +34,8 @@ from app.api import (
     events as events_api,
 )
 from app.api import settings as settings_api
+from app.audit import AuditMiddleware
+from app.audit import install as install_audit
 from app.config import get_settings
 from app.db import events_hook
 from app.db.engine import make_engine, make_session_factory
@@ -47,7 +50,6 @@ from app.jobs.worker import WorkerPool
 from app.logging import setup_logging
 from app.metrics import render as render_metrics
 from app.providers import Providers
-from app.retention import retention_loop
 from app.security.auth import admin_user, bootstrap_admin
 from app.version import VERSION
 
@@ -84,6 +86,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         raise
     events_hook.install()
+    install_audit()
     engine = make_engine(config=db_config)
     app.state.engine = engine
     app.state.db_running, app.state.db_source = db_config.with_defaults(), db_source
@@ -119,16 +122,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.workers = pool
     await pool.start()
-    cleanup = (
-        asyncio.create_task(retention_loop(app.state.session_factory)) if settings.workers else None
-    )
     pairing_cleanup = asyncio.create_task(pairing.cleanup_loop(app.state.session_factory))
     yield
     pairing_cleanup.cancel()
     await asyncio.gather(pairing_cleanup, return_exceptions=True)
-    if cleanup is not None:
-        cleanup.cancel()
-        await asyncio.gather(cleanup, return_exceptions=True)
     await bus.close_all()  # end every open live stream so shutdown is not held up
     await pool.stop()
     await providers.aclose()
@@ -172,6 +169,7 @@ def create_app() -> FastAPI:
     )
 
     app.add_middleware(SecurityHeaders)
+    app.add_middleware(AuditMiddleware)
 
     app.include_router(system.router)
     app.include_router(auth.router)
@@ -187,6 +185,7 @@ def create_app() -> FastAPI:
     app.include_router(database.router)
     app.include_router(media.router)
     app.include_router(events_api.router)
+    app.include_router(operations.router)
     app.include_router(webhooks.router)
 
     @app.get("/metrics", include_in_schema=False)

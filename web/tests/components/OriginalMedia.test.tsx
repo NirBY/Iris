@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { OriginalMedia } from '../../src/components/OriginalMedia'
 
 test('does not request media while concealed and shows stickers through Iris when revealed', () => {
@@ -15,4 +15,18 @@ test('video uses an authenticated Iris source with playback controls', () => {
   const { container } = render(<OriginalMedia id={13} type="video" revealed />)
   expect(container.querySelector('video')).toHaveAttribute('src', '/api/media/message/13')
   expect(container.querySelector('video')).toHaveAttribute('controls')
+})
+
+test('shows the server failure rather than blaming format or size, and allows retry', async () => {
+  const detail = 'OpenWA has no saved copy of this media. It was omitted or removed.'
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValue(new Response(JSON.stringify({ detail }), { status: 404 }))
+  render(<OriginalMedia id={112} type="sticker" revealed />)
+  fireEvent.error(screen.getByRole('img', { name: 'Sticker' }))
+  expect(await screen.findByText(detail)).toBeInTheDocument()
+  expect(screen.queryByText(/250 MB/)).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Retry media' }))
+  expect(screen.getByRole('img', { name: 'Sticker' })).toBeInTheDocument()
+  fetch.mockRestore()
 })

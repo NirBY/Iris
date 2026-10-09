@@ -50,3 +50,28 @@ async def test_original_media_never_fetches_withheld_content(
 
     monkeypatch.setattr("app.api.media.fetch_original", fail)
     assert (await app_client.get(f"/api/media/message/{mid}")).status_code == 404
+
+
+@pytest.mark.parametrize(
+    "reason,status,expected",
+    [
+        ("OpenWA has no stored media for this message", 404, "OpenWA has no saved copy"),
+        ("message has no media reference", 404, "no original media reference"),
+        ("OpenWA rejected the API key", 503, "API key checked"),
+    ],
+)
+async def test_original_media_explains_the_actual_failure(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch, reason: str, status: int, expected: str
+) -> None:
+    from app.jobs.queue import PermanentError
+
+    await seed(app_client)
+    async with app_client.app.state.session_factory() as db:
+        mid = (await db.scalars(select(Message).where(Message.type == "image"))).one().id
+
+    async def fail(*args: Any, **kwargs: Any) -> str:
+        raise PermanentError(reason)
+
+    monkeypatch.setattr("app.api.media.fetch_original", fail)
+    response = await app_client.get(f"/api/media/message/{mid}")
+    assert response.status_code == status and expected in response.json()["detail"]

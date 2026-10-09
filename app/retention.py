@@ -7,7 +7,7 @@ from loguru import logger
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import Alert, Chat, Job, Message
+from app.db.models import Alert, Chat, Job, Message, SkippedGroup
 from app.events import bus
 from app.settings_store import get_setting
 
@@ -64,7 +64,12 @@ async def run_retention(
                 )
             )
         )
-        chats = await db.execute(delete(Chat).where(Chat.id.not_in(select(Message.chat_id))))
+        chats = await db.execute(
+            delete(Chat).where(
+                Chat.id.not_in(select(Message.chat_id)),
+                Chat.id.not_in(select(SkippedGroup.chat_id)),
+            )
+        )
         await db.commit()
     result = {
         "alerts": int(alerts.rowcount),  # type: ignore[attr-defined]

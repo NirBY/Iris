@@ -197,8 +197,12 @@ async def _create_alert(
     elif await delivery_configured(db):
         await enqueue(db, DELIVERY_JOB, {"alert_id": alert.id}, max_attempts=DELIVERY_ATTEMPTS)
     else:
+        from app.alerts.readiness import delivery_readiness
+
         alert.delivery_status = "failed"
-        alert.delivery_error = "alert delivery not configured"
+        alert.delivery_error = (
+            "alert delivery not configured: " + (await delivery_readiness(db)).error
+        )
         ALERTS.labels(categories[0], "failed").inc()
     await db.commit()
     return alert

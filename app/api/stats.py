@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.alerts.service import delivery_configured
+from app.alerts.readiness import delivery_readiness
 from app.config import get_settings
 from app.db.models import (
     Alert,
@@ -26,6 +26,7 @@ from app.db.models import (
     Message,
     MessageReceipt,
     ReviewDataIssue,
+    ScheduleRun,
     StoredMedia,
 )
 from app.deps import get_db
@@ -60,6 +61,11 @@ class Stats(BaseModel):
     sender_is_recipient: bool = False
     unavailable_instances: int = 0
     monitoring_window_minutes: int = 0
+    alert_delivery_issues: list[str] = []
+    eligible_alert_recipients: int = 0
+    invalid_alert_recipients: int = 0
+    monitoring_issues: list[dict[str, object]] = []
+    schedule_failures: list[dict[str, str]] = []
 
 
 async def _count(db: AsyncSession, stmt) -> int:  # type: ignore[no-untyped-def]
@@ -108,6 +114,18 @@ async def stats(db: DB) -> Stats:
     sender_is_recipient = bool(
         sender and sender.phone_number and (sender.phone_number.lstrip("+") + "@c.us" in targets)
     )
+    readiness = await delivery_readiness(db)
+    from app.schedules import health_issues
+
+    recent_runs = list(
+        await db.scalars(
+            select(ScheduleRun).where(
+                ScheduleRun.id.in_(
+                    select(func.max(ScheduleRun.id)).group_by(ScheduleRun.schedule_key)
+                )
+            )
+        )
+    )
     return Stats(
         messages_today=await _count(
             db, select(func.count()).select_from(Message).where(Message.sent_at >= day)
@@ -131,7 +149,16 @@ async def stats(db: DB) -> Stats:
         jobs_by_status=jobs,
         queue_depth=jobs.get("queued", 0) + jobs.get("running", 0),
         failed_jobs=jobs.get("failed", 0) + jobs.get("dead", 0),
-        delivery_configured=await delivery_configured(db),
+        delivery_configured=readiness.ready,
+        alert_delivery_issues=readiness.issues,
+        eligible_alert_recipients=len(readiness.eligible_targets),
+        invalid_alert_recipients=sum(not r.eligible for r in readiness.recipients),
+        monitoring_issues=await health_issues(db),
+        schedule_failures=[
+            {"key": r.schedule_key, "error": r.error or "Schedule failed"}
+            for r in recent_runs
+            if r.status == "failed"
+        ],
         instances=len(phones),
         children=sum(phone.id not in parent_ids for phone in phones),
         parent_recipients=len(targets),
@@ -179,9 +206,7 @@ async def stats(db: DB) -> Stats:
             not states.get(phone.id, True)
             for phone in phones
             if phone.enabled or phone.id == sender_id
-        )
-        if cfg.monitoring_silence_minutes
-        else 0,
+        ),
         monitoring_window_minutes=cfg.monitoring_silence_minutes,
     )
 

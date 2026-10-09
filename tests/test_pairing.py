@@ -321,4 +321,13 @@ async def test_cleanup_retries_after_database_failure(app_client: Any, monkeypat
     monkeypatch.setattr(pairing.asyncio, "sleep", sleep)
     with pytest.raises(asyncio.CancelledError):
         await pairing.cleanup_loop(flaky_factory)
-    assert calls == 2
+    assert calls >= 2  # configuration and durable run history use additional sessions
+    from app.db.models import ScheduleRun
+
+    async with factory() as db:
+        runs = list(
+            await db.scalars(
+                select(ScheduleRun).where(ScheduleRun.schedule_key == "pairing_cleanup")
+            )
+        )
+        assert any(run.status == "success" for run in runs)

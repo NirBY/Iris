@@ -19,6 +19,11 @@ TOPICS: dict[str, tuple[str, ...]] = {
     "Instance": ("instances", "stats"),
     "Chat": ("chats",),
     "ChatInstance": ("chats",),
+    "Setting": ("stats",),
+    "User": ("stats",),
+    "ReviewResponse": ("review", "alerts", "stats"),
+    "ReviewFeedback": ("review", "alerts", "stats"),
+    "ScheduleRun": ("stats",),
 }
 _KEY = "iris_live"
 _installed = False

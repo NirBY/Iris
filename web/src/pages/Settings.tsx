@@ -1,10 +1,12 @@
 import { useSearchParams } from 'react-router-dom'
 import { ParentConnections } from '../components/PhoneConnections'
+import { AlertDeliveryHealth } from '../components/AlertDeliveryHealth'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Brain,
   CheckCircle2,
-  Clock,
+  CalendarClock,
+  ScrollText,
   Database,
   Eye,
   HardDrive,
@@ -36,6 +38,8 @@ import { overridesFrom } from '../lib/thresholds'
 import { UserSettings } from './UserSettings'
 import { NotificationsSettings } from './NotificationsSettings'
 import { DatabaseTab } from './DatabaseTab'
+import { ScheduleSettings } from './ScheduleSettings'
+import { AuditSettings } from './AuditSettings'
 
 type Secret = { set: boolean }
 interface Values {
@@ -80,6 +84,7 @@ interface Values {
   'alerts.channel': 'openwa' | 'telegram' | 'smtp' | 'greenapi'
   'alerts.telegram_bot_token': Secret
   'auth.default_channel': 'email' | 'whatsapp'
+  'alerts.review_buttons': boolean
   'alerts.notification_style': 'summary' | 'detailed'
   'retention.message_hours': number
   'media.retention_hours': number
@@ -114,6 +119,8 @@ const TABS = [
   'Classification',
   'Scope',
   'Retention',
+  'Schedules',
+  'Audit',
   'Media',
   'Database',
   'Users',
@@ -170,7 +177,9 @@ const ICON: Record<Tab, LucideIcon> = {
   Providers: KeyRound,
   Classification: Brain,
   Scope: Eye,
-  Retention: Clock,
+  Retention: RotateCcw,
+  Schedules: CalendarClock,
+  Audit: ScrollText,
   Media: HardDrive,
   Database: Database,
   Users: User,
@@ -465,6 +474,7 @@ export function Settings() {
     Record<string, { low: string; high: string }>
   >({})
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
   if (isError)
     return (
       <div className="flex flex-col gap-5">
@@ -492,6 +502,7 @@ export function Settings() {
 
   async function save(changes: Record<string, Change>, clearKeys: string[] = Object.keys(changes)) {
     setSaving(true)
+    setSaveError('')
     try {
       await api('/api/settings', { method: 'PUT', body: JSON.stringify({ settings: changes }) })
       // Only the saved keys leave the draft: other unsaved edits survive (e.g. after "Clear").
@@ -500,6 +511,13 @@ export function Settings() {
       await qc.invalidateQueries()
       toast.success('Settings saved.')
     } catch (e) {
+      setSaveError(
+        e instanceof ApiError
+          ? `Not saved: ${e.message}`
+          : 'Not saved. Check your connection and try again.',
+      )
+      await qc.invalidateQueries({ queryKey: ['stats'] })
+      await qc.invalidateQueries({ queryKey: ['alert-readiness'] })
       toast.error(
         e instanceof ApiError
           ? `Not saved: ${e.message}`
@@ -569,6 +587,11 @@ export function Settings() {
         title="Settings"
         description="Providers, how Iris judges messages, where alerts go, and how long things are kept."
       />
+      {saveError && (
+        <p role="alert" className="text-sm text-danger">
+          {saveError}
+        </p>
+      )}
       <Tabs
         value={tab}
         onValueChange={(v) => setTab(v as Tab)}
@@ -877,6 +900,7 @@ export function Settings() {
                 WhatsApp sends can lead to account restrictions. Choose email or Telegram to keep
                 parent alerts off your WhatsApp number.
               </p>
+              <AlertDeliveryHealth channel={get('alerts.channel') || 'openwa'} />
               {get('alerts.channel') === 'telegram' && (
                 <Field
                   label="Telegram bot token"
@@ -958,9 +982,46 @@ export function Settings() {
                   onChange={(e) => set('alerts.notification_style')(e.target.value)}
                 >
                   <option value="summary">Private summary (recommended)</option>
-                  <option value="detailed">Detailed message</option>
+                  <option value="detailed">Message preview</option>
                 </select>
               </Field>
+              <div
+                className="max-w-sm rounded-3xl border bg-surface-2/50 p-4"
+                aria-label="Notification preview"
+              >
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                  <Mail className="size-4" />
+                  Iris · Family update
+                </div>
+                <div className="rounded-2xl rounded-ss-sm bg-success-soft/60 p-4 text-sm font-normal leading-relaxed">
+                  <p className="mb-3 font-medium">A message to check together</p>
+                  <p>
+                    Child: Alex
+                    <br />
+                    Chat: School friends
+                    <br />
+                    Time: 16:30
+                  </p>
+                  <p className="my-3">
+                    {get('alerts.notification_style') === 'detailed'
+                      ? '💬 “Example message shown here.”'
+                      : 'Iris flagged a possible concern. Open Iris to see the conversation.'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Sent by Iris · Server: your Iris address
+                  </p>
+                </div>
+                {get('alerts.review_buttons') === 'true' && (
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs text-primary">
+                    <span className="rounded-lg border bg-surface p-2">SAFE</span>
+                    <span className="rounded-lg border bg-surface p-2">Harmful</span>
+                    <span className="rounded-lg border bg-surface p-2">Ignore</span>
+                  </div>
+                )}
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Example preview. Your phone app controls its fonts and appearance.
+                </p>
+              </div>
               <p className="text-sm text-muted-foreground">
                 A persistent queue spaces sends across all chats and recipients. Resends and
                 follow-ups share these limits. Excess messages wait; these limits do not guarantee
@@ -993,6 +1054,22 @@ export function Settings() {
                 'Sends a short follow-up using the selected alert channel. It never repeats the message.',
               )}
             </Section>
+            <Section
+              title="Review from your phone"
+              description="GreenAPI and Telegram can include SAFE, Harmful and Ignore buttons in message alerts."
+            >
+              {bool(
+                'alerts.review_buttons',
+                'Add review buttons to alerts',
+                'The first valid parent response wins. Later choices are saved in notes. Personal chats only; buttons expire after four days.',
+              )}
+              <p className="text-sm text-muted-foreground">
+                Use a dedicated Telegram bot or GreenAPI notification instance with no webhook or
+                other polling consumer. For GreenAPI, enable incoming message notifications. Iris
+                checks responses in Settings → Schedules → Parent alert responses. GreenAPI buttons
+                are a beta provider feature.
+              </p>
+            </Section>
             <NotificationsSettings />
           </TabsContent>
 
@@ -1009,6 +1086,10 @@ export function Settings() {
             </Section>
           </TabsContent>
 
+          <TabsContent value="Schedules" className="flex flex-col gap-5">
+            <ScheduleSettings />
+          </TabsContent>
+
           <TabsContent value="Retention" className="flex flex-col gap-5">
             <Section
               title="How long to keep things"
@@ -1021,7 +1102,13 @@ export function Settings() {
                 remain available; OpenWA retention is managed separately.
               </p>
               {num('retention.alert_days', 'Keep alerts for (days)', 1)}
+              {num('media.retention_days', 'Keep media for (days)', 1)}
+              {num('media.retention_hours', 'Media retention in hours (0 uses days)', 0, 87600)}
             </Section>
+          </TabsContent>
+
+          <TabsContent value="Audit">
+            <AuditSettings />
           </TabsContent>
 
           <TabsContent value="Media" className="flex flex-col gap-5">
@@ -1178,11 +1265,8 @@ export function Settings() {
                 </Section>
 
                 <Section title="How long to keep it">
-                  {num('media.retention_days', 'Keep media for (days)', 1)}
-                  {num('media.retention_hours', 'Media retention in hours (0 uses days)', 0, 87600)}
                   <p className="max-w-prose text-sm text-muted-foreground">
-                    Older files are deleted from the storage. The message and its alert stay until
-                    their own limits under Retention.
+                    Configure media, message and alert retention in Settings → Retention.
                   </p>
                 </Section>
               </>

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.alerts.channels import build_client, configured
 from app.alerts.format import AlertFacts, MediaFact, format_alert, format_change_notice
 from app.alerts.pacing import pause_sender, reserve
+from app.alerts.readiness import delivery_readiness
 from app.alerts.recipients import recipients
 from app.alerts.service import active_source
 from app.config import get_settings
@@ -102,8 +103,6 @@ async def send_to_parents(
 ) -> None:
     """Persist each successful recipient so retries skip parents already notified."""
     channel = str(job.payload.get("channel") or await get_setting(db, "alerts.channel"))
-    if not await configured(db, channel):
-        raise PermanentError("Selected notification channel is not configured")
     stored = await db.get(Job, job.id)
     payload = dict(stored.payload if stored is not None else job.payload)
     if "recipients" in job.payload:
@@ -112,12 +111,23 @@ async def send_to_parents(
         targets = payload.get("recipients") or recipients(recipient)
     except ValueError:
         raise PermanentError("invalid alert recipient configuration") from None
+    overrides = (
+        {
+            "alerts.recipient": ", ".join(targets),
+            "alerts.sender_instance_id": sender.id if sender else None,
+        }
+        if job.type == "test_alert"
+        else None
+    )
+    readiness = await delivery_readiness(db, channel, overrides)
+    if not readiness.ready:
+        raise PermanentError("Alert delivery not configured: " + readiness.error)
     completed = list(payload.get("delivered_recipients", []))
     payload["recipients"] = targets
     if stored is not None:
         stored.payload = dict(payload)
         await db.commit()
-    client = await build_client(db, sender, key_bytes, channel)
+    client = await build_client(db, sender, key_bytes, channel, overrides)
     payload["channel"] = channel
     sender_key = client.sender_key
     rejected = dict(payload.get("rejected_recipients", {}))
@@ -136,8 +146,23 @@ async def send_to_parents(
         for target in targets:
             if target in completed or target in rejected or target in uncertain:
                 continue
-            await reserve(db, sender_key, target)
+            if target not in client.eligibility_errors:
+                await reserve(db, sender_key, target)
             try:
+                from app.alerts.actions import buttons
+
+                client.buttons = (
+                    await buttons(
+                        db,
+                        int(payload["alert_id"]),
+                        target,
+                        channel,
+                        client.destinations.get(target, "") if client.destinations else target,
+                        client.config,
+                    )
+                    if payload.get("alert_id") and channel in ("telegram", "greenapi")
+                    else []
+                )
                 await client.send_text("", target, text)
             except OpenWAError as exc:
                 if exc.status in (401, 403, 429):
@@ -228,6 +253,11 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
         message = await db.get(Message, alert.message_id)
         if message is None:
             raise PermanentError("alert's message no longer exists")
+        if message.verdict in ("safe", "ignored"):
+            alert.delivery_status = "suppressed"
+            alert.delivery_error = "Parent resolved this message; notification cancelled"
+            await db.commit()
+            return
         if not force and not await db.scalar(select(active_source(message.id))):
             alert.delivery_status = "paused"
             alert.delivery_error = "Monitoring is paused or the source phone was removed"
@@ -254,9 +284,13 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
         recipient = await get_setting(db, "alerts.recipient")
         sender = await db.get(Instance, sender_id) if sender_id else None
         if not recipient or not await configured(db, job.payload.get("channel")):
-            alert.delivery_status, alert.delivery_error = "failed", "alert delivery not configured"
+            readiness = await delivery_readiness(db, job.payload.get("channel"))
+            alert.delivery_status, alert.delivery_error = (
+                "failed",
+                "alert delivery not configured: " + readiness.error,
+            )
             await db.commit()
-            raise PermanentError("alert delivery not configured")
+            raise PermanentError(alert.delivery_error)
 
         # Recompute permissions on every attempt, including manual resends. Never let
         # a persisted checkpoint send to a parent whose assignment was removed.

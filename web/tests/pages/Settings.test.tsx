@@ -338,6 +338,7 @@ test('media retention is a number and goes to the server as one', async () => {
   const calls = renderPage()
   await openMediaTab()
   await userEvent.click(screen.getByRole('switch', { name: 'Keep media' }))
+  await userEvent.click(screen.getByRole('tab', { name: 'Retention' }))
   const days = await screen.findByLabelText('Keep media for (days)')
   await userEvent.clear(days)
   await userEvent.type(days, '45')

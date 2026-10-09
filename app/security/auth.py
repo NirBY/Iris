@@ -120,6 +120,7 @@ async def current_user(
     user = await db.get(User, parsed[0]) if parsed else None
     if user is None or parsed is None or not hmac.compare_digest(parsed[1], user_fingerprint(user)):
         raise HTTPException(status_code=401, detail="Not authenticated")
+    request.scope["audit_actor"] = (user.id, user.username)
     return user
 
 

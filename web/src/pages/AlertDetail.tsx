@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
+import { OriginalMedia } from '../components/OriginalMedia'
 import { MediaPlayer } from '../components/MediaPlayer'
 import { Concealed, RevealButton } from '../components/Reveal'
 import { useReveal } from '../lib/useReveal'
@@ -164,28 +165,75 @@ export function AlertDetail() {
       ) : (
         <>
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">The message</h2>
+            <h2 className="text-lg font-medium">The message</h2>
             <RevealButton revealed={revealed} onToggle={toggle} />
           </div>
-          <blockquote
-            className={cn(
-              'rounded-lg border-s-4 border-danger bg-surface p-5 text-lg leading-relaxed',
-              revokedClass(a),
-            )}
-            dir="auto"
-          >
-            <span className="whitespace-pre-wrap break-words">
-              <Concealed revealed={revealed} length={a.quote?.length}>
-                {a.quote}
-              </Concealed>
-            </span>
-          </blockquote>
+          <div className="rounded-3xl border bg-surface-2/40 p-4 sm:p-6">
+            <div className="mb-4 flex items-center gap-3 border-b pb-3">
+              <MessagesSquare className="size-5 text-success" />
+              <div>
+                <p className="font-medium">{a.chat_name || 'WhatsApp conversation'}</p>
+                <p className="text-xs text-muted-foreground">
+                  {a.sender_name || 'Message'} · {dateTime(a.sent_at)}
+                </p>
+              </div>
+            </div>
+            <blockquote
+              className={cn(
+                'rounded-2xl rounded-ss-sm border border-success/20 bg-success-soft/40 p-5 text-[17px] font-normal leading-relaxed shadow-sm',
+                revokedClass(a),
+              )}
+              dir="auto"
+            >
+              <span className="whitespace-pre-wrap break-words">
+                <Concealed revealed={revealed} length={a.quote?.length}>
+                  {a.quote}
+                </Concealed>
+              </span>
+            </blockquote>
+          </div>
         </>
       )}
 
+      {!a.redacted &&
+        !a.media &&
+        ['image', 'sticker', 'video', 'voice', 'audio'].includes(a.message_type) && (
+          <section className="flex flex-col gap-3">
+            <h2 className="text-lg font-medium">
+              Original {a.message_type === 'sticker' ? 'sticker' : 'media'}
+            </h2>
+            <OriginalMedia
+              key={a.message_id}
+              id={a.message_id}
+              type={a.message_type}
+              revealed={revealed}
+            />
+          </section>
+        )}
+      {a.sending_server && (
+        <p className="text-xs text-muted-foreground">
+          Sending server: <span dir="ltr">{a.sending_server}</span>
+        </p>
+      )}
+      {!!a.response_notes?.length && (
+        <section className="rounded-lg border bg-surface p-5">
+          <h2 className="mb-3 text-lg font-medium">Parent response notes</h2>
+          <p className="mb-3 text-sm text-muted-foreground">
+            The first accepted response is final.
+          </p>
+          <ul className="flex flex-col gap-3">
+            {a.response_notes.map((note, i) => (
+              <li key={i} className="text-sm">
+                <p>{note.note}</p>
+                <time className="text-xs text-muted-foreground">{dateTime(note.created_at)}</time>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {a.media && !a.redacted && (
         <section aria-labelledby="kept" className="flex flex-col gap-3">
-          <h2 id="kept" className="text-lg font-semibold">
+          <h2 id="kept" className="text-lg font-medium">
             Kept media
           </h2>
           <MediaPlayer media={a.media} revealed={revealed} />
@@ -296,10 +344,20 @@ export function AlertDetail() {
       </section>
 
       <section aria-labelledby="how" className="flex flex-col gap-3">
-        <h2 id="how" className="text-lg font-semibold">
+        <h2 id="how" className="text-lg font-medium">
           How Iris decided
         </h2>
-        <ClassificationCards items={a.classifications} />
+        <ClassificationCards
+          items={a.classifications}
+          emptyReason={
+            a.verdict === 'review'
+              ? a.review_reason?.startsWith('Legacy review:')
+                ? 'No classification record was saved for this older message. Parent review is required; it is not waiting for an automatic check.'
+                : a.review_reason ||
+                  'Iris could not complete this check. Parent review is required.'
+              : undefined
+          }
+        />
       </section>
     </div>
   )

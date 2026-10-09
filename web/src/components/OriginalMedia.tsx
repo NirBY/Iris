@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Button } from './ui/button'
 
 /** Only Iris serves the bytes; OpenWA credentials never reach the browser. */
 export function OriginalMedia({
@@ -10,7 +11,39 @@ export function OriginalMedia({
   type: string
   revealed: boolean
 }) {
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState('')
+  const pending = useRef<AbortController | null>(null)
+  useEffect(() => () => pending.current?.abort(), [id, revealed])
+  async function explainFailure() {
+    setFailed('Checking why the original media could not load…')
+    pending.current?.abort()
+    const controller = new AbortController()
+    pending.current = controller
+    try {
+      const response = await fetch(`/api/media/message/${id}`, {
+        signal: controller.signal,
+        credentials: 'same-origin',
+      })
+      if (response.ok) {
+        await response.body?.cancel()
+        if (!controller.signal.aborted)
+          setFailed(
+            'The media is available, but this browser could not display it. Try opening the original below.',
+          )
+      } else {
+        const data = await response.json()
+        if (!controller.signal.aborted)
+          setFailed(
+            typeof data.detail === 'string'
+              ? data.detail
+              : 'Could not retrieve the original media. Try again.',
+          )
+      }
+    } catch {
+      if (!controller.signal.aborted)
+        setFailed('Could not reach Iris to retrieve this media. Try again.')
+    }
+  }
   if (!revealed)
     return (
       <span className="text-sm text-muted-foreground">
@@ -19,15 +52,32 @@ export function OriginalMedia({
     )
   if (failed)
     return (
-      <span role="alert">
-        Original media unavailable from OpenWA, unsupported by this browser, or exceeds the 250 MB
-        limit.
-      </span>
+      <div className="flex flex-col gap-2 text-sm">
+        <p role="alert">{failed}</p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              pending.current?.abort()
+              setFailed('')
+            }}
+          >
+            Retry media
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <a href={`/api/media/message/${id}`} target="_blank" rel="noopener noreferrer">
+              Open original
+            </a>
+          </Button>
+        </div>
+      </div>
     )
-  const props = { src: `/api/media/message/${id}`, onError: () => setFailed(true) }
+  const props = { src: `/api/media/message/${id}`, onError: () => void explainFailure() }
   if (type === 'video')
     return <video {...props} controls preload="metadata" className="max-h-80 max-w-full" />
-  if (type === 'voice' || type === 'audio') return <audio {...props} controls preload="metadata" />
+  if (type === 'voice' || type === 'audio')
+    return <audio {...props} controls preload="metadata" className="w-full max-w-full min-w-0" />
   return (
     <img
       {...props}

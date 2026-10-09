@@ -12,7 +12,12 @@ export interface Call {
 
 /** Stubs fetch with a router of `prefix -> response`, records every call, and renders inside providers. */
 export function renderWithApp(ui: ReactNode, routes: Record<string, unknown>, path = '/') {
-  routes = { '/api/auth/me': { username: 'admin', role: 'admin', id: 1 }, ...routes }
+  routes = {
+    '/api/auth/me': { username: 'admin', role: 'admin', id: 1 },
+    '/api/messages/groups/skipped/list': [],
+    '/api/messages/chats/skipped/list': [],
+    ...routes,
+  }
   const calls: Call[] = []
   vi.stubGlobal(
     'fetch',
