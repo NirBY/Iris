@@ -30,6 +30,10 @@ attempt and a ten-minute notification delay; Home shows the outage immediately.
 Chats and groups can be skipped per child with confirmation, then their history can be deleted separately.
 Review can reveal original media, queue another AI check, and copy the full saved execution trace.
 Local transcription HTTP 422 and 503 failures use bounded job retries before requiring parent review.
+Local Ollama vision models now receive images/stickers and captions together. Settings → Providers
+includes a separate Test Ollama image button that verifies model vision support and actual inference
+using a bundled sample. Saved traces identify image or text+image classifications. Missing originals,
+unsupported models and failed checks still require review; model scores are not calibrated guarantees.
 
 Settings → Schedules includes daily summaries, device/webhook verification, incident notifications,
 retention, media cleanup, stale job recovery, pending alert catch-up, group names and pairing cleanup.

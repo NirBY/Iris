@@ -124,13 +124,6 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
     if message.type in ("text", "other"):
         return Prepared()  # only text (or a caption/filename) can be moderated
     cfg = get_settings()
-    if (
-        cfg.local_safety_mode
-        and cfg.classification_provider == "ollama"
-        and message.type in ("image", "sticker")
-    ):
-        # This text-only adapter must still check captions, without fetching unexamined images.
-        return Prepared(problem=PermanentError("image content requires manual review"))
     try:
         async with job_tmpdir(deps.data_dir, job.id) as tmp:
             if message.type in ("image", "sticker"):

@@ -32,11 +32,42 @@ async def test_invalid_local_scores_never_become_safe(bad):
         await client.aclose()
 
 
-async def test_unvalidated_images_are_not_marked_safe():
+async def test_invalid_images_are_not_marked_safe():
     client = OllamaModerator("http://ollama", "model")
     try:
         with pytest.raises(PermanentError):
             await client.moderate("", [{"type": "image_url"}])
+    finally:
+        await client.aclose()
+
+
+@respx.mock
+async def test_local_vision_sends_image_and_caption_and_validates_capability():
+    import base64
+
+    encoded = base64.b64encode(b"jpeg test bytes").decode()
+    metadata = respx.post("http://ollama/api/show").mock(
+        return_value=httpx.Response(200, json={"capabilities": ["completion", "vision"]})
+    )
+    route = respx.post("http://ollama/api/chat").mock(
+        return_value=httpx.Response(
+            200, json={"message": {"content": json.dumps(dict.fromkeys(DEFAULT_THRESHOLDS, 0))}}
+        )
+    )
+    client = OllamaModerator("http://ollama", "vision-model")
+    payload = [
+        {"type": "text", "text": "caption"},
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + encoded}},
+    ]
+    try:
+        result = await client.moderate("", payload)
+        assert result.model == "vision-model"
+        message = json.loads(route.calls[0].request.content)["messages"][1]
+        assert message == {"role": "user", "content": "caption", "images": [encoded]}
+        metadata.mock(return_value=httpx.Response(200, json={"capabilities": ["completion"]}))
+        with pytest.raises(PermanentError, match="does not support images"):
+            await client.moderate("", payload)
+        assert len(route.calls) == 1
     finally:
         await client.aclose()
 

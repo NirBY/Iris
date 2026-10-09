@@ -90,8 +90,10 @@ test('local providers show dedicated tests and keep cloud controls hidden', asyn
     },
   })
   await userEvent.click(await screen.findByRole('button', { name: 'Test Ollama' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Test Ollama image' }))
   await userEvent.click(screen.getByRole('button', { name: 'Test transcription connection' }))
   expect(calls.some((c) => c.url === '/api/settings/test/ollama')).toBe(true)
+  expect(calls.some((c) => c.url === '/api/settings/test/ollama_image')).toBe(true)
   expect(calls.some((c) => c.url === '/api/settings/test/local_whisper')).toBe(true)
   expect(screen.queryByLabelText('API key')).not.toBeInTheDocument()
   expect(screen.getByLabelText('Provider')).toBeInTheDocument()

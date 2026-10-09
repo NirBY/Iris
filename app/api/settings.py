@@ -226,24 +226,53 @@ class TestResult(BaseModel):
 
 @router.post("/test/{target}")
 async def test_provider(
-    target: Literal["openai", "cloudflare", "alert", "media", "ollama", "local_whisper"],
+    target: Literal[
+        "openai", "cloudflare", "alert", "media", "ollama", "ollama_image", "local_whisper"
+    ],
     db: Annotated[AsyncSession, Depends(get_db)],
     cfg: Annotated[Settings, Depends(get_settings)],
     body: TestRequest | None = None,
 ) -> TestResult:
     body = body or TestRequest()
     try:
-        if target == "ollama":
+        if target in ("ollama", "ollama_image"):
             if cfg.classification_provider != "ollama" and not body.base_url:
                 return TestResult(ok=False, detail="Ollama is not enabled")
             url = REGISTRY["runtime.ollama_base_url"].validate(body.base_url or cfg.ollama_base_url)
             model = body.model or cfg.ollama_model
             local = OllamaModerator(url, model)
             try:
-                await local.moderate(model, "Hello, this is a connection test.")
+                if target == "ollama_image":
+                    import base64
+
+                    sample = SILENCE.parent / "vision-test.png"
+                    encoded = base64.b64encode(sample.read_bytes()).decode()
+                    await local.moderate(
+                        model,
+                        [
+                            {
+                                "type": "text",
+                                "text": "Classify this sample image and its visible contents.",
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": "data:image/png;base64," + encoded},
+                            },
+                        ],
+                    )
+                else:
+                    await local.moderate(model, "Hello, this is a connection test.")
             finally:
                 await local.aclose()
-            return TestResult(ok=True, detail="Ollama answered with valid moderation output")
+            return TestResult(
+                ok=True,
+                detail=(
+                    "Ollama vision inference passed on a built-in sample image. "
+                    "Valid category scores returned; this is not an accuracy benchmark."
+                    if target == "ollama_image"
+                    else "Ollama answered with valid moderation output"
+                ),
+            )
         if target == "local_whisper":
             endpoint = REGISTRY["runtime.whisper_url"].validate(body.endpoint or cfg.whisper_url)
             if not endpoint:

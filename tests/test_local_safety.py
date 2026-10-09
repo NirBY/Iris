@@ -74,6 +74,14 @@ async def test_local_images_review_without_losing_harmful_caption(
     app_client: Any, monkeypatch: pytest.MonkeyPatch, caption: str | None
 ) -> None:
     enable(monkeypatch, local=True)
+    from unittest.mock import AsyncMock
+
+    from app.jobs.queue import PermanentError
+
+    monkeypatch.setattr(
+        "app.jobs.handlers._image_data_url",
+        AsyncMock(side_effect=PermanentError("Original image unavailable")),
+    )
     seen: list[str] = []
 
     async def moderate(self: Any, model: str, body: str) -> ModerationResult:
@@ -94,6 +102,46 @@ async def test_local_images_review_without_losing_harmful_caption(
         assert message.status == "done"
         assert message.verdict == ("harmful" if caption and "kill" in caption else "review")
     assert seen == ([caption] if caption else [])
+    await deps.providers.aclose()
+
+
+@respx.mock
+async def test_local_image_judgment_is_saved_and_image_test_runs(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+    from unittest.mock import AsyncMock
+
+    from app.classify.thresholds import DEFAULT_THRESHOLDS
+    from app.db.models import Classification
+
+    monkeypatch.setenv("IRIS_OLLAMA_BASE_URL", "http://ollama")
+    enable(monkeypatch, local=True)
+    monkeypatch.setattr(
+        "app.jobs.handlers._image_data_url",
+        AsyncMock(return_value="data:image/jpeg;base64,aW1hZ2U="),
+    )
+    respx.post("http://ollama/api/show").mock(
+        return_value=httpx.Response(200, json={"capabilities": ["vision"]})
+    )
+    route = respx.post("http://ollama/api/chat").mock(
+        return_value=httpx.Response(
+            200, json={"message": {"content": json.dumps(dict.fromkeys(DEFAULT_THRESHOLDS, 0))}}
+        )
+    )
+    deps, token = await setup(app_client)
+    await post(app_client, token, fx("image_caption_sent"))
+    assert await drain(deps) == ["done"]
+    async with deps.session_factory() as db:
+        message = (await db.scalars(select(Message))).one()
+        assert message.verdict == "safe" and message.review_reason is None
+        classification = (await db.scalars(select(Classification))).one()
+        assert classification.input_kind == "text+image"
+    result = await app_client.post("/api/settings/test/ollama_image", json={})
+    assert result.json()["ok"]
+    assert "sample image" in result.json()["detail"]
+    assert len(route.calls) == 2
+    assert json.loads(route.calls[1].request.content)["messages"][1]["images"]
     await deps.providers.aclose()
 
 

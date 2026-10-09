@@ -649,8 +649,9 @@ export function Settings() {
                   />
                 </Field>
                 <p className="text-sm text-muted-foreground">
-                  Local scores require calibration. Images and stickers require manual review in
-                  local safety mode.
+                  Local scores require calibration. Images and stickers are checked with their
+                  captions when the selected Ollama model supports vision. Missing media or failed
+                  checks still require review. Test Ollama checks text classification only.
                 </p>
                 <TestButton
                   target="ollama"
@@ -659,6 +660,14 @@ export function Settings() {
                     model: get('runtime.ollama_model') || data.local_providers?.ollama_model,
                   }}
                   label="Test Ollama"
+                />
+                <TestButton
+                  target="ollama_image"
+                  body={{
+                    base_url: get('runtime.ollama_base_url'),
+                    model: get('runtime.ollama_model') || data.local_providers?.ollama_model,
+                  }}
+                  label="Test Ollama image"
                 />
               </Section>
             ) : (
