@@ -13,7 +13,11 @@ export function OriginalMedia({
 }) {
   const [failed, setFailed] = useState('')
   const pending = useRef<AbortController | null>(null)
-  useEffect(() => () => pending.current?.abort(), [id, revealed])
+  useEffect(() => {
+    pending.current?.abort()
+    setFailed('')
+    return () => pending.current?.abort()
+  }, [id, revealed])
   async function explainFailure() {
     setFailed('Checking why the original media could not load…')
     pending.current?.abort()

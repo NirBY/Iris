@@ -30,3 +30,16 @@ test('shows the server failure rather than blaming format or size, and allows re
   expect(screen.getByRole('img', { name: 'Sticker' })).toBeInTheDocument()
   fetch.mockRestore()
 })
+
+test('a previous media failure does not hide a different message', async () => {
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValue(new Response(JSON.stringify({ detail: 'Unavailable' }), { status: 404 }))
+  const view = render(<OriginalMedia id={12} type="sticker" revealed />)
+  fireEvent.error(screen.getByRole('img'))
+  expect(await screen.findByText('Unavailable')).toBeInTheDocument()
+  view.rerender(<OriginalMedia id={13} type="image" revealed />)
+  expect(screen.getByRole('img')).toHaveAttribute('src', '/api/media/message/13')
+  expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
+  fetch.mockRestore()
+})

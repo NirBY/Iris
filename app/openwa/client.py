@@ -1,6 +1,9 @@
 """Thin OpenWA REST client (X-API-Key auth). Keep all OpenWA endpoint shapes here."""
 
 import asyncio
+import base64
+import binascii
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -155,3 +158,53 @@ class OpenWAClient:
         except MediaTooLarge:
             await asyncio.to_thread(dest.unlink, True)
             raise
+
+    async def recover_media(
+        self, session_id: str, chat_id: str, message_ref: str, dest: Path, max_bytes: int
+    ) -> str:
+        """Recover only the exact message from a bounded recent-history request.
+
+        No external media URL is followed, and no other message is written to disk.
+        OpenWA caps the history media budget at 25 MB by default.
+        """
+        path = (
+            f"/api/sessions/{quote(session_id, safe='')}/messages/{quote(chat_id, safe='')}/history"
+        )
+        ceiling = min(max_bytes, 25 * 1024 * 1024)
+        body_limit = 36 * 1024 * 1024
+        try:
+            async with asyncio.timeout(65):
+                async with self._client.stream(
+                    "GET", path, params={"limit": 10, "includeMedia": "true"}, timeout=65
+                ) as response:
+                    if response.status_code >= 400:
+                        raise OpenWAError(response.status_code, "Media recovery unavailable")
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        if len(body) + len(chunk) > body_limit:
+                            raise MediaTooLarge(len(body) + len(chunk))
+                        body.extend(chunk)
+            rows = json.loads(body)
+            if not isinstance(rows, list) or len(rows) > 10:
+                raise OpenWAError(502, "Invalid media recovery response")
+            for row in rows:
+                if not isinstance(row, dict) or row.get("id") != message_ref:
+                    continue
+                media = row.get("media")
+                if not isinstance(media, dict) or media.get("omitted"):
+                    break
+                data, mimetype = media.get("data"), media.get("mimetype")
+                if not isinstance(data, str) or not isinstance(mimetype, str) or not data:
+                    break
+                if len(data) > ((ceiling + 2) // 3) * 4:
+                    raise MediaTooLarge(len(data) * 3 // 4)
+                decoded = base64.b64decode(data, validate=True)
+                if len(decoded) > ceiling:
+                    raise MediaTooLarge(len(decoded))
+                await asyncio.to_thread(dest.write_bytes, decoded)
+                return mimetype
+            raise OpenWAError(404, "Original media is no longer available")
+        except (httpx.HTTPError, TimeoutError) as exc:
+            raise OpenWAError(None, "Media recovery timed out or connection failed") from exc
+        except (ValueError, binascii.Error) as exc:
+            raise OpenWAError(502, "Invalid media recovery response") from exc

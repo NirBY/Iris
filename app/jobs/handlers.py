@@ -61,7 +61,7 @@ class Skip(Exception):
 
 
 async def _fetch(db: AsyncSession, message: Message, deps: Deps, dest: Path) -> str:
-    return await fetch_original(db, message, deps.key_bytes, dest)
+    return await fetch_original(db, message, deps.key_bytes, dest, recover=True)
 
 
 async def _image_data_url(db: AsyncSession, message: Message, deps: Deps, tmp: Path) -> str:

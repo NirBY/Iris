@@ -68,6 +68,15 @@ interface Values {
     transcription_model: string
     api_key_set: boolean
   }
+  provider_media?: {
+    archive_enabled: boolean | null
+    archive_outbound: boolean | null
+    archive_ttl_days: number | null
+    download_timeout_seconds: number | null
+    managed_by: string
+  }
+  'media.recovery_attempts': number
+  'media.recovery_wait_seconds': number
   'openai.api_key': Secret
   'transcription.provider': 'openai' | 'cloudflare'
   'transcription.openai_model': string
@@ -151,6 +160,8 @@ const NUMBERS = [
   'media.retention_hours',
   'retention.alert_days',
   'media.retention_days',
+  'media.recovery_attempts',
+  'media.recovery_wait_seconds',
 ]
 const NUMBER_LABELS: Record<string, string> = {
   'alerts.send_interval_seconds': 'Interval between sends',
@@ -1101,6 +1112,55 @@ export function Settings() {
           </TabsContent>
 
           <TabsContent value="Retention" className="flex flex-col gap-5">
+            <Section
+              title="Persistent media archiving"
+              description="Iris and OpenWA keep separate copies. A saved Iris copy is used first when viewing media."
+            >
+              <Toggle
+                label="Keep checked media in Iris"
+                checked={mediaOn}
+                onChange={(on) => set('media.policy')(on ? 'harmful_review' : 'off')}
+                hint="Uses the storage and content policy selected under Media. Withheld content is never kept; videos are viewed through OpenWA."
+              />
+              <p className="text-sm">
+                OpenWA archive:{' '}
+                {data.provider_media?.archive_enabled == null
+                  ? 'Not reported'
+                  : data.provider_media.archive_enabled
+                    ? 'Enabled'
+                    : 'Disabled'}
+                {' · '}Sent media:{' '}
+                {data.provider_media?.archive_outbound == null
+                  ? 'Not reported'
+                  : data.provider_media.archive_outbound
+                    ? 'Archived'
+                    : 'Not archived'}
+              </p>
+              {data.provider_media?.archive_ttl_days != null && (
+                <p className="text-sm text-muted-foreground">
+                  OpenWA expiry:{' '}
+                  {data.provider_media.archive_ttl_days === 0
+                    ? 'No automatic expiry'
+                    : `${data.provider_media.archive_ttl_days} days`}
+                  . Download timeout:{' '}
+                  {data.provider_media.download_timeout_seconds ?? 'Not reported'} seconds.
+                </p>
+              )}
+              <p className="text-sm text-muted-foreground">
+                OpenWA values are deployment settings. Change CHAT_MEDIA_ARCHIVE_ENABLED,
+                CHAT_MEDIA_ARCHIVE_OUTBOUND and CHAT_MEDIA_ARCHIVE_TTL_DAYS in the OpenWA Portainer
+                service, then redeploy. This OpenWA version has no archive settings API. Iris
+                retention below does not delete OpenWA copies.
+              </p>
+              {num('media.recovery_attempts', 'Media recovery attempts (0 disables)', 0, 3)}
+              {num('media.recovery_wait_seconds', 'Wait before media recovery (seconds)', 0, 30)}
+              <p className="text-sm text-muted-foreground">
+                If OpenWA omitted a download, Iris asks WhatsApp again using at most ten recent
+                messages and keeps only the requested file. Recovery is limited to 25 MB and may
+                take up to 65 seconds per attempt. Expired WhatsApp media cannot always be
+                recovered.
+              </p>
+            </Section>
             <Section
               title="How long to keep things"
               description="Messages tied to an alert are kept until that alert expires. Kept media has its own limit under Media."

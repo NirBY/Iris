@@ -19,6 +19,7 @@ from app.deps import get_db
 from app.jobs.queue import PermanentError, TransientError
 from app.media.factory import build_store, overrides_for
 from app.media.fetch import MediaSkipped, fetch_original, job_tmpdir
+from app.media.records import stored_for
 from app.media.sniff import INLINE_TYPES, sniff_file
 from app.media.store import MediaStore, MediaStoreError
 from app.security.auth import current_user, parent_user
@@ -168,6 +169,14 @@ async def original_media(
     message = await db.get(Message, message_id)
     if message is None or message.redacted or message.revoked_at:
         raise HTTPException(404, "Media unavailable")
+    # Use the retained, checked copy before depending on WhatsApp's expiring cache.
+    kept = await stored_for(db, message_id)
+    if kept is not None:
+        try:
+            return await media_file(kept.id, db, cfg, range_)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
     temporary = job_tmpdir(cfg.data_dir, "view-" + secrets.token_hex(16))
     tmp = await temporary.__aenter__()
 
@@ -177,7 +186,9 @@ async def original_media(
     try:
         try:
             path = tmp / "media.bin"
-            await fetch_original(db, message, cfg.key_bytes, path, max_bytes=250 * 1024 * 1024)
+            await fetch_original(
+                db, message, cfg.key_bytes, path, max_bytes=250 * 1024 * 1024, recover=True
+            )
             found = await asyncio.to_thread(sniff_file, path)
             if found is None:
                 raise HTTPException(415, "This media format cannot be displayed safely")

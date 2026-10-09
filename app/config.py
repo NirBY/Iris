@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/data")
     openwa_storage_report: Path | None = None
     openwa_data_dir: Path | None = None  # optional read-only provider volume for space measurements
+    # Deployment metadata: OpenWA 0.24 does not expose archive controls through its API.
+    openwa_archive_enabled: bool | None = None
+    openwa_archive_outbound: bool | None = None
+    openwa_archive_ttl_days: int | None = Field(default=None, ge=0)
+    openwa_media_timeout_seconds: int | None = Field(default=None, ge=1)
     port: int = 8080
     workers: int = Field(default=3, ge=0)  # 0 disables the pool (tests)
     log_level: str = "INFO"

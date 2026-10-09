@@ -74,6 +74,13 @@ async def preview_alert_readiness(
 async def read_settings(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, Any]:
     values = await all_settings(db)
     cfg = get_settings()
+    values["provider_media"] = {
+        "archive_enabled": cfg.openwa_archive_enabled,
+        "archive_outbound": cfg.openwa_archive_outbound,
+        "archive_ttl_days": cfg.openwa_archive_ttl_days,
+        "download_timeout_seconds": cfg.openwa_media_timeout_seconds,
+        "managed_by": "OpenWA deployment",
+    }
     for field in RUNTIME_FIELDS:
         values["runtime." + field] = getattr(cfg, field)
     values["runtime.transcription_provider"] = cfg.transcription_provider or (

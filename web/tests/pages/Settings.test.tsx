@@ -154,6 +154,31 @@ test.each([false, true])('review buttons save a boolean when initially %s', asyn
   expect(JSON.parse(put!.body!).settings).toEqual({ 'alerts.review_buttons': !enabled })
 })
 
+test('Retention shows separate provider archive status and saves bounded recovery controls', async () => {
+  const calls = renderPage({
+    ...settings,
+    'media.recovery_attempts': 1,
+    'media.recovery_wait_seconds': 5,
+    provider_media: {
+      archive_enabled: true,
+      archive_outbound: true,
+      archive_ttl_days: 0,
+      download_timeout_seconds: 60,
+      managed_by: 'OpenWA deployment',
+    },
+  })
+  await userEvent.click(await screen.findByRole('tab', { name: 'Retention' }))
+  expect(screen.getByText(/OpenWA archive: Enabled/)).toBeInTheDocument()
+  expect(screen.getByText(/No automatic expiry/)).toBeInTheDocument()
+  expect(screen.getByRole('switch', { name: 'Keep checked media in Iris' })).not.toBeChecked()
+  const attempts = screen.getByLabelText('Media recovery attempts (0 disables)')
+  await userEvent.clear(attempts)
+  await userEvent.type(attempts, '2')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const put = calls.find((c) => c.url === '/api/settings' && c.body)
+  expect(JSON.parse(put!.body!).settings).toEqual({ 'media.recovery_attempts': 2 })
+})
+
 test('alert settings are sent with the right types', async () => {
   const calls = renderPage()
   await userEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))

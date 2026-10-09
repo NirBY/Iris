@@ -16,6 +16,10 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
 
 ## Contents
 
+Ollama can use accepted parent text reviews as examples for future checks. Settings →
+Classification includes Off, Shadow comparison, and conservative Active learning modes.
+See the [architecture flowchart, implementation plan, and evaluation guide](docs/OLLAMA_LEARNING.md).
+
 ### Operational settings
 
 Settings → Notifications checks the selected channel against current provider readiness and
@@ -625,6 +629,25 @@ outside, so set `IRIS_METRICS_TOKEN` or restrict `/metrics` in your reverse prox
   `https://`.
 
 ## Troubleshooting
+
+**Images, videos or stickers show “OpenWA has no saved copy.”** Settings > Retention now
+shows persistent archiving and bounded media recovery controls. Previews use Iris's checked,
+retained copy first, with byte-range support. If OpenWA omitted its download, Iris can ask
+WhatsApp again for the exact message among at most ten recent chat messages. Recovery has a
+25 MB limit, a 65-second deadline per attempt, and configurable attempts (0–3) and wait (0–30
+seconds). Old media that WhatsApp no longer supplies, or messages outside that recent window,
+can remain unavailable. Iris does not follow arbitrary upstream media URLs.
+
+OpenWA 0.24 catches browser media-download failures without retrying and its saved-media
+endpoint does not redownload omitted files. Persistent provider storage is configured with
+`CHAT_MEDIA_ARCHIVE_ENABLED=true` and `CHAT_MEDIA_ARCHIVE_OUTBOUND=true` in OpenWA's
+deployment; redeploy to apply. `CHAT_MEDIA_ARCHIVE_TTL_DAYS=0` disables expiry. Choose a
+provider retention window deliberately: Iris's retention does not remove provider copies.
+The bundled templates expose these as `OPENWA_MEDIA_ARCHIVE_*` variables, defaulting to off
+for compatibility. Retention's provider values are deployment-reported metadata, not a live
+API query; keep the matching `IRIS_OPENWA_ARCHIVE_*` metadata in sync when changing an
+external OpenWA deployment. The OpenWA archive controls cannot be changed through its 0.24
+settings API. Iris's own archive switch and recovery controls save immediately in Iris.
 
 **Test storage fails, or alerts go out without a media link.** Run **Test storage** under Settings > Media: it
 says whether the endpoint cannot be reached, the keys are refused, or the bucket does not exist. A failed

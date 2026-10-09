@@ -13,6 +13,7 @@ from app.db.models import Instance, Message
 from app.jobs.queue import PermanentError, TransientError
 from app.openwa.client import MediaTooLarge, OpenWAClient, OpenWAError
 from app.security.crypto import decrypt
+from app.settings_store import get_setting
 
 MAX_MEDIA_BYTES = 25 * 1024 * 1024  # also OpenAI's transcription upload limit
 MAX_AUDIO_SECONDS = 15 * 60
@@ -97,9 +98,11 @@ async def fetch_original(
     key_bytes: bytes,
     dest: Path,
     max_bytes: int | None = None,
+    recover: bool = False,
 ) -> str:
     """Download the message's media, from the session that has it; returns its content type."""
     first_error: PermanentError | None = None
+    missing: list[dict[str, Any]] = []
     for ref in media_refs(message):
         try:
             client, session_id = await openwa_for(db, ref, key_bytes)
@@ -112,6 +115,39 @@ async def fetch_original(
             )
         except PermanentError as exc:  # this session has no copy: ask the next one
             first_error = first_error or exc
+            if recover and "no stored media" in str(exc):
+                missing.append(ref)
         finally:
             await client.aclose()
+    # Try all already-saved session copies before starting slower WhatsApp recovery.
+    attempts = int(await get_setting(db, "media.recovery_attempts")) if missing else 0
+    wait = int(await get_setting(db, "media.recovery_wait_seconds")) if missing else 0
+    transient: TransientError | None = None
+    for ref in missing:
+        client, session_id = await openwa_for(db, ref, key_bytes)
+        try:
+            for attempt in range(attempts):
+                if wait:
+                    await asyncio.sleep(wait)
+                try:
+                    return await client.recover_media(
+                        session_id,
+                        ref["chat_id"],
+                        ref["message_ref"],
+                        dest,
+                        MAX_MEDIA_BYTES if max_bytes is None else max_bytes,
+                    )
+                except MediaTooLarge as too_large:
+                    raise MediaSkipped("Media recovery exceeds its 25 MB limit") from too_large
+                except OpenWAError as failure:
+                    if failure.status in (400, 404, 410, 501):
+                        break  # unsupported engine or WhatsApp no longer has the bytes
+                    if failure.status in (401, 403):
+                        raise PermanentError("OpenWA rejected the API key") from failure
+                    if attempt + 1 == attempts:
+                        transient = TransientError("OpenWA media recovery temporarily unavailable")
+        finally:
+            await client.aclose()
+    if transient is not None:
+        raise transient
     raise first_error or PermanentError("message has no media reference")

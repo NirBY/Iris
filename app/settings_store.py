@@ -356,6 +356,8 @@ REGISTRY: dict[str, Spec] = {
     "media.s3_prefix": Spec("iris/", _prefix),
     "media.s3_path_style": Spec(True, _bool),
     "media.retention_days": Spec(30, _int_range(1, 3650)),
+    "media.recovery_attempts": Spec(1, _int_range(0, 3)),
+    "media.recovery_wait_seconds": Spec(5, _int_range(0, 30)),
 }
 
 

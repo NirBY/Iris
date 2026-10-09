@@ -9,6 +9,44 @@ from app.db.models import Message, StoredMedia
 from tests.test_messages_api import seed
 
 
+async def test_preview_uses_retained_copy_even_when_openwa_lost_it(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.config import get_settings
+    from app.media.store import LocalStore
+
+    await seed(app_client)
+    cfg = get_settings()
+    source = cfg.data_dir / "preview-test.webp"
+    source.write_bytes(b"RIFFxxxxWEBPexample")
+    store = LocalStore(cfg.data_dir / "media")
+    await store.put("preview-test.webp", source, "image/webp")
+    async with app_client.app.state.session_factory() as db:
+        m = (await db.scalars(select(Message).where(Message.type == "image"))).one()
+        mid = m.id
+        db.add(
+            StoredMedia(
+                message_id=mid,
+                backend="local",
+                location="",
+                key="preview-test.webp",
+                content_type="image/webp",
+                kind="image",
+                size_bytes=18,
+                sha256="a" * 64,
+            )
+        )
+        await db.commit()
+
+    async def fail(*args: Any, **kwargs: Any) -> str:
+        pytest.fail("The saved copy must not depend on OpenWA")
+
+    monkeypatch.setattr("app.api.media.fetch_original", fail)
+    response = await app_client.get(f"/api/media/message/{mid}", headers={"Range": "bytes=0-3"})
+    assert response.status_code == 206 and response.content == b"RIFF"
+    assert response.headers["content-type"].startswith("image/webp")
+
+
 async def test_original_media_reads_without_retaining_or_changing_message(
     app_client: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
