@@ -90,7 +90,7 @@ export function MessageContext() {
         }
       />
       {detail && (
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <KidStack names={detail.kids.map((k) => k.kid_name)} />
           <VerdictBadge m={detail} />
           <MessageFlags m={detail} history />
@@ -99,9 +99,11 @@ export function MessageContext() {
             <p className="text-xs text-muted-foreground">OpenWA type: {detail.raw_type}</p>
           )}
           {detail.diagnostics && (
-            <details className="text-xs text-muted-foreground">
+            <details className="min-w-0 max-w-full basis-full text-xs text-muted-foreground">
               <summary>Diagnostic metadata</summary>
-              <pre>{JSON.stringify(detail.diagnostics, null, 2)}</pre>
+              <pre className="max-w-full overflow-x-auto">
+                {JSON.stringify(detail.diagnostics, null, 2)}
+              </pre>
             </details>
           )}
         </div>
