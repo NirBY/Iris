@@ -26,7 +26,7 @@ import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { cn } from '../lib/cn'
 import { relativeTime } from '../lib/format'
-import type { ReviewPage } from '../lib/types'
+import type { Message, ReviewPage } from '../lib/types'
 import { useMe } from '../lib/auth'
 import { QueryError } from '../components/QueryError'
 
@@ -84,6 +84,9 @@ export function Review() {
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not queue AI judgment.'),
   })
+  const rejudging = (m: Message) =>
+    (judgeAgain.isPending && judgeAgain.variables === m.id) ||
+    ['pending', 'processing'].includes(m.status)
   async function copyTrace(id: number) {
     try {
       const trace = await api<unknown>(`/api/review/${id}/trace`)
@@ -169,7 +172,6 @@ export function Review() {
               )}
             >
               <div className="flex flex-wrap items-center gap-3">
-                <SkipGroup messageId={m.id} isGroup={m.is_group} />
                 <KidStack names={m.kids.map((k) => k.kid_name)} />
                 <span className="font-medium">{m.kids.map((k) => k.kid_name).join(' and ')}</span>
                 {m.chat_name && (
@@ -212,26 +214,6 @@ export function Review() {
               {m.review_reason && (
                 <p className="text-sm text-muted-foreground">{m.review_reason}</p>
               )}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  disabled={
-                    judgeAgain.isPending ||
-                    m.redacted ||
-                    view === 'responses' ||
-                    !['admin', 'parent'].includes(me?.role || '') ||
-                    ['pending', 'processing'].includes(m.status)
-                  }
-                  onClick={() => judgeAgain.mutate(m.id)}
-                >
-                  <RotateCcw />
-                  Ask AI to judge again
-                </Button>
-                <Button variant="outline" onClick={() => void copyTrace(m.id)}>
-                  <Copy />
-                  Copy full trace
-                </Button>
-              </div>
               {classifications.slice(-1).map((c) => (
                 <details key={c.id} className="group rounded-md bg-surface-2/60 p-3">
                   <summary className="cursor-pointer text-sm font-medium">
@@ -242,57 +224,108 @@ export function Review() {
                   </div>
                 </details>
               ))}
-              <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:flex sm:flex-wrap [&>button]:min-w-0 [&>button]:whitespace-normal">
+              <div className="flex flex-wrap items-center gap-2 border-t pt-3 [&>button]:min-w-0 [&>button]:whitespace-normal">
                 <Button
-                  variant="outline"
-                  size="lg"
+                  variant="success"
+                  size="sm"
+                  aria-label="Mark safe"
+                  title="Mark this message safe"
                   disabled={
                     view === 'responses' ||
                     resolve.isPending ||
+                    rejudging(m) ||
                     !['admin', 'parent'].includes(me?.role || '')
                   }
                   onClick={() => resolve.mutate({ id: m.id, resolution: 'safe' })}
                 >
-                  <Check /> Mark safe
+                  <Check /> Safe
                 </Button>
                 <Button
                   variant="danger"
-                  size="lg"
+                  size="sm"
+                  aria-label="Mark harmful"
+                  title="Mark this message harmful"
                   disabled={
                     view === 'responses' ||
                     resolve.isPending ||
+                    rejudging(m) ||
                     !['admin', 'parent'].includes(me?.role || '')
                   }
                   onClick={() => resolve.mutate({ id: m.id, resolution: 'harmful' })}
                 >
-                  <ShieldAlert /> Mark harmful
+                  <ShieldAlert /> Harmful
                 </Button>
                 <Button
                   variant="outline"
-                  size="lg"
+                  size="sm"
+                  aria-label={missingData ? 'Missing data reported' : 'Ignore — missing data'}
                   title="Ignore this item and save a missing-data report without judging safety."
                   className="min-[400px]:col-span-2 sm:col-span-1"
                   disabled={
                     view === 'responses' ||
                     resolve.isPending ||
+                    rejudging(m) ||
                     missingData ||
                     !['admin', 'parent'].includes(me?.role || '')
                   }
                   onClick={() => resolve.mutate({ id: m.id, resolution: 'missing_data' })}
                 >
-                  <CircleHelp /> {missingData ? 'Missing data reported' : 'Ignore — missing data'}
+                  <CircleHelp /> {missingData ? 'Reported' : 'Ignore'}
                 </Button>
                 <Button
                   asChild
                   variant="ghost"
-                  size="lg"
+                  size="sm"
                   className="min-w-0 whitespace-normal min-[400px]:col-span-2 sm:col-span-1"
                 >
-                  <Link to={`/messages/${m.id}`}>
-                    <MessagesSquare /> See the conversation
+                  <Link
+                    to={`/messages/${m.id}`}
+                    aria-label="See the conversation"
+                    title="Open the full conversation"
+                  >
+                    <MessagesSquare /> Chat
                   </Link>
                 </Button>
               </div>
+              {rejudging(m) && (
+                <p role="status" className="text-xs text-muted-foreground">
+                  AI recheck queued or running. Actions unlock when it finishes.
+                </p>
+              )}
+              <details className="rounded-md border border-dashed p-3">
+                <summary className="cursor-pointer text-xs text-muted-foreground">
+                  Note: additional options
+                </summary>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <SkipGroup messageId={m.id} isGroup={m.is_group} disabled={rejudging(m)} />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label="Ask AI to judge again"
+                    title="Run AI judgment again using available message content and media"
+                    disabled={
+                      judgeAgain.isPending ||
+                      m.redacted ||
+                      view === 'responses' ||
+                      !['admin', 'parent'].includes(me?.role || '') ||
+                      ['pending', 'processing'].includes(m.status)
+                    }
+                    onClick={() => judgeAgain.mutate(m.id)}
+                  >
+                    <RotateCcw /> Rejudge
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Copy full trace"
+                    title="Copy the full saved AI execution trace"
+                    disabled={rejudging(m)}
+                    onClick={() => void copyTrace(m.id)}
+                  >
+                    <Copy />
+                  </Button>
+                </div>
+              </details>
             </li>
           ),
         )}

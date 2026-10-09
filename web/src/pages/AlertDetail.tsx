@@ -250,6 +250,8 @@ export function AlertDetail() {
         {a.status === 'new' ? (
           <Button
             variant="primary"
+            size="sm"
+            title="Mark this alert as seen"
             onClick={() => setStatus.mutate('acknowledged')}
             disabled={setStatus.isPending || !canAct}
           >
@@ -258,6 +260,8 @@ export function AlertDetail() {
         ) : (
           <Button
             variant="outline"
+            size="sm"
+            title="Reopen this alert"
             onClick={() => setStatus.mutate('new')}
             disabled={setStatus.isPending || !canAct}
           >
@@ -267,15 +271,21 @@ export function AlertDetail() {
         {a.status !== 'dismissed' && (
           <Button
             variant="outline"
+            size="sm"
+            title="Dismiss this alert"
             onClick={() => setStatus.mutate('dismissed')}
             disabled={setStatus.isPending || !canAct}
           >
             <X /> Dismiss
           </Button>
         )}
-        <Button asChild variant="outline">
-          <Link to={`/messages/${a.message_id}`}>
-            <MessagesSquare /> See the conversation
+        <Button asChild variant="ghost" size="sm">
+          <Link
+            to={`/messages/${a.message_id}`}
+            aria-label="See the conversation"
+            title="Open the full conversation"
+          >
+            <MessagesSquare /> Chat
           </Link>
         </Button>
       </div>

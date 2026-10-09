@@ -45,6 +45,7 @@ test('rejudges with AI and copies the saved trace', async () => {
     '/api/review/9/trace': trace,
     '/api/review': { items: [item], total: 1, page: 1, page_size: 25 },
   })
+  await user.click(await screen.findByText('Note: additional options'))
   await user.click(await screen.findByRole('button', { name: 'Copy full trace' }))
   await waitFor(() => expect(clipboard).toHaveBeenCalledWith(JSON.stringify(trace, null, 2)))
   await user.click(screen.getByRole('button', { name: 'Ask AI to judge again' }))
@@ -53,6 +54,23 @@ test('rejudges with AI and copies the saved trace', async () => {
       true,
     ),
   )
+})
+
+test('queued AI recheck disables decision and advanced action buttons', async () => {
+  renderWithApp(<Review />, {
+    '/api/review': {
+      items: [{ ...item, message: { ...item.message, status: 'pending' } }],
+      total: 1,
+      page: 1,
+      page_size: 25,
+    },
+  })
+  expect(await screen.findByRole('button', { name: 'Mark safe' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Mark harmful' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Ignore — missing data' })).toBeDisabled()
+  await userEvent.click(screen.getByText('Note: additional options'))
+  expect(screen.getByRole('button', { name: 'Copy full trace' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Skip chat' })).toBeDisabled()
 })
 
 test('review voice content is revealed before its audio player is mounted', async () => {

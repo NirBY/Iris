@@ -36,6 +36,9 @@ using a bundled sample. Saved traces identify image or text+image classification
 unsupported models and failed checks still require review; model scores are not calibrated guarantees.
 The Ollama model dropdown detects installed models from the entered server and labels vision support.
 Refresh the list or enter a custom name; detection preserves the saved choice until you explicitly save.
+Review keeps compact Safe (green), Harmful, Ignore and Chat actions visible. AI rejudging, trace copying
+and chat skipping sit under “Note: additional options.” Decision, skip and trace actions are disabled
+while that message's AI recheck is queued or running.
 
 Settings → Schedules includes daily summaries, device/webhook verification, incident notifications,
 retention, media cleanup, stale job recovery, pending alert catch-up, group names and pairing cleanup.

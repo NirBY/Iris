@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { CircleSlash } from 'lucide-react'
 import { api } from '../lib/api'
 import { useMe } from '../lib/auth'
 import type { Message } from '../lib/types'
@@ -9,7 +10,15 @@ import { ConfirmDialog, Dialog, DialogContent, DialogTrigger } from './ui/dialog
 
 type Child = { id: number; kid_name: string; skipped: boolean }
 
-export function SkipGroup({ messageId, isGroup }: { messageId: number; isGroup?: boolean }) {
+export function SkipGroup({
+  messageId,
+  isGroup,
+  disabled = false,
+}: {
+  messageId: number
+  isGroup?: boolean
+  disabled?: boolean
+}) {
   const { data: me } = useMe()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -55,8 +64,14 @@ export function SkipGroup({ messageId, isGroup }: { messageId: number; isGroup?:
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          Skip {message?.is_group === undefined && isGroup === undefined ? 'chat / group' : kind}
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={disabled}
+          aria-label={`Skip ${message?.is_group === undefined && isGroup === undefined ? 'chat / group' : kind}`}
+          title="Choose which child should stop monitoring this chat or group"
+        >
+          <CircleSlash /> Skip
         </Button>
       </DialogTrigger>
       <DialogContent
