@@ -26,6 +26,41 @@ def enable(monkeypatch: pytest.MonkeyPatch, local: bool = False) -> None:
     get_settings.cache_clear()
 
 
+async def test_startup_quarantine_is_specific_and_idempotent(app_client: Any) -> None:
+    from app.db.models import Chat
+    from app.legacy_review import quarantine_legacy_unknowns
+
+    async with app_client.app.state.session_factory() as db:
+        chat = Chat(wa_chat_id="legacy-test")
+        db.add(chat)
+        await db.flush()
+        legacy = Message(
+            wa_message_id="legacy",
+            chat_id=chat.id,
+            type="other",
+            status="skipped",
+            sent_at=datetime.now(UTC),
+        )
+        system = Message(
+            wa_message_id="system",
+            chat_id=chat.id,
+            type="other",
+            raw_type="gp2",
+            status="skipped",
+            sent_at=datetime.now(UTC),
+            skip_reason="Confirmed system event",
+        )
+        db.add_all([legacy, system])
+        await db.commit()
+        await quarantine_legacy_unknowns(db)
+        await quarantine_legacy_unknowns(db)
+        await db.refresh(legacy)
+        await db.refresh(system)
+        assert legacy.verdict == "review" and legacy.review_reason and legacy.skip_reason is None
+        assert system.status == "skipped" and system.verdict is None
+        assert system.skip_reason == "Confirmed system event"
+
+
 def test_defaults_preserve_upstream_and_do_not_select_local_services() -> None:
     cfg = Settings(_env_file=None)  # type: ignore[call-arg]
     assert cfg.classification_provider == "openai" and cfg.whisper_url is None
@@ -162,6 +197,16 @@ async def test_partial_delivery_is_visible_and_notified(
     respx.post(SEND_URL).mock(side_effect=send)
     await post(app_client, token, fx("text_received_mixed"))
     await run_all(deps)
+    from sqlalchemy import update
+
+    from app.db.models import SendingBudget
+
+    async with deps.session_factory() as db:
+        past = datetime.now(UTC) - timedelta(seconds=1)
+        await db.execute(update(SendingBudget).values(next_allowed=past))
+        await db.execute(update(Job).where(Job.status == "queued").values(run_after=past))
+        await db.commit()
+    await run_all(deps)
     alert = (await alerts(app_client))[0]
     assert alert.delivery_status == "partial" and alert.notified_at is not None
 
@@ -209,7 +254,7 @@ async def test_global_signature_requirement_rejects_unsigned_before_registration
     get_settings.cache_clear()
     _, token = await make_instance(app_client)
     raw = fx("text_received_mixed")
-    assert (await post(app_client, token, raw)).status_code == 401
+    assert (await post(app_client, token, raw, sign=False)).status_code == 401
     good = (
         "sha256="
         + hmac.new(webhook_secret(get_settings(), token).encode(), raw, hashlib.sha256).hexdigest()
@@ -309,3 +354,78 @@ async def test_worker_resize_does_not_cancel_inflight_job(
     finally:
         release.set()
         await pool.stop()
+
+
+@respx.mock
+async def test_video_transcript_does_not_clear_unchecked_visuals(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from app.jobs import handlers
+
+    enable(monkeypatch, local=True)
+    deps, token = await setup(app_client)
+
+    async def transcribe(db: Any, deps: Any, tmp: Any, message: Message) -> None:
+        message.transcript = "harmless speech"
+
+    async def moderate(self: Any, model: str, body: str) -> ModerationResult:
+        return ModerationResult({"violence": 0.0}, False, {})
+
+    monkeypatch.setattr(handlers, "_transcribe", transcribe)
+    monkeypatch.setattr(OllamaModerator, "moderate", moderate)
+    body = json.loads(fx("voice_sent"))
+    body["data"]["type"] = "video"
+    await post(app_client, token, json.dumps(body).encode())
+    assert await drain(deps) == ["done"]
+    async with deps.session_factory() as db:
+        message = (await db.scalars(select(Message))).one()
+        assert message.verdict == "review"
+        assert message.review_reason == "video visuals require manual review"
+    await deps.providers.aclose()
+
+
+@pytest.mark.parametrize(
+    "raw_type,safety,expected",
+    [
+        ("new_unknown_kind", True, "review"),
+        ("new_unknown_kind", False, "skipped"),
+        ("e2e_notification", True, "skipped"),
+    ],
+)
+@respx.mock
+async def test_unknown_messages_and_system_events_have_diagnostics(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch, raw_type: str, safety: bool, expected: str
+) -> None:
+    import json
+
+    from app.classify.moderation import URL
+
+    monkeypatch.setenv("IRIS_LOCAL_SAFETY_MODE", str(safety).lower())
+    get_settings.cache_clear()
+    deps, token = await setup(app_client)
+    route = respx.post(URL).mock(return_value=mod_response())
+    body = json.loads(fx("text_received_mixed"))
+    body["data"]["type"] = raw_type
+    body["data"]["body"] = ""
+    body["data"].pop("media", None)
+    await post(app_client, token, json.dumps(body).encode())
+    assert await drain(deps) == ["done"]
+    message = (await app_client.get("/api/messages")).json()["items"][0]
+    assert (message["verdict"] or message["status"]) == expected
+    assert message["raw_type"] == raw_type
+    assert message["diagnostics"] == {
+        "event": body["event"],
+        "has_text": False,
+        "has_media": False,
+        "has_quoted_message": isinstance(body["data"].get("quotedMessage"), dict),
+    }
+    reason = message["review_reason"] or message["skip_reason"]
+    assert reason == (
+        "Confirmed system event: e2e_notification"
+        if raw_type == "e2e_notification"
+        else "Unknown message type; no analyzable content"
+    )
+    assert not route.called
+    await deps.providers.aclose()

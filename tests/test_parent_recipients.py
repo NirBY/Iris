@@ -5,14 +5,22 @@ from typing import Any
 import httpx
 import pytest
 import respx
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.alerts.recipients import recipients
 from app.classify.moderation import URL as MOD_URL
-from app.db.models import Job
+from app.db.models import Job, SendingBudget
 from tests.test_alerts import SEND_URL, alerts, run_all, setup
 from tests.test_webhooks import fx, post
 from tests.test_worker import mod_response
+
+
+async def advance_queue(deps: Any) -> None:
+    async with deps.session_factory() as db:
+        past = datetime.now(UTC) - timedelta(seconds=1)
+        await db.execute(update(SendingBudget).values(next_allowed=past))
+        await db.execute(update(Job).where(Job.status == "queued").values(run_after=past))
+        await db.commit()
 
 
 def test_deduplicate_equivalent_parent_numbers():
@@ -51,6 +59,9 @@ async def test_retry_only_failed_parent_and_preserves_target_snapshot(app_client
         assert job.payload["delivered_recipients"] == ["15550100101@c.us"]
         job.run_after = datetime.now(UTC) - timedelta(seconds=1)
         await db.commit()
+    await advance_queue(deps)
+    await run_all(deps)  # The second parent returns 503 on its first actual attempt.
+    await advance_queue(deps)
     # Editing the setting during a retry must not add a new, unintended recipient.
     await app_client.put("/api/settings", json={"settings": {"alerts.recipient": "15550100103"}})
     fail_second = False
@@ -76,13 +87,15 @@ async def test_rejected_first_parent_does_not_block_second(app_client: Any):
     respx.post(SEND_URL).mock(side_effect=send)
     await post(app_client, token, fx("text_received_mixed"))
     await run_all(deps)
+    await advance_queue(deps)
+    await run_all(deps)
     assert targets == ["15550100101@c.us", "15550100102@c.us"]
     assert (await alerts(app_client))[0].delivery_status == "failed"
 
 
 @respx.mock
 async def test_test_button_sends_to_each_unique_parent(app_client: Any):
-    _, _, sender_id = await setup(app_client)
+    deps, _, sender_id = await setup(app_client)
     send = respx.post(SEND_URL).mock(return_value=httpx.Response(201, json={"id": "sent"}))
     response = await app_client.post(
         "/api/settings/test/alert",
@@ -91,7 +104,10 @@ async def test_test_button_sends_to_each_unique_parent(app_client: Any):
             "recipient": "+15550100101, 15550100101@c.us, 15550100102",
         },
     )
-    assert response.json() == {"ok": True, "detail": "Test message sent to 2 parents"}
+    assert response.json()["ok"] and "queued" in response.json()["detail"]
+    assert send.call_count == 1
+    await advance_queue(deps)
+    await run_all(deps)
     assert [json.loads(call.request.content)["chatId"] for call in send.calls] == [
         "15550100101@c.us",
         "15550100102@c.us",

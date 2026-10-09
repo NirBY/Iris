@@ -48,9 +48,13 @@ def _fingerprint(password_hash: str) -> str:
     return hashlib.sha256(password_hash.encode()).hexdigest()[:16]
 
 
+def user_fingerprint(user: User) -> str:
+    return _fingerprint(f"{user.password_hash}:{user.role}:{user.auth_version}")
+
+
 def make_session_token(settings: Settings, user: User) -> str:
     # Bound to the password hash, so changing the password revokes existing sessions.
-    return _serializer(settings).dumps({"uid": user.id, "pv": _fingerprint(user.password_hash)})
+    return _serializer(settings).dumps({"uid": user.id, "pv": user_fingerprint(user)})
 
 
 def read_session_token(settings: Settings, token: str) -> tuple[int, str] | None:
@@ -106,10 +110,19 @@ async def current_user(
     token = request.cookies.get(COOKIE_NAME)
     parsed = read_session_token(settings, token) if token else None
     user = await db.get(User, parsed[0]) if parsed else None
-    if (
-        user is None
-        or parsed is None
-        or not hmac.compare_digest(parsed[1], _fingerprint(user.password_hash))
-    ):
+    if user is None or parsed is None or not hmac.compare_digest(parsed[1], user_fingerprint(user)):
         raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+async def admin_user(user: Annotated[User, Depends(current_user)]) -> User:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Administrator access required")
+    return user
+
+
+async def parent_user(user: Annotated[User, Depends(current_user)]) -> User:
+    """Parents can act on monitored data; account and system settings remain admin-only."""
+    if user.role not in ("admin", "parent"):
+        raise HTTPException(status_code=403, detail="Parent or administrator access required")
     return user

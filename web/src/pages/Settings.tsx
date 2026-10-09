@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom'
 import { ParentConnections } from '../components/PhoneConnections'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -10,6 +11,8 @@ import {
   HardDrive,
   KeyRound,
   Loader2,
+  Mail,
+  User,
   RotateCcw,
   Trash2,
   XCircle,
@@ -31,10 +34,14 @@ import { fileSize } from '../lib/format'
 import type { Instance, Stats, ThresholdRow } from '../lib/types'
 import { setShowContentByDefault, useShowContentByDefault } from '../lib/prefs'
 import { overridesFrom } from '../lib/thresholds'
+import { UserSettings } from './UserSettings'
+import { NotificationsSettings } from './NotificationsSettings'
 import { DatabaseTab } from './DatabaseTab'
 
 type Secret = { set: boolean }
 interface Values {
+  'runtime.public_base_url'?: string
+  'runtime.webhook_base_url'?: string | null
   'runtime.classification_provider'?: string
   'runtime.transcription_provider'?: string
   'runtime.ollama_base_url'?: string
@@ -71,6 +78,9 @@ interface Values {
   'scope.monitor_groups': boolean
   'alerts.sender_instance_id': number | null
   'alerts.recipient': string | null
+  'alerts.send_interval_seconds': number
+  'alerts.send_hourly_limit': number
+  'alerts.send_daily_limit': number
   'alerts.cooldown_minutes': number
   'alerts.alert_on_review': boolean
   'alerts.notify_changes': boolean
@@ -102,7 +112,8 @@ const TABS = [
   'Retention',
   'Media',
   'Database',
-  'Account',
+  'Users',
+  'Notifications',
 ] as const
 type Tab = (typeof TABS)[number]
 const SECRETS = [
@@ -116,6 +127,9 @@ const NUMBERS = [
   'runtime.delivery_workers',
   'runtime.job_heartbeat_seconds',
   'runtime.monitoring_silence_minutes',
+  'alerts.send_interval_seconds',
+  'alerts.send_hourly_limit',
+  'alerts.send_daily_limit',
   'alerts.cooldown_minutes',
   'classification.context_window_size',
   'classification.context_max_age_hours',
@@ -124,6 +138,9 @@ const NUMBERS = [
   'media.retention_days',
 ]
 const NUMBER_LABELS: Record<string, string> = {
+  'alerts.send_interval_seconds': 'Interval between sends',
+  'alerts.send_hourly_limit': 'Hourly send limit',
+  'alerts.send_daily_limit': 'Daily send limit',
   'alerts.cooldown_minutes': 'Cooldown per chat',
   'classification.context_window_size': 'Messages of context',
   'classification.context_max_age_hours': 'Context goes back',
@@ -150,7 +167,8 @@ const ICON: Record<Tab, LucideIcon> = {
   Retention: Clock,
   Media: HardDrive,
   Database: Database,
-  Account: KeyRound,
+  Users: User,
+  Notifications: Mail,
 }
 
 function SecretInput({
@@ -426,9 +444,14 @@ export function Settings() {
     queryKey: ['thresholds'],
     queryFn: () => api<ThresholdRow[]>('/api/settings/thresholds'),
   })
-  const [tab, setTab] = useState<Tab>(
-    new URLSearchParams(window.location.search).get('tab') === 'Alerts' ? 'Alerts' : 'Providers',
-  )
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab: Tab = TABS.find((t) => t === searchParams.get('tab')) ?? 'Providers'
+  const setTab = (value: Tab) =>
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set('tab', value)
+      return next
+    })
   const [edit, setEdit] = useState<Record<string, string>>({})
   const [thresholdEdits, setThresholdEdits] = useState<
     Record<string, { low: string; high: string }>
@@ -827,6 +850,34 @@ export function Settings() {
           </TabsContent>
 
           <TabsContent value="Alerts" className="flex flex-col gap-5">
+            <Section
+              title="Iris links"
+              description="Use the public domain parents can open. This URL prefixes alert and media links. The saved value overrides IRIS_PUBLIC_BASE_URL from .env / Docker Compose."
+            >
+              <Field label="Iris base URL">
+                <Input
+                  type="url"
+                  dir="ltr"
+                  placeholder="https://iris.example.com"
+                  value={get('runtime.public_base_url')}
+                  onChange={(e) => set('runtime.public_base_url')(e.target.value)}
+                />
+              </Field>
+            </Section>
+            <Section
+              title="OpenWA webhooks"
+              description="Address OpenWA uses to deliver messages to Iris. For a private deployment, use the reachable NAS URL permitted by OpenWA’s SSRF_ALLOWED_HOSTS. Leave blank to use the server default, or the public Iris URL if no server default is configured."
+            >
+              <Field label="OpenWA webhook base URL">
+                <Input
+                  type="url"
+                  dir="ltr"
+                  placeholder="http://192.0.2.10:8182"
+                  value={get('runtime.webhook_base_url')}
+                  onChange={(e) => set('runtime.webhook_base_url')(e.target.value)}
+                />
+              </Field>
+            </Section>
             <ParentConnections />
             <Section
               title="Where alerts go"
@@ -854,6 +905,19 @@ export function Settings() {
               />
             </Section>
             <Section title="Frequency and timing">
+              <p className="text-sm text-muted-foreground">
+                A persistent queue spaces sends across all chats and recipients. Resends and
+                follow-ups share these limits. Excess messages wait; these limits do not guarantee
+                protection from WhatsApp account restrictions.
+              </p>
+              {num(
+                'alerts.send_interval_seconds',
+                'Minimum interval between sends (seconds)',
+                5,
+                3600,
+              )}
+              {num('alerts.send_hourly_limit', 'Maximum sends per sender per hour', 1, 1000)}
+              {num('alerts.send_daily_limit', 'Maximum sends per sender per 24 hours', 1, 10000)}
               {num('alerts.cooldown_minutes', 'Cooldown per chat (minutes)', 0, 1440)}
               <Field label="Time zone">
                 <Input
@@ -1066,11 +1130,15 @@ export function Settings() {
             <DatabaseTab />
           </TabsContent>
 
-          <TabsContent value="Account">
+          <TabsContent value="Users" className="flex flex-col gap-6">
+            <UserSettings />
             <Account />
           </TabsContent>
+          <TabsContent value="Notifications">
+            <NotificationsSettings />
+          </TabsContent>
 
-          {dirty && tab !== 'Account' && tab !== 'Database' && (
+          {dirty && tab !== 'Users' && tab !== 'Database' && tab !== 'Notifications' && (
             <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-surface p-3 shadow-overlay md:bottom-4">
               <p className="text-sm text-muted-foreground">You have unsaved changes.</p>
               <div className="flex gap-2">

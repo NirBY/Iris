@@ -139,6 +139,7 @@ def _running(pattern: str) -> bool:
     return bool(out.strip())
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX sleep/pgrep process verification")
 async def test_timeout_kills_the_process(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ffmpeg, "_TIMEOUT", 1.0)
     with pytest.raises(PermanentError, match="timed out"):
@@ -146,6 +147,7 @@ async def test_timeout_kills_the_process(monkeypatch: pytest.MonkeyPatch) -> Non
     assert not _running("sleep 37")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX sleep/pgrep process verification")
 async def test_cancellation_kills_the_process() -> None:
     import asyncio
 

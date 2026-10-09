@@ -6,8 +6,10 @@
 name: openwa
 services:
   openwa:
-    image: ghcr.io/rmyndharis/openwa:latest   # pin a release number for repeatable installs
+    image: ${OPENWA_IMAGE:?Set OPENWA_IMAGE to a tested image digest}
     container_name: openwa
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
     # Published on localhost only. Put a TLS reverse proxy in front to reach it from elsewhere.
     ports: ["127.0.0.1:${OPENWA_PORT:-2785}:2785"]
     volumes:

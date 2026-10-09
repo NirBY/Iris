@@ -120,3 +120,18 @@ def test_other_events_are_not_changes(name: str) -> None:
 def test_change_without_an_id_is_rejected() -> None:
     with pytest.raises(PayloadError):
         parse_change({"event": "message.revoked", "data": {"id": "true_x_y"}})
+
+
+@pytest.mark.parametrize("bad_id", ["bad", 123, {}, None])
+def test_bad_quote_does_not_drop_the_message(bad_id: Any) -> None:
+    raw = load("text_received_mixed")
+    raw["data"]["quotedMessage"] = {"id": bad_id}
+    message = parse_event(raw)
+    assert message and message.text and message.quoted_wa_message_id is None
+
+
+def test_empty_edit_is_preserved() -> None:
+    raw = load("message_edited")
+    raw["data"]["body"] = ""
+    change = parse_change(raw)
+    assert change and change.new_text == ""

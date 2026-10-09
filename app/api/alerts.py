@@ -1,6 +1,6 @@
 """/api/alerts and /api/review: alert list/detail/actions and the review queue."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -29,12 +29,20 @@ from app.api.messages import (
 from app.classify.thresholds import effective_thresholds
 from app.config import Settings, get_settings
 from app.db.jsonq import json_array_contains
-from app.db.models import Alert, Classification, Message, MessageReceipt, StoredMedia
+from app.db.models import (
+    Alert,
+    Classification,
+    Message,
+    MessageReceipt,
+    ReviewDataIssue,
+    ReviewFeedback,
+    StoredMedia,
+)
 from app.deps import get_db
 from app.jobs.queue import enqueue
 from app.media.keep import keep_media, wants
 from app.media.records import mark_purge
-from app.security.auth import current_user
+from app.security.auth import current_user, parent_user
 from app.settings_store import get_setting
 
 router = APIRouter(prefix="/api", tags=["alerts"], dependencies=[Depends(current_user)])
@@ -42,6 +50,8 @@ DB = Annotated[AsyncSession, Depends(get_db)]
 
 
 class AlertOut(BaseModel):
+    verdict: str | None = None
+    review_reason: str | None = None
     id: int
     message_id: int
     chat_id: int
@@ -78,6 +88,8 @@ class AlertPage(BaseModel):
 def _out(a: Alert, m: Message, media: StoredMedia | None = None) -> AlertOut:
     return AlertOut(
         id=a.id,
+        verdict=m.verdict,
+        review_reason=m.review_reason,
         message_id=a.message_id,
         chat_id=m.chat_id,
         categories=list(a.categories),
@@ -200,7 +212,7 @@ class AlertPatch(BaseModel):
     status: Literal["new", "acknowledged", "dismissed"]
 
 
-@router.patch("/alerts/{alert_id}")
+@router.patch("/alerts/{alert_id}", dependencies=[Depends(parent_user)])
 async def patch_alert(alert_id: int, body: AlertPatch, db: DB) -> AlertOut:
     a, m = await _alert(db, alert_id)
     a.status = body.status
@@ -208,7 +220,7 @@ async def patch_alert(alert_id: int, body: AlertPatch, db: DB) -> AlertOut:
     return _out(a, m, (await _media_by_message(db, [m.id])).get(m.id))
 
 
-@router.post("/alerts/{alert_id}/resend")
+@router.post("/alerts/{alert_id}/resend", dependencies=[Depends(parent_user)])
 async def resend_alert(alert_id: int, db: DB) -> dict[str, bool]:
     a, _ = await _alert(db, alert_id)
     if not await delivery_configured(db):
@@ -243,11 +255,13 @@ async def _delivery_active(db: AsyncSession, alert_id: int) -> bool:
 
 
 class ReviewItem(BaseModel):
+    missing_data: bool = False
     message: MessageOut
     classifications: list[ClassificationOut]
 
 
 class ReviewPage(BaseModel):
+    reviewed_total: int = 0
     items: list[ReviewItem]
     total: int
     page: int
@@ -259,10 +273,12 @@ async def review_queue(
     db: DB,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+    view: Literal["pending", "missing_data"] = "pending",
 ) -> ReviewPage:
     from app.db.models import Chat
 
-    cond = Message.verdict == "review"
+    reported = exists().where(ReviewDataIssue.message_id == Message.id)
+    cond = and_(Message.verdict == "review", reported if view == "missing_data" else ~reported)
     total = int(
         (await db.execute(select(func.count()).select_from(Message).where(cond))).scalar_one()
     )
@@ -289,20 +305,35 @@ async def review_queue(
         ).scalars()
         items.append(
             ReviewItem(
+                missing_data=view == "missing_data",
                 message=_to_out(m, c, kids.get(m.id, []), failure=failures.get(m.id)),
                 classifications=[
                     ClassificationOut.model_validate(x, from_attributes=True) for x in cls
                 ],
             )
         )
-    return ReviewPage(items=items, total=total, page=page, page_size=page_size)
+    return ReviewPage(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        reviewed_total=int(
+            (
+                await db.execute(
+                    select(func.count())
+                    .select_from(ReviewFeedback)
+                    .where(ReviewFeedback.verdict.in_(("safe", "harmful")))
+                )
+            ).scalar_one()
+        ),
+    )
 
 
 class ReviewResolution(BaseModel):
     resolution: Literal["safe", "harmful"]
 
 
-@router.post("/review/{message_id}")
+@router.post("/review/{message_id}", dependencies=[Depends(parent_user)])
 async def resolve_review(
     message_id: int,
     body: ReviewResolution,
@@ -314,6 +345,14 @@ async def resolve_review(
     if m.verdict != "review":
         raise HTTPException(status_code=409, detail="Message is not awaiting review")
     m.verdict = body.resolution
+    m.review_reason = None
+    # Separate human labels from original scores/categories used to build alerts.
+    feedback = await db.get(ReviewFeedback, m.id)
+    if feedback:
+        feedback.verdict = body.resolution
+        feedback.reviewed_at = datetime.now(UTC)
+    else:
+        db.add(ReviewFeedback(message_id=m.id, verdict=body.resolution))
     alert_id: int | None = None
     policy = str(await get_setting(db, "media.policy"))
     if body.resolution == "harmful":
@@ -342,3 +381,18 @@ async def resolve_review(
             await mark_purge(db, m.id)  # kept only because it was awaiting review
         await db.commit()
     return {"ok": True, "verdict": body.resolution, "alert_id": alert_id}
+
+
+class ReviewDataReport(BaseModel):
+    issue: Literal["missing_data"]
+
+
+@router.post("/review/{message_id}/data-issue", dependencies=[Depends(parent_user)])
+async def report_review_data(message_id: int, body: ReviewDataReport, db: DB) -> dict[str, Any]:
+    message, _ = await _load(db, message_id)
+    if message.verdict != "review":
+        raise HTTPException(status_code=409, detail="Message is not awaiting review")
+    if await db.get(ReviewDataIssue, message_id) is None:
+        db.add(ReviewDataIssue(message_id=message_id, issue=body.issue))
+        await db.commit()
+    return {"ok": True, "ignored": True, "issue": body.issue}

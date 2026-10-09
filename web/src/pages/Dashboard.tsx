@@ -1,3 +1,4 @@
+import { useMe } from '../lib/auth'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -132,7 +133,7 @@ function attentionItems(s: Stats): Item[] {
       to: '/instances',
       action: 'Check setup',
       tone: 'warning',
-      text: `${s.silent_instances} ${plural(s.silent_instances, 'phone has', 'phones have')} ${s.monitoring_window_minutes ? 'no webhook within the configured monitoring window' : 'never received a webhook'}`,
+      text: `${s.silent_instances} ${plural(s.silent_instances, 'phone has', 'phones have')} never received a webhook. This may be normal until a message arrives.`,
     })
   return items
 }
@@ -206,6 +207,8 @@ function Loading() {
 }
 
 export function Dashboard() {
+  const { data: me } = useMe()
+  const watch = me?.role !== 'admin'
   const { revealed, toggle } = useReveal()
   const stats = useQuery({
     queryKey: ['stats'],
@@ -235,7 +238,10 @@ export function Dashboard() {
   if (!stats.data) return <Loading />
 
   const s = stats.data
-  const items = attentionItems(s)
+  const items = attentionItems(s).filter(
+    (item) =>
+      !watch || !['/settings', '/jobs', '/instances'].some((path) => item.to?.startsWith(path)),
+  )
   const { title, sub } = headline(s, items)
   const days = timeline.data?.days ?? []
 
@@ -257,17 +263,21 @@ export function Dashboard() {
             <Stat label="Messages today" value={s.messages_today} to="/messages" />
             <Stat label="Last 7 days" value={s.messages_7d} to="/messages" />
             <Stat label="In the queue" value={s.queue_depth} />
-            <Stat label="Children" value={s.children ?? s.instances} to="/instances" />
+            <Stat
+              label="Children"
+              value={s.children ?? s.instances}
+              to={watch ? undefined : '/instances'}
+            />
             <Stat
               label="Parents"
               value={s.parent_recipients ?? 0}
-              to="/settings?tab=Alerts"
+              to={watch ? undefined : '/settings?tab=Alerts'}
               note="Alert recipients"
             />
             <Stat
               label="Alert phones"
               value={s.alert_phones ?? 0}
-              to="/settings?tab=Alerts"
+              to={watch ? undefined : '/settings?tab=Alerts'}
               note="Sender connections"
             />
             {((s.media_policy && s.media_policy !== 'off') || (s.media_files ?? 0) > 0) && (

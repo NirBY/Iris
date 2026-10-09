@@ -17,6 +17,25 @@ async def test_stats_empty_database(app_client: Any) -> None:
     assert s["delivery_configured"] is False and s["instances"] == 0 and s["review_queue"] == 0
 
 
+async def test_quiet_phone_is_not_reported_as_missing_webhook(
+    app_client: Any, monkeypatch: Any
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "monitoring_silence_minutes", 60)
+    iid, _ = await make_instance(app_client, "Quiet")
+    async with app_client.app.state.session_factory() as db:
+        await db.execute(
+            update(Instance)
+            .where(Instance.id == iid)
+            .values(last_webhook_at=datetime.now(UTC) - timedelta(hours=3))
+        )
+        await db.commit()
+    stats = (await app_client.get("/api/stats")).json()
+    assert stats["monitoring_window_minutes"] == 60
+    assert stats["silent_instances"] == 0
+
+
 async def test_stats_counts(app_client: Any) -> None:
     _, token = await make_instance(app_client, "Noa")
     await make_instance(app_client, "Silent")  # never receives a webhook

@@ -1,3 +1,4 @@
+import { useMe } from '../lib/auth'
 import { useQuery } from '@tanstack/react-query'
 import { BellRing, Settings } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -14,7 +15,7 @@ import { Skeleton } from '../components/ui/skeleton'
 import { api } from '../lib/api'
 import { CATEGORIES } from '../lib/categories'
 import { useUrlState } from '../lib/urlState'
-import type { AlertPage, Instance } from '../lib/types'
+import type { AlertPage, Instance, Stats } from '../lib/types'
 
 const STATUS = [
   { value: '', label: 'All' },
@@ -25,6 +26,7 @@ const STATUS = [
 const PAGE_SIZE = 25
 
 export function Alerts() {
+  const { data: me } = useMe()
   const { revealed, toggle } = useReveal()
   const { get, page, update, clear } = useUrlState()
   const status = get('status')
@@ -40,16 +42,18 @@ export function Alerts() {
     if (v) params.set(k, v)
 
   const { data: instances } = useQuery({
-    queryKey: ['instances'],
-    queryFn: () => api<Instance[]>('/api/instances'),
+    queryKey: ['auth-phones'],
+    queryFn: () => api<Instance[]>('/api/auth/phones'),
   })
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['alerts', params.toString()],
     queryFn: () => api<AlertPage>(`/api/alerts?${params}`),
   })
-  const notConfigured = data?.items.some(
-    (a) => a.delivery_error === 'alert delivery not configured',
-  )
+  const { data: stats } = useQuery({
+    queryKey: ['stats'],
+    queryFn: () => api<Stats>('/api/stats'),
+  })
+  const notConfigured = stats?.delivery_configured === false
   const active = [kid, category].filter(Boolean).length + (status ? 1 : 0)
 
   return (
@@ -66,11 +70,13 @@ export function Alerts() {
           className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-warning-soft p-3 text-sm text-warning"
         >
           Alert delivery is not set up, so alerts are saved here but not sent to your WhatsApp.
-          <Button asChild variant="link" size="sm" className="h-auto min-h-0 p-0">
-            <Link to="/settings">
-              <Settings /> Set up delivery
-            </Link>
-          </Button>
+          {me?.role === 'admin' && (
+            <Button asChild variant="link" size="sm" className="h-auto min-h-0 p-0">
+              <Link to="/settings?tab=Alerts">
+                <Settings /> Set up delivery
+              </Link>
+            </Button>
+          )}
         </p>
       )}
 
@@ -115,8 +121,10 @@ export function Alerts() {
           ))}
         {isError && (
           <li className="p-4 text-sm text-danger" role="alert">
-            Could not load alerts. Reload the page; if it keeps failing, check the Jobs page and the
-            server log.
+            Could not load alerts.{' '}
+            <button className="underline" onClick={() => void refetch()}>
+              Retry
+            </button>
           </li>
         )}
         {data?.items.map((a) => (

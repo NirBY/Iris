@@ -34,11 +34,22 @@ async def job_tmpdir(data_dir: Path, job_id: int | str) -> AsyncIterator[Path]:
 
 
 async def download(
-    client: OpenWAClient, session_id: str, chat_id: str, message_ref: str, dest: Path
+    client: OpenWAClient,
+    session_id: str,
+    chat_id: str,
+    message_ref: str,
+    dest: Path,
+    max_bytes: int | None = None,
 ) -> str:
     """Download one message's media. Maps OpenWA failures to job error semantics."""
     try:
-        return await client.download_media(session_id, chat_id, message_ref, dest, MAX_MEDIA_BYTES)
+        return await client.download_media(
+            session_id,
+            chat_id,
+            message_ref,
+            dest,
+            MAX_MEDIA_BYTES if max_bytes is None else max_bytes,
+        )
     except MediaTooLarge as exc:
         raise MediaSkipped(f"media too large ({exc.size} bytes)") from exc
     except OpenWAError as exc:
@@ -80,7 +91,13 @@ def media_refs(message: Message) -> list[dict[str, Any]]:
     return [primary, *[a for a in extra if a.get("message_ref")]]
 
 
-async def fetch_original(db: AsyncSession, message: Message, key_bytes: bytes, dest: Path) -> str:
+async def fetch_original(
+    db: AsyncSession,
+    message: Message,
+    key_bytes: bytes,
+    dest: Path,
+    max_bytes: int | None = None,
+) -> str:
     """Download the message's media, from the session that has it; returns its content type."""
     first_error: PermanentError | None = None
     for ref in media_refs(message):
@@ -90,7 +107,9 @@ async def fetch_original(db: AsyncSession, message: Message, key_bytes: bytes, d
             first_error = first_error or exc
             continue
         try:
-            return await download(client, session_id, ref["chat_id"], ref["message_ref"], dest)
+            return await download(
+                client, session_id, ref["chat_id"], ref["message_ref"], dest, max_bytes
+            )
         except PermanentError as exc:  # this session has no copy: ask the next one
             first_error = first_error or exc
         finally:

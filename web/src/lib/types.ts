@@ -17,6 +17,10 @@ export interface Message {
   sent_at: string
   status: string
   verdict: string | null
+  review_reason?: string | null
+  skip_reason?: string | null
+  raw_type?: string | null
+  diagnostics?: Record<string, boolean | string> | null
   redacted: boolean
   edited_at: string | null
   revoked_at: string | null
@@ -66,6 +70,8 @@ export interface Instance {
   openwa_instance_id: string
   api_key_set: boolean
   enabled: boolean
+  monitoring_status?: string
+  monitoring_error?: string | null
   webhook_url: string
   last_webhook_at: string | null
   created_at: string
@@ -85,6 +91,8 @@ export interface MediaInfo extends KeptMedia {
 }
 
 export interface Alert {
+  verdict?: string | null
+  review_reason?: string | null
   id: number
   message_id: number
   chat_id: number
@@ -119,11 +127,13 @@ export interface AlertDetail extends Alert {
 }
 
 export interface ReviewItem {
+  missing_data?: boolean
   message: Message
   classifications: Classification[]
 }
 
 export interface ReviewPage {
+  reviewed_total?: number
   items: ReviewItem[]
   total: number
   page: number
@@ -166,6 +176,7 @@ export interface Chat {
 }
 
 export interface Job {
+  run_after?: string
   id: number
   type: string
   status: string

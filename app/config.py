@@ -5,18 +5,44 @@ import binascii
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def validate_public_base_url(value: str) -> str:
+    value = value.strip().rstrip("/")
+    try:
+        parts = urlsplit(value)
+        if (
+            parts.scheme not in ("http", "https")
+            or not parts.hostname
+            or parts.username
+            or parts.password
+            or parts.query
+            or parts.fragment
+            or any(c.isspace() for c in value)
+        ):
+            raise ValueError("Use a full http(s) Iris URL without credentials, query or fragment")
+        _ = parts.port
+    except ValueError as exc:
+        raise ValueError(
+            "Use a valid http(s) Iris base URL, such as https://iris.example.com"
+        ) from exc
+    return value
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="IRIS_", env_file=".env", extra="ignore")
+
+    two_factor_recovery_key: str | None = Field(default=None, repr=False)
 
     openwa_url: str | None = Field(default=None, validation_alias="OPENWA_URL")
     openwa_api_key: str | None = Field(default=None, validation_alias="OPENWA_API_KEY")
     secret_key: str
     public_base_url: str
+    webhook_base_url: str | None = None
     admin_username: str | None = None
     admin_password: str | None = None
     data_dir: Path = Path("/data")
@@ -38,6 +64,7 @@ class Settings(BaseSettings):
     # Additional safeguards are explicit opt-ins; existing deployments keep their behavior.
     local_safety_mode: bool = False
     delivery_workers: int = Field(default=0, ge=0, le=4)
+    job_timeout_seconds: int = Field(default=900, ge=1, le=3600)
     job_heartbeat_seconds: int = Field(default=0, ge=0, le=120)
     monitoring_silence_minutes: int = Field(default=0, ge=0)
     require_webhook_signatures: bool = False
@@ -56,7 +83,16 @@ class Settings(BaseSettings):
     @field_validator("public_base_url")
     @classmethod
     def _strip_slash(cls, v: str) -> str:
-        return v.rstrip("/")
+        return validate_public_base_url(v)
+
+    @field_validator("webhook_base_url")
+    @classmethod
+    def _webhook_url(cls, value: str | None) -> str | None:
+        return validate_public_base_url(value) if value else None
+
+    @property
+    def webhook_url_base(self) -> str:
+        return self.webhook_base_url or self.public_base_url
 
     @property
     def key_bytes(self) -> bytes:

@@ -20,7 +20,11 @@ class OllamaModerator:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def moderate(self, model: str, input_: str | list[dict[str, Any]]) -> ModerationResult:
+    async def moderate(
+        self,
+        model: str,
+        input_: str | list[dict[str, Any]],
+    ) -> ModerationResult:
         # Until vision has been validated, never pretend an image was checked.
         if not isinstance(input_, str):
             raise PermanentError("Local image moderation is not validated; manual review required")

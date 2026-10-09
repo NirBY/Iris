@@ -1,6 +1,6 @@
 services:
   iris:
-    image: techblog/iris:latest
+    image: ${IRIS_IMAGE:?Set IRIS_IMAGE to a reviewed release tag or digest}
     ports: ["8080:8080"]
     volumes:
       - iris-data:/data   # SQLite DB + temp media; named volume keeps non-root ownership
@@ -9,7 +9,11 @@ services:
       IRIS_ADMIN_USERNAME: admin     # first run only
       IRIS_ADMIN_PASSWORD: ""        # first run only
       # OpenWA must be able to reach this URL, it is where kids' webhooks point.
-      IRIS_PUBLIC_BASE_URL: http://10.0.0.20:8080
+      # Public Iris domain; can also be overridden in Settings > Alerts > Iris base URL.
+      # Optional separate internal URL reachable from OpenWA and permitted by its allowlist.
+      IRIS_TWO_FACTOR_RECOVERY_KEY: "${IRIS_TWO_FACTOR_RECOVERY_KEY:-}"
+      IRIS_WEBHOOK_BASE_URL: "${IRIS_WEBHOOK_BASE_URL:-}"
+      IRIS_PUBLIC_BASE_URL: https://iris.example.com
       IRIS_LOG_LEVEL: INFO
       # Optional: keep the data in PostgreSQL or MySQL instead of the SQLite file. Create an empty
       # database first. Without this, choose the database under Settings > Database instead.

@@ -7,12 +7,21 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.service import delivery_configured
 from app.config import get_settings
-from app.db.models import Alert, Chat, ChatInstance, Instance, Job, Message, StoredMedia
+from app.db.models import (
+    Alert,
+    Chat,
+    ChatInstance,
+    Instance,
+    Job,
+    Message,
+    ReviewDataIssue,
+    StoredMedia,
+)
 from app.deps import get_db
 from app.security.auth import current_user
 from app.settings_store import get_setting
@@ -70,12 +79,6 @@ async def stats(db: DB) -> Stats:
     cfg = get_settings()
     from app.monitoring import states
 
-    silence_filter = or_(Instance.last_webhook_at.is_(None))
-    if cfg.monitoring_silence_minutes:
-        silence_filter = or_(
-            silence_filter,
-            Instance.last_webhook_at < now - timedelta(minutes=cfg.monitoring_silence_minutes),
-        )
     sender_id = await get_setting(db, "alerts.sender_instance_id")
     sender = await db.get(Instance, sender_id) if sender_id else None
     from app.alerts.recipients import recipients
@@ -104,7 +107,12 @@ async def stats(db: DB) -> Stats:
         alerts_by_status={str(k): int(v) for k, v in by_alert.items()},
         alerts_by_delivery={str(k): int(v) for k, v in by_delivery.items()},
         review_queue=await _count(
-            db, select(func.count()).select_from(Message).where(Message.verdict == "review")
+            db,
+            select(func.count())
+            .select_from(Message)
+            .where(
+                (Message.verdict == "review") & ~Message.id.in_(select(ReviewDataIssue.message_id))
+            ),
         ),
         jobs_by_status=jobs,
         queue_depth=jobs.get("queued", 0) + jobs.get("running", 0),
@@ -119,7 +127,11 @@ async def stats(db: DB) -> Stats:
             db,
             select(func.count())
             .select_from(Instance)
-            .where(Instance.enabled.is_(True), silence_filter),
+            .where(
+                Instance.enabled.is_(True),
+                Instance.last_webhook_at.is_(None),
+                Instance.id.not_in(sender_ids),
+            ),
         ),
         media_policy=str(await get_setting(db, "media.policy")),
         media_files=await _count(

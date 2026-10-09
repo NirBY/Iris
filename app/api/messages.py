@@ -22,7 +22,7 @@ from app.db.models import (
 from app.db.search import MARK_END, MARK_START, find_matches, search_tokens  # noqa: F401
 from app.deps import get_db
 from app.jobs.queue import has_active_job
-from app.security.auth import current_user
+from app.security.auth import current_user, parent_user
 
 router = APIRouter(prefix="/api/messages", tags=["messages"], dependencies=[Depends(current_user)])
 DB = Annotated[AsyncSession, Depends(get_db)]
@@ -47,6 +47,10 @@ class MessageOut(BaseModel):
     sent_at: datetime
     status: str
     verdict: str | None
+    review_reason: str | None = None
+    skip_reason: str | None = None
+    raw_type: str | None = None
+    diagnostics: dict[str, Any] | None = None
     redacted: bool
     edited_at: datetime | None
     revoked_at: datetime | None
@@ -138,6 +142,10 @@ def _to_out(
         sent_at=m.sent_at,
         status=m.status,
         verdict=m.verdict,
+        review_reason=m.review_reason,
+        skip_reason=m.skip_reason,
+        raw_type=m.raw_type,
+        diagnostics=m.diagnostics,
         redacted=m.redacted,
         edited_at=m.edited_at,
         revoked_at=m.revoked_at,
@@ -316,7 +324,7 @@ async def message_context(
     return [_to_out(x, chat, kids.get(x.id, []), failure=failures.get(x.id)) for x in window]
 
 
-@router.post("/{message_id}/reprocess")
+@router.post("/{message_id}/reprocess", dependencies=[Depends(parent_user)])
 async def reprocess_message(message_id: int, db: DB) -> dict[str, bool]:
     """Re-enqueue classification. Blocked for redacted messages (their content is gone)."""
     m, _ = await _load(db, message_id)

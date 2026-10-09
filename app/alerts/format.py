@@ -86,6 +86,9 @@ class AlertFacts:
     max_score: float
     sent_at: datetime
     quote: str | None  # None when redacted
+    message_id: int | None = None
+    verdict: str | None = None
+    review_reason: str | None = None
     more_suppressed: int = 0
     media: "MediaFact | None" = None  # a kept copy of the media (never set for a redacted alert)
 
@@ -96,7 +99,9 @@ def format_alert(f: AlertFacts, timezone: str, base_url: str, key: bytes) -> str
         when = when.replace(tzinfo=ZoneInfo("UTC"))  # stored as naive UTC
     local = when.astimezone(ZoneInfo(timezone))
     top, others = f.categories[0], f.categories[1:]
-    category = f"{top} ({f.max_score:.2f})" + (f", {', '.join(others)}" if others else "")
+    category = (top if f.verdict == "review" else f"{top} ({f.max_score:.2f})") + (
+        f", {', '.join(others)}" if others else ""
+    )
     sender = (f.sender_name or "?") + (" (your kid)" if f.from_me else "")
     lines = [
         ALERT_PREFIX,
@@ -108,6 +113,12 @@ def format_alert(f: AlertFacts, timezone: str, base_url: str, key: bytes) -> str
         "",
         WITHHELD if f.quote is None else f'"{f.quote}"',
     ]
+    if f.message_id is not None:
+        lines.insert(1, f"Alert: #{f.alert_id} · Message: #{f.message_id}")
+    if f.verdict == "review":
+        lines.insert(1, "Status: Needs parent review; not a harmful verdict")
+        if f.review_reason:
+            lines.insert(2, "Reason: " + f.review_reason)
     if f.media is not None and f.quote is not None:
         # In the body, before the signed link, so the signature covers it. It opens a portal page
         # that needs a login; the file itself is never reachable from this text alone.

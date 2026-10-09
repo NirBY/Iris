@@ -62,17 +62,26 @@ const BADGE = {
 } as const
 
 /** The verdict when there is one, otherwise the processing status (failed, skipped, pending...). */
-export function VerdictBadge({ m }: { m: Pick<Message, 'verdict' | 'status' | 'failure'> }) {
+export function VerdictBadge({
+  m,
+}: {
+  m: Pick<Message, 'verdict' | 'status' | 'failure' | 'skip_reason' | 'review_reason'>
+}) {
   const label = m.verdict ?? m.status
   const b = BADGE[label as keyof typeof BADGE] ?? BADGE.pending
   return (
-    <Badge tone={b.tone} title={m.failure ?? undefined}>
+    <Badge tone={b.tone} title={m.failure ?? m.skip_reason ?? m.review_reason ?? undefined}>
       <b.icon /> {label}
     </Badge>
   )
 }
 
-export function Failure({ m }: { m: Pick<Message, 'failure'> }) {
-  if (!m.failure) return null
-  return <span className="text-xs text-danger">{m.failure}</span>
+export function Failure({ m }: { m: Pick<Message, 'failure' | 'skip_reason' | 'review_reason'> }) {
+  const reason = m.failure || m.skip_reason || m.review_reason
+  if (!reason) return null
+  return (
+    <span className={m.failure ? 'text-xs text-danger' : 'text-xs text-muted-foreground'}>
+      {reason}
+    </span>
+  )
 }

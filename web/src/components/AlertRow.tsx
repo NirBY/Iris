@@ -16,13 +16,15 @@ const DELIVERY: Record<
 > = {
   failed: { label: 'Not delivered', tone: 'danger', icon: CircleAlert },
   partial: { label: 'Some parents notified', tone: 'warning', icon: CircleAlert },
+  paused: { label: 'Monitoring paused', tone: 'neutral', icon: BellOff },
   suppressed: { label: 'Held back', tone: 'neutral', icon: BellOff },
-  pending: { label: 'Sending', tone: 'warning', icon: CircleAlert },
+  pending: { label: 'Queued', tone: 'warning', icon: CircleAlert },
 }
 
 /** One alert as a row: severity bar, who, where, what was said, and what state it is in. */
 export function AlertRow({ alert: a, revealed = false }: { alert: Alert; revealed?: boolean }) {
   const open = a.status === 'new'
+  const review = a.verdict === 'review'
   const delivery = DELIVERY[a.delivery_status]
   const voice = a.quote?.startsWith('🎤')
   return (
@@ -38,7 +40,7 @@ export function AlertRow({ alert: a, revealed = false }: { alert: Alert; reveale
           aria-hidden
           className={cn(
             'absolute inset-y-3 start-0 w-1 rounded-e-full',
-            open ? 'bg-danger' : 'bg-border-strong',
+            open ? (review ? 'bg-warning' : 'bg-danger') : 'bg-border-strong',
           )}
         />
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -67,10 +69,16 @@ export function AlertRow({ alert: a, revealed = false }: { alert: Alert; reveale
             </>
           )}
         </span>
+        <span className="text-xs text-muted-foreground">
+          Alert #{a.id} · Message #{a.message_id}
+        </span>
+        {review && a.review_reason && (
+          <span className="text-xs text-muted-foreground">{a.review_reason}</span>
+        )}
         <span className="flex flex-wrap items-center gap-1.5">
-          <Badge tone="danger">
-            <CircleAlert /> {a.categories[0]}{' '}
-            <span className="tabular">{a.max_score.toFixed(2)}</span>
+          <Badge tone={review ? 'warning' : 'danger'}>
+            <CircleAlert /> {review ? 'Needs parent review' : a.categories[0]}{' '}
+            {!review && <span className="tabular">{a.max_score.toFixed(2)}</span>}
           </Badge>
           {a.categories.slice(1, 3).map((c) => (
             <Badge key={c}>{c}</Badge>
@@ -84,6 +92,9 @@ export function AlertRow({ alert: a, revealed = false }: { alert: Alert; reveale
           <MessageFlags
             m={{ id: a.message_id, edited_at: a.edited_at, revoked_at: a.revoked_at }}
           />
+          {a.delivery_error?.startsWith('Queued for sending capacity') && (
+            <span className="text-xs text-muted-foreground">{a.delivery_error}</span>
+          )}
           {delivery && (
             <Badge tone={delivery.tone} title={a.delivery_error ?? undefined}>
               <delivery.icon /> {delivery.label}

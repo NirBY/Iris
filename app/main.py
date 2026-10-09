@@ -26,6 +26,7 @@ from app.api import (
     pairing,
     stats,
     system,
+    users,
 )
 from app.api import (
     events as events_api,
@@ -46,7 +47,7 @@ from app.logging import setup_logging
 from app.metrics import render as render_metrics
 from app.providers import Providers
 from app.retention import retention_loop
-from app.security.auth import bootstrap_admin, current_user
+from app.security.auth import admin_user, bootstrap_admin
 from app.version import VERSION
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -92,6 +93,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         await reload_runtime_settings(session)
         settings = get_settings()
+        if settings.local_safety_mode:
+            from app.legacy_review import quarantine_legacy_unknowns
+
+            await quarantine_legacy_unknowns(session)
     providers = Providers()
     pool = WorkerPool(
         Deps(
@@ -161,6 +166,7 @@ def create_app() -> FastAPI:
 
     app.include_router(system.router)
     app.include_router(auth.router)
+    app.include_router(users.router)
     app.include_router(instances.router)
     app.include_router(pairing.router)
     app.include_router(messages.router)
@@ -187,11 +193,11 @@ def create_app() -> FastAPI:
         return Response(body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
     @app.get("/api/openapi.json", include_in_schema=False)
-    async def openapi_schema(_: Annotated[User, Depends(current_user)]) -> JSONResponse:
+    async def openapi_schema(_: Annotated[User, Depends(admin_user)]) -> JSONResponse:
         return JSONResponse(app.openapi())
 
     @app.get("/api/docs", include_in_schema=False)
-    async def docs(_: Annotated[User, Depends(current_user)]) -> HTMLResponse:
+    async def docs(_: Annotated[User, Depends(admin_user)]) -> HTMLResponse:
         return get_swagger_ui_html(openapi_url="/api/openapi.json", title="Iris API")
 
     @app.get("/{path:path}", include_in_schema=False)
@@ -207,9 +213,13 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404) from None
         if is_asset:
             return FileResponse(candidate)
+        if path.startswith("assets/"):
+            # A tab opened before an update may request an obsolete hashed chunk.
+            # HTML is not a valid JavaScript response; do not hide this as SPA routing.
+            raise HTTPException(status_code=404)
         index = STATIC_DIR / "index.html"
         if index.is_file():
-            return FileResponse(index)
+            return FileResponse(index, headers={"Cache-Control": "no-store"})
         return JSONResponse({"detail": "UI not built"}, status_code=404)
 
     return app

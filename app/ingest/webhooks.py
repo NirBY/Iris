@@ -110,6 +110,9 @@ async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: Incomi
         await db.execute(select(Message).where(Message.wa_message_id == msg.wa_message_id).limit(1))
     ).scalar_one_or_none()
     if existing is not None:
+        chat = await db.get(Chat, existing.chat_id)
+        if chat is not None and not chat.name and not msg.is_group and not msg.from_me:
+            chat.name = kid_name if existing.from_me else msg.sender_name
         if await db.get(ChatInstance, (existing.chat_id, inst_id)) is None:
             db.add(ChatInstance(chat_id=existing.chat_id, instance_id=inst_id))
         if await db.get(MessageReceipt, (existing.id, inst_id)) is None:
@@ -141,6 +144,8 @@ async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: Incomi
         sender_name=kid_name if msg.from_me else msg.sender_name,
         from_me=msg.from_me,
         type=msg.type,
+        raw_type=msg.raw_type,
+        diagnostics=msg.diagnostics,
         text=msg.text,
         quoted_wa_message_id=msg.quoted_wa_message_id,
         sent_at=msg.sent_at,

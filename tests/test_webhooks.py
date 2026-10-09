@@ -32,7 +32,14 @@ async def count(c: Any, model: Any) -> int:
         return int((await s.execute(select(func.count()).select_from(model))).scalar_one())
 
 
-def post(c: Any, token: str, raw: bytes, **headers: str) -> Any:
+def post(c: Any, token: str, raw: bytes, *, sign: bool = True, **headers: str) -> Any:
+    if sign and "x-openwa-signature" not in headers:
+        headers["x-openwa-signature"] = (
+            "sha256="
+            + hmac.new(
+                webhook_secret(get_settings(), token).encode(), raw, hashlib.sha256
+            ).hexdigest()
+        )
     return c.post(
         f"/webhooks/{token}", content=raw, headers={"content-type": "application/json", **headers}
     )
@@ -199,20 +206,21 @@ async def test_signature_mandatory_after_iris_registers_webhook(app_client: Any)
         )
         assert (await app_client.post(f"/api/instances/{iid}/register-webhook")).status_code == 200
     raw = fx("text_received_mixed")
-    assert (await post(app_client, token, raw)).status_code == 401  # unsigned is rejected now
+    assert (
+        await post(app_client, token, raw, sign=False)
+    ).status_code == 401  # unsigned is rejected now
     good = (
         "sha256="
         + hmac.new(webhook_secret(get_settings(), token).encode(), raw, hashlib.sha256).hexdigest()
     )
     assert (await post(app_client, token, raw, **{"x-openwa-signature": good})).status_code == 200
-    # Rotation invalidates the registered secret, so unsigned deliveries are accepted again
-    # until the webhook is re-registered.
+    # Rotation fails closed until the gateway uses the new signing secret.
     new = (
         (await app_client.post(f"/api/instances/{iid}/rotate-token"))
         .json()["webhook_url"]
         .rsplit("/", 1)[1]
     )
-    assert (await post(app_client, new, fx("text_sent_he"))).status_code == 200
+    assert (await post(app_client, new, fx("text_sent_he"), sign=False)).status_code == 401
 
 
 async def test_streamed_body_without_content_length_is_capped(app_client: Any) -> None:
@@ -295,3 +303,32 @@ async def test_real_alert_link_pasted_under_other_text_is_still_classified(app_c
     assert (await post(app_client, token, json.dumps(body).encode())).json() == {
         "result": "accepted"
     }
+
+
+async def test_sender_first_direct_chat_gets_peer_name_from_later_receipt(app_client: Any) -> None:
+    _, sender_token = await make_instance(app_client, "Noa")
+    _, receiver_token = await make_instance(app_client, "Dan")
+    sent = json.loads(fx("text_sent_he"))
+    await post(app_client, sender_token, json.dumps(sent).encode())
+    received = json.loads(fx("text_received_mixed"))
+    received["data"]["id"] = received["data"]["id"].replace(
+        "3EB07BE62351D41E6F0D35", "3EB0206F7B189DBEBC16C8"
+    )
+    assert (await post(app_client, receiver_token, json.dumps(received).encode())).json()[
+        "result"
+    ] == "duplicate"
+    async with app_client.app.state.session_factory() as db:
+        chat = (await db.scalars(select(Chat))).one()
+        assert chat.name == "Dan"
+        assert len((await db.scalars(select(Message))).all()) == 1
+
+
+async def test_manual_phone_requires_signed_webhooks_from_creation(app_client: Any) -> None:
+    iid, token = await make_instance(app_client)
+    raw = fx("text_received_mixed")
+    assert (await post(app_client, token, raw, sign=False)).status_code == 401
+    assert await count(app_client, Message) == 0
+    assert (await post(app_client, token, raw)).json()["result"] == "accepted"
+    phone = (await app_client.get(f"/api/instances/{iid}")).json()
+    assert phone["monitoring_status"] == "failed"
+    assert "Register the signed webhook" in phone["monitoring_error"]

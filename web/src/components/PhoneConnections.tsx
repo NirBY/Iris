@@ -20,7 +20,13 @@ import { PhonePairing, type PairingState } from './PhonePairing'
 const fail = (fallback: string) => (e: unknown) =>
   toast.error(e instanceof ApiError ? e.message : fallback)
 
-export function PhoneCard({ i }: { i: Instance }) {
+export function PhoneCard({
+  i,
+  senderConnection = false,
+}: {
+  i: Instance
+  senderConnection?: boolean
+}) {
   const qc = useQueryClient()
   const refresh = () => qc.invalidateQueries({ queryKey: ['instances'] })
   const [repairOpen, setRepairOpen] = useState(false)
@@ -40,7 +46,10 @@ export function PhoneCard({ i }: { i: Instance }) {
       toast.success(`Webhook registered in OpenWA for ${i.kid_name}.`)
       return refresh()
     },
-    onError: fail('Could not register the webhook.'),
+    onError: (error) => {
+      fail('Could not register the webhook.')(error)
+      void refresh()
+    },
   })
   const rotate = useMutation({
     mutationFn: () => api(`/api/instances/${i.id}/rotate-token`, { method: 'POST' }),
@@ -65,6 +74,7 @@ export function PhoneCard({ i }: { i: Instance }) {
     onSuccess: () => refresh(),
     onError: fail('Could not change the phone role.'),
   })
+  const [deleteMessages, setDeleteMessages] = useState(false)
   const [deleteOpenWA, setDeleteOpenWA] = useState(false)
   const [removalStage, setRemovalStage] = useState(0)
   const [removalError, setRemovalError] = useState('')
@@ -78,7 +88,12 @@ export function PhoneCard({ i }: { i: Instance }) {
         await api(`/api/instances/${i.id}/remove-openwa?stage=delete`, { method: 'POST' })
         setRemovalStage(3)
       }
-      await api(`/api/instances/${i.id}`, { method: 'DELETE' })
+      await api(
+        `/api/instances/${i.id}${deleteMessages && !parent ? '?delete_messages=true' : ''}`,
+        {
+          method: 'DELETE',
+        },
+      )
       setRemovalStage(4)
     },
     onSuccess: () => {
@@ -97,7 +112,7 @@ export function PhoneCard({ i }: { i: Instance }) {
       toast.error('Could not copy. Select the address and copy it by hand.')
     }
   }
-  const parent = i.role === 'parent'
+  const parent = senderConnection || i.role === 'parent'
   return (
     <li className="flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5">
       <div className="flex flex-wrap items-center gap-3">
@@ -110,7 +125,7 @@ export function PhoneCard({ i }: { i: Instance }) {
         </div>
         {!parent && (
           <label className="flex items-center gap-2 text-sm font-medium">
-            {i.enabled ? 'Monitoring enabled' : 'Paused'}
+            {i.enabled ? 'Watching enabled' : 'Paused'}
             <Switch
               checked={i.enabled}
               onCheckedChange={(v) => toggle.mutate(v)}
@@ -168,6 +183,22 @@ export function PhoneCard({ i }: { i: Instance }) {
             until WhatsApp reconnects.
           </p>
         )}
+      {!parent && i.enabled && (
+        <div className="space-y-2">
+          <Badge tone={i.monitoring_status === 'failed' ? 'danger' : 'neutral'}>
+            {i.monitoring_status === 'failed'
+              ? 'Monitoring setup failed'
+              : i.monitoring_status === 'registered'
+                ? 'Monitoring webhook registered'
+                : 'Monitoring setup not verified'}
+          </Badge>
+          {i.monitoring_error && (
+            <p role="alert" className="text-sm text-danger">
+              {i.monitoring_error} Retry Register webhook below.
+            </p>
+          )}
+        </div>
+      )}
       <RepairPhone phone={i} open={repairOpen} onOpenChange={setRepairOpen} />
       <Field label={`Role for ${i.kid_name}`}>
         <Select
@@ -265,6 +296,7 @@ export function PhoneCard({ i }: { i: Instance }) {
           keepOpen
           onOpenChange={(open) => {
             if (open) {
+              setDeleteMessages(false)
               setDeleteOpenWA(false)
               setRemovalStage(0)
               setRemovalError('')
@@ -287,6 +319,25 @@ export function PhoneCard({ i }: { i: Instance }) {
               </span>
             </span>
           </label>
+          {!parent && (
+            <label className="flex min-h-11 items-start gap-3 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1 size-5"
+                checked={deleteMessages}
+                disabled={remove.isPending}
+                onChange={(e) => setDeleteMessages(e.target.checked)}
+              />
+              <span>
+                Also delete saved received messages
+                <span className="block text-muted-foreground">
+                  Deletes received messages exclusive to this phone, including their alerts and
+                  stored media. Sent and shared messages stay. This does not delete messages from
+                  WhatsApp.
+                </span>
+              </span>
+            </label>
+          )}
           {removalStage > 0 && (
             <div className="flex flex-col gap-2" aria-live="polite">
               <progress
@@ -706,7 +757,7 @@ export function ParentConnections() {
       {isError && <Button onClick={() => void refetch()}>Retry loading sender connections</Button>}
       <ul className="flex flex-col gap-4">
         {parents?.map((phone) => (
-          <PhoneCard key={phone.id} i={phone} />
+          <PhoneCard key={phone.id} i={phone} senderConnection />
         ))}
       </ul>
       {parents?.length === 0 && <p>No alert sender connected yet.</p>}

@@ -1,3 +1,4 @@
+import { useMe } from '../lib/auth'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Check,
@@ -19,6 +20,7 @@ import { revokedClass } from '../lib/revoked'
 import { KidStack } from '../components/KidAvatar'
 import { cn } from '../lib/cn'
 import { PageHeader } from '../components/PageHeader'
+import { QueryError } from '../components/QueryError'
 import { CategoryChips } from '../components/Scores'
 import { ClassificationCards } from '../components/ClassificationCards'
 import { Badge } from '../components/ui/badge'
@@ -38,7 +40,14 @@ export function AlertDetail() {
   const { id } = useParams()
   const { revealed, toggle } = useReveal(id)
   const qc = useQueryClient()
-  const { data: a, isError } = useQuery({
+  const { data: me } = useMe()
+  const canAct = me?.role === 'admin' || me?.role === 'parent'
+  const {
+    data: a,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['alert', id],
     queryFn: () => api<Detail>(`/api/alerts/${id}`),
   })
@@ -71,9 +80,13 @@ export function AlertDetail() {
     return (
       <div className="flex flex-col gap-4">
         <PageHeader title="Alert" />
-        <p role="alert" className="rounded-md bg-danger-soft p-4 text-sm text-danger">
-          This alert no longer exists. It may have been removed by the retention window.
-        </p>
+        {error instanceof ApiError && error.status === 404 ? (
+          <p role="alert" className="rounded-md bg-danger-soft p-4 text-sm text-danger">
+            This alert no longer exists. It may have been removed by the retention window.
+          </p>
+        ) : (
+          <QueryError what="this alert" onRetry={() => void refetch()} />
+        )}
       </div>
     )
   if (!a)
@@ -99,6 +112,11 @@ export function AlertDetail() {
         description={`${dateTime(a.sent_at)}${a.chat_name ? `, in ${a.chat_name}` : ''}${a.sender_name ? `, from ${a.sender_name}` : ''}`}
       />
 
+      {a.verdict === 'review' && (
+        <p className="rounded border p-3 text-sm">
+          Needs parent review; this is not a harmful verdict. {a.review_reason}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <KidStack names={a.kid_names} />
         <CategoryChips categories={a.categories} score={a.max_score} />
@@ -185,7 +203,7 @@ export function AlertDetail() {
           <Button
             variant="primary"
             onClick={() => setStatus.mutate('acknowledged')}
-            disabled={setStatus.isPending}
+            disabled={setStatus.isPending || !canAct}
           >
             <Check /> Mark as seen
           </Button>
@@ -193,7 +211,7 @@ export function AlertDetail() {
           <Button
             variant="outline"
             onClick={() => setStatus.mutate('new')}
-            disabled={setStatus.isPending}
+            disabled={setStatus.isPending || !canAct}
           >
             <RotateCcw /> Reopen
           </Button>
@@ -202,7 +220,7 @@ export function AlertDetail() {
           <Button
             variant="outline"
             onClick={() => setStatus.mutate('dismissed')}
-            disabled={setStatus.isPending}
+            disabled={setStatus.isPending || !canAct}
           >
             <X /> Dismiss
           </Button>
@@ -230,22 +248,34 @@ export function AlertDetail() {
           <span className="font-medium">
             {{
               sent: 'Delivered to your WhatsApp',
+              partial: 'Delivered to some recipients',
               failed: 'Not delivered',
+              paused: 'Held because monitoring is paused',
               suppressed: 'Held back by the cooldown',
-              pending: 'Sending',
+              pending: 'Queued',
             }[a.delivery_status] ?? a.delivery_status}
           </span>
           {a.notified_at && (
             <span className="text-sm text-muted-foreground">{dateTime(a.notified_at)}</span>
           )}
         </span>
-        {a.delivery_error && <span className="text-sm text-danger">{a.delivery_error}</span>}
+        {a.delivery_error && (
+          <span
+            className={
+              a.delivery_error.startsWith('Queued for sending capacity')
+                ? 'text-sm text-muted-foreground'
+                : 'text-sm text-danger'
+            }
+          >
+            {a.delivery_error}
+          </span>
+        )}
         <Button
           className="ms-auto"
           variant={undelivered ? 'primary' : 'outline'}
           size="sm"
           onClick={() => resend.mutate()}
-          disabled={resend.isPending}
+          disabled={resend.isPending || !canAct}
         >
           <Send /> Send again
         </Button>

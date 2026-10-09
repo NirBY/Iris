@@ -14,6 +14,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -29,14 +30,14 @@ from app.config import Settings, get_settings
 from app.db.models import Instance, Setting, User
 from app.deps import get_db
 from app.openwa.client import OpenWAClient, OpenWAError
-from app.security.auth import current_user
+from app.security.auth import admin_user
 from app.security.crypto import decrypt, encrypt
 from app.settings_store import get_setting
 
 router = APIRouter(prefix="/api/pairing", tags=["pairing"])
 DB = Annotated[AsyncSession, Depends(get_db)]
 Cfg = Annotated[Settings, Depends(get_settings)]
-Owner = Annotated[User, Depends(current_user)]
+Owner = Annotated[User, Depends(admin_user)]
 PREFIX = "pairing.draft."
 LEASE_SECONDS = 120
 MAX_AGE = 1800
@@ -365,6 +366,7 @@ async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Ow
             openwa_instance_id=data["session_id"],
             openwa_api_key_enc=encrypt(cfg.key_bytes, data["key"]),
             webhook_token=secrets.token_urlsafe(32),
+            signature_required=True,
             enabled=False,
         )
         if body.role != "parent":
@@ -372,7 +374,7 @@ async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Ow
                 async with _client(data) as client:
                     await client.register_webhook(
                         data["session_id"],
-                        f"{cfg.public_base_url}/webhooks/{inst.webhook_token}",
+                        f"{cfg.webhook_url_base}/webhooks/{inst.webhook_token}",
                         webhook_secret(cfg, inst.webhook_token),
                     )
             except OpenWAError:
@@ -398,19 +400,28 @@ async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Ow
 
 async def cleanup_loop(factory: async_sessionmaker[AsyncSession]) -> None:
     while True:
-        async with _lock, factory() as db:
-            cfg = get_settings()
-            keys = list(
-                (await db.scalars(select(Setting.key).where(Setting.key.startswith(PREFIX)))).all()
-            )
-            for key in keys:
-                row = await db.get(Setting, key)
-                if row is None:
-                    continue
-                try:
-                    data = _decode(row, cfg)
-                    if data["expires"] <= time.time() or time.time() - data["created"] >= MAX_AGE:
-                        await _remove(db, row, data, cfg)
-                except (OpenWAError, HTTPException, ValueError):
-                    await db.rollback()  # retain the encrypted draft for the next attempt
+        try:
+            async with _lock, factory() as db:
+                cfg = get_settings()
+                keys = list(
+                    (
+                        await db.scalars(select(Setting.key).where(Setting.key.startswith(PREFIX)))
+                    ).all()
+                )
+                for key in keys:
+                    row = await db.get(Setting, key)
+                    if row is None:
+                        continue
+                    try:
+                        data = _decode(row, cfg)
+                        if (
+                            data["expires"] <= time.time()
+                            or time.time() - data["created"] >= MAX_AGE
+                        ):
+                            await _remove(db, row, data, cfg)
+                    except (OpenWAError, HTTPException, ValueError):
+                        logger.warning("temporary pairing cleanup failed; retrying")
+                        await db.rollback()  # retain the encrypted draft for the next attempt
+        except Exception:
+            logger.exception("pairing cleanup pass failed; retrying")
         await asyncio.sleep(15)

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts import ALERT_PREFIX
 from app.alerts.format import with_signed_link
+from app.alerts.pacing import reserve
 from app.alerts.recipients import recipients
 from app.classify.moderation import ModerationClient
 from app.classify.ollama import OllamaModerator
@@ -19,11 +20,11 @@ from app.classify.thresholds import DEFAULT_THRESHOLDS, effective_thresholds
 from app.config import Settings, get_settings
 from app.db.models import Instance
 from app.deps import get_db
-from app.jobs.queue import PermanentError, TransientError
+from app.jobs.queue import DeferredError, PermanentError, TransientError, enqueue
 from app.media.factory import MediaOverrides, build_store
 from app.media.store import MediaStoreError
 from app.openwa.client import OpenWAClient, OpenWAError
-from app.security.auth import current_user
+from app.security.auth import admin_user
 from app.security.crypto import decrypt
 from app.settings_store import (
     REGISTRY,
@@ -36,7 +37,7 @@ from app.settings_store import (
 )
 from app.transcription.cloudflare import CloudflareTranscriber
 
-router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(current_user)])
+router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(admin_user)])
 
 
 class SettingsUpdate(BaseModel):
@@ -310,20 +311,48 @@ async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
         return TestResult(ok=False, detail="Enter at least one parent recipient")
     client = OpenWAClient(sender.openwa_base_url, decrypt(cfg.key_bytes, sender.openwa_api_key_enc))
     errors: list[str] = []
+    completed: list[str] = []
+    test_text = with_signed_link(
+        f"{ALERT_PREFIX} (test)\nAlert delivery is working.", cfg.public_base_url, cfg.key_bytes, 0
+    )
     try:
         for target in targets:
+            try:
+                await reserve(db, f"openwa:{sender.id}", target)
+            except DeferredError as exc:
+                if completed:
+                    await enqueue(
+                        db,
+                        "test_alert",
+                        {
+                            "sender_id": sender_id,
+                            "recipients": targets,
+                            "delivered_recipients": completed,
+                            "text": test_text,
+                        },
+                        max_attempts=3,
+                    )
+                    return TestResult(
+                        ok=True,
+                        detail=(
+                            "Test sent to the first parent; remaining test messages queued. "
+                            "Check Jobs for delivery status."
+                        ),
+                    )
+                return TestResult(
+                    ok=False,
+                    detail=(
+                        f"Sending limit reached. Retry in {int(exc.delay) + 1} seconds. "
+                        "Earlier recipients may already have received the test."
+                    ),
+                )
             try:
                 await client.send_text(
                     sender.openwa_instance_id,
                     target,
-                    # Signed like a real alert so a monitored session skips the test.
-                    with_signed_link(
-                        f"{ALERT_PREFIX} (test)\nAlert delivery is working.",
-                        cfg.public_base_url,
-                        cfg.key_bytes,
-                        0,
-                    ),
+                    test_text,
                 )
+                completed.append(target)
             except OpenWAError as exc:
                 hint = " (is the OpenWA session running?)" if exc.status == 400 else ""
                 errors.append(f"OpenWA: {exc.message}{hint}")

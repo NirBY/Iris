@@ -84,10 +84,10 @@ export function Messages() {
   if (from) params.set('from', from)
 
   const { data: instances } = useQuery({
-    queryKey: ['instances'],
-    queryFn: () => api<Instance[]>('/api/instances'),
+    queryKey: ['auth-phones'],
+    queryFn: () => api<Instance[]>('/api/auth/phones'),
   })
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['messages', params.toString()],
     queryFn: () => api<MessagePage>(`/api/messages?${params}`),
   })
@@ -180,7 +180,10 @@ export function Messages() {
           ))}
         {isError && (
           <li role="alert" className="p-4 text-sm text-danger">
-            Could not load messages. Reload the page; if it keeps failing, check the Jobs page.
+            Could not load messages.{' '}
+            <button className="underline" onClick={() => void refetch()}>
+              Retry
+            </button>
           </li>
         )}
         {data?.items.map((m) => (

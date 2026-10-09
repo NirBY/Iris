@@ -83,6 +83,10 @@ class Message(Base):
     received_at: Mapped[datetime] = _ts()
     status: Mapped[str] = mapped_column(String(255), default="pending", index=True)
     verdict: Mapped[str | None] = mapped_column(String(255), index=True)
+    review_reason: Mapped[str | None] = mapped_column(String(255))
+    skip_reason: Mapped[str | None] = mapped_column(String(255))
+    raw_type: Mapped[str | None] = mapped_column(String(255))
+    diagnostics: Mapped[dict[str, Any] | None] = mapped_column(JSON(none_as_null=True))
     redacted: Mapped[bool] = mapped_column(Boolean, default=False)
     # How to fetch the media from OpenWA: {instance_id, chat_id, message_ref, mimetype, ...}.
     # Kept on the message (not only the job) so reprocessing media messages keeps working.
@@ -201,4 +205,56 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(20), default="admin", server_default="admin")
+    email: Mapped[str | None] = mapped_column(String(255))
+    whatsapp_number: Mapped[str | None] = mapped_column(String(16))
+    email_contact_key: Mapped[str | None] = mapped_column(String(255), unique=True)
+    whatsapp_contact_key: Mapped[str | None] = mapped_column(String(16), unique=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    whatsapp_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    auth_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = _ts()
+
+
+class LoginChallenge(Base):
+    __tablename__ = "login_challenges"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    code_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    consumed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ReviewFeedback(Base):
+    __tablename__ = "review_feedback"
+    message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    verdict: Mapped[str] = mapped_column(String(20))
+    reviewed_at: Mapped[datetime] = _ts()
+
+
+class ReviewDataIssue(Base):
+    """Data-quality reports are independent of human safety judgements."""
+
+    __tablename__ = "review_data_issues"
+    message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    issue: Mapped[str] = mapped_column(String(32))
+    reported_at: Mapped[datetime] = _ts()
+
+
+class SendingBudget(Base):
+    """Persistent outbound pacing; reservations survive restarts."""
+
+    __tablename__ = "sending_budgets"
+    key: Mapped[str] = mapped_column(String(160), primary_key=True)
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+    next_allowed: Mapped[datetime] = mapped_column(UTCDateTime())
+    hour_start: Mapped[datetime] = mapped_column(UTCDateTime())
+    hour_count: Mapped[int] = mapped_column(Integer, default=0)
+    day_start: Mapped[datetime] = mapped_column(UTCDateTime())
+    day_count: Mapped[int] = mapped_column(Integer, default=0)

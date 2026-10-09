@@ -60,7 +60,7 @@ class Stage(Protocol):
 def message_body(m: Message) -> str:
     """What was said: text/caption and, for voice/video, the transcript."""
     parts = [p for p in (m.text, m.transcript) if p]
-    return "\n".join(parts)
+    return "\n".join(parts).strip()
 
 
 def _image_part(data_url: str) -> dict[str, Any]:
@@ -82,6 +82,7 @@ async def _moderate(
     payload: str | list[dict[str, Any]],
     ctx: StageContext,
     context_ids: list[int] | None = None,
+    target_id: int | None = None,
 ) -> StageResult:
     started = time.perf_counter()
     res = await ctx.moderator.moderate(ctx.model, payload)
@@ -108,7 +109,7 @@ class ModerationStage:
         if not body and ctx.image_data_url is None:
             return None
         kind, payload = build_input(body, ctx.image_data_url)
-        return await _moderate(self.name, kind, payload, ctx)
+        return await _moderate(self.name, kind, payload, ctx, target_id=message.id)
 
 
 def _line(m: Message) -> str:
@@ -157,4 +158,4 @@ class ContextStage:
         kind, payload = build_input(
             text, ctx.image_data_url
         )  # the image rides along with the context
-        return await _moderate(self.name, kind, payload, ctx, [m.id for m in previous])
+        return await _moderate(self.name, kind, payload, ctx, [m.id for m in previous], message.id)

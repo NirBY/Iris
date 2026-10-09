@@ -9,9 +9,11 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.format import AlertFacts, MediaFact, format_alert, format_change_notice
+from app.alerts.pacing import pause_sender, reserve
 from app.alerts.recipients import recipients
+from app.alerts.service import active_source
 from app.config import get_settings
-from app.db.models import Alert, Chat, Instance, Job, Message, StoredMedia
+from app.db.models import Alert, Chat, Instance, Job, Message, ReviewDataIssue, StoredMedia
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
 from app.media.records import stored_for
 from app.metrics import ALERTS
@@ -55,6 +57,9 @@ def build_facts(
 ) -> AlertFacts:
     return AlertFacts(
         alert_id=alert.id,
+        message_id=message.id,
+        verdict=message.verdict,
+        review_reason=message.review_reason,
         kid_names=list(alert.kid_names),
         chat_name=alert.chat_name,
         is_group=bool(chat and chat.is_group),
@@ -101,14 +106,45 @@ async def send_to_parents(
         stored.payload = dict(payload)
         await db.commit()
     client = OpenWAClient(sender.openwa_base_url, decrypt(key_bytes, sender.openwa_api_key_enc))
-    errors: list[OpenWAError] = []
+    rejected = dict(payload.get("rejected_recipients", {}))
+    errors = [OpenWAError(status, "Recipient rejected") for status in rejected.values()]
     try:
         for target in targets:
-            if target in completed:
+            if target in completed or target in rejected:
                 continue
+            await reserve(db, f"openwa:{sender.id}", target)
             try:
                 await client.send_text(sender.openwa_instance_id, target, text)
             except OpenWAError as exc:
+                if exc.status in (401, 403, 429):
+                    await pause_sender(
+                        db, f"openwa:{sender.id}", 300 if exc.status == 429 else 86400
+                    )
+                    # Stop the batch after a provider restriction.
+                    if exc.status == 429:
+                        raise TransientError(
+                            "Provider throttled sends; sender paused for five minutes", 300
+                        ) from None
+                    raise PermanentError(
+                        "Provider rejected sender authorization; sending paused for 24 hours. "
+                        "Check the connection."
+                    ) from None
+                if exc.status is None:
+                    payload["delivery_uncertain"] = True
+                    job.payload.update(payload)
+                    if stored is not None:
+                        stored.payload = dict(payload)
+                        await db.commit()
+                    raise PermanentError(
+                        "Delivery status is uncertain. Check WhatsApp before retrying."
+                    ) from None
+                if 400 <= exc.status < 500:
+                    rejected[target] = exc.status
+                    payload["rejected_recipients"] = dict(rejected)
+                    job.payload.update(payload)
+                    if stored is not None:
+                        stored.payload = dict(payload)
+                        await db.commit()
                 errors.append(exc)
                 continue  # one parent's failure must not prevent delivery to another
             completed.append(target)
@@ -158,6 +194,16 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
         message = await db.get(Message, alert.message_id)
         if message is None:
             raise PermanentError("alert's message no longer exists")
+        if not force and not await db.scalar(select(active_source(message.id))):
+            alert.delivery_status = "paused"
+            alert.delivery_error = "Monitoring is paused or the source phone was removed"
+            await db.commit()
+            return
+        if message.verdict == "review" and (await db.get(ReviewDataIssue, message.id)) is not None:
+            alert.delivery_status = "paused"
+            alert.delivery_error = "Ignored because data is missing; no safety decision recorded"
+            await db.commit()
+            return
         chat = await db.get(Chat, message.chat_id)
 
         sender_id = await get_setting(db, "alerts.sender_instance_id")
@@ -210,7 +256,8 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
         facts = build_facts(
             alert, message, chat, more_suppressed=more, media=await stored_for(db, message.id)
         )
-        text = format_alert(facts, timezone, deps.public_base_url, deps.key_bytes)
+        base_url = str(await get_setting(db, "runtime.public_base_url") or deps.public_base_url)
+        text = format_alert(facts, timezone, base_url, deps.key_bytes)
         try:
             await send_to_parents(db, job, sender, deps.key_bytes, text, recipient)
         except PermanentError as exc:
@@ -243,6 +290,8 @@ async def notify_change(job: ClaimedJob, deps: "Deps") -> None:
         message = await db.get(Message, alert.message_id)
         if message is None:
             raise PermanentError("alert's message no longer exists")
+        if not await db.scalar(select(active_source(message.id))):
+            return
         chat = await db.get(Chat, message.chat_id)
         sender_id = await get_setting(db, "alerts.sender_instance_id")
         recipient = await get_setting(db, "alerts.recipient")
@@ -250,8 +299,9 @@ async def notify_change(job: ClaimedJob, deps: "Deps") -> None:
         if not recipient or sender is None or not sender.openwa_api_key_enc:
             raise PermanentError("alert delivery not configured")
         timezone = str(await get_setting(db, "alerts.timezone"))
+        base_url = str(await get_setting(db, "runtime.public_base_url") or deps.public_base_url)
         text = format_change_notice(
-            kind, build_facts(alert, message, chat), timezone, deps.public_base_url, deps.key_bytes
+            kind, build_facts(alert, message, chat), timezone, base_url, deps.key_bytes
         )
         if alert.delivery_status == "partial":
             original = (
@@ -274,3 +324,15 @@ async def notify_change(job: ClaimedJob, deps: "Deps") -> None:
                 await db.commit()
         await send_to_parents(db, job, sender, deps.key_bytes, text, recipient)
         logger.info("alert {} follow-up ({}) delivered", alert.id, kind)
+
+
+async def deliver_test(job: ClaimedJob, deps: "Deps") -> None:
+    """Finish an explicitly requested multi-parent test without repeating earlier sends."""
+    async with _DELIVERY_LOCK, deps.session_factory() as db:
+        sender = await db.get(Instance, job.payload.get("sender_id"))
+        if sender is None:
+            raise PermanentError("Test sender no longer exists")
+        text = job.payload.get("text")
+        if not isinstance(text, str):
+            raise PermanentError("Test message is missing")
+        await send_to_parents(db, job, sender, deps.key_bytes, text, "")

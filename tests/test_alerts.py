@@ -11,7 +11,7 @@ from sqlalchemy import select, update
 
 from app.classify.moderation import URL as MOD_URL
 from app.config import get_settings
-from app.db.models import Alert, Job, Message
+from app.db.models import Alert, Instance, Job, Message
 from app.jobs import queue
 from app.jobs.handlers import Deps
 from app.jobs.worker import run_one
@@ -19,6 +19,16 @@ from app.providers import Providers
 from app.settings_store import set_setting
 from tests.test_webhooks import fx, post
 from tests.test_worker import mod_response
+
+
+@pytest.fixture(autouse=True)
+def isolate_delivery_pacing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These tests exercise delivery, cooldown and retries; real budgets are covered
+    # end-to-end in test_sending_pacing without advancing wall-clock time here.
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr("app.alerts.delivery.reserve", AsyncMock())
+
 
 IMAGE_PNG = (Path(__file__).parent / "fixtures" / "media" / "image.png").read_bytes()
 OWA = "https://wa.x"
@@ -78,6 +88,24 @@ async def alerts(c: Any) -> list[Alert]:
         return list((await s.execute(select(Alert).order_by(Alert.id))).scalars())
 
 
+@respx.mock
+async def test_queued_alert_does_not_send_after_source_is_paused(app_client: Any) -> None:
+    deps, token, _ = await setup(app_client)
+    respx.post(MOD_URL).mock(return_value=mod_response(violence=0.95))
+    send = respx.post(SEND_URL).mock(return_value=httpx.Response(201, json={"id": "x"}))
+    await post(app_client, token, fx("text_received_mixed"))
+    job = await queue.claim(deps.session_factory)
+    assert job and await run_one(job, deps) == "done"
+    async with deps.session_factory() as db:
+        await db.execute(update(Instance).where(Instance.kid_name == "Noa").values(enabled=False))
+        await db.commit()
+    await run_all(deps)
+    assert not send.called
+    (alert,) = await alerts(app_client)
+    assert alert.delivery_status == "paused" and alert.notified_at is None
+    await deps.providers.aclose()
+
+
 def msg_body(fixture: str, hash_: str, text: str, ts_add: int = 0) -> bytes:
     b = json.loads(fx(fixture))
     b["data"]["id"] = b["data"]["id"].rsplit("_", 1)[0] + "_" + hash_
@@ -102,7 +130,8 @@ async def test_harmful_message_creates_alert_and_delivers_whatsapp_text(app_clie
     sent = json.loads(req.content)
     assert sent["chatId"] == "972501234567@c.us"
     assert sent["text"].startswith(
-        "⚠️ Iris alert\nKid: Noa\nChat: Kid Tester (direct)\nFrom: Kid Tester\n"
+        f"⚠️ Iris alert\nAlert: #{a.id} · Message: #{a.message_id}\n"
+        "Kid: Noa\nChat: Kid Tester (direct)\nFrom: Kid Tester\n"
     )
     assert (
         f"Open: http://localhost:8080/alerts/{a.id}?s=" in sent["text"]
@@ -138,6 +167,7 @@ async def test_delivery_not_configured_is_recorded_not_queued(app_client: Any) -
 @respx.mock
 async def test_review_item_alerts_only_when_opted_in(app_client: Any) -> None:
     deps, token, _ = await setup(app_client)
+    await app_client.put("/api/settings", json={"settings": {"alerts.alert_on_review": False}})
     respx.post(MOD_URL).mock(
         return_value=mod_response(violence=0.4)
     )  # inconclusive twice -> review
@@ -386,4 +416,113 @@ async def test_a_rejected_follow_up_fails_visibly(
     send.mock(return_value=httpx.Response(400, json={"message": "bad"}))
     await post(app_client, token, _revoke("text_received_mixed"))
     assert await run_all(deps) == ["failed"]  # visible on the Jobs page
+    await deps.providers.aclose()
+
+
+@respx.mock
+async def test_pending_reviews_are_notified_after_catchup(app_client: Any) -> None:
+    from app.alerts.service import notify_pending_reviews
+
+    deps, token, _ = await setup(app_client)
+    await app_client.put("/api/settings", json={"settings": {"alerts.alert_on_review": False}})
+    respx.post(MOD_URL).mock(return_value=mod_response(violence=0.4))
+    await post(app_client, token, fx("text_received_mixed"))
+    await run_all(deps)
+    assert await alerts(app_client) == []
+    await app_client.put("/api/settings", json={"settings": {"alerts.alert_on_review": True}})
+    respx.get(f"{OWA}/api/sessions/sender-sess").mock(
+        return_value=httpx.Response(200, json={"status": "ready"})
+    )
+    async with deps.session_factory() as db:
+        await notify_pending_reviews(db)
+        await notify_pending_reviews(db)
+    assert len(await alerts(app_client)) == 1
+    await deps.providers.aclose()
+
+
+@respx.mock
+async def test_review_notification_waits_for_sender_and_retries_failure_once(
+    app_client: Any,
+) -> None:
+    from sqlalchemy import update
+
+    from app.alerts.service import notify_pending_reviews
+
+    deps, token, _ = await setup(app_client)
+    respx.post(MOD_URL).mock(return_value=mod_response(violence=0.4))
+    respx.post(SEND_URL).mock(return_value=httpx.Response(400, json={"message": "not connected"}))
+    ready = respx.get(f"{OWA}/api/sessions/sender-sess").mock(
+        return_value=httpx.Response(200, json={"status": "disconnected"})
+    )
+    await post(app_client, token, fx("text_received_mixed"))
+    await run_all(deps)
+    async with deps.session_factory() as db:
+        await notify_pending_reviews(db)
+        job = (await db.scalars(select(Job).where(Job.type == "deliver_alert"))).one()
+        assert job.status == "failed"
+        ready.mock(return_value=httpx.Response(200, json={"status": "ready"}))
+        await notify_pending_reviews(db)
+        await db.refresh(job)
+        assert job.status == "queued" and job.payload["review_recovery_attempted"]
+        await db.execute(update(Job).where(Job.id == job.id).values(status="failed"))
+        await db.execute(update(Alert).values(delivery_status="failed"))
+        await db.commit()
+        await notify_pending_reviews(db)
+        await db.refresh(job)
+        assert job.status == "failed"  # permanent failures do not resend forever
+    await deps.providers.aclose()
+
+
+@pytest.mark.parametrize("held_status", ["failed", "suppressed", "paused"])
+async def test_confirmed_review_queues_existing_undelivered_alert(
+    app_client: Any, held_status: str
+) -> None:
+    from app.alerts.service import create_alert
+
+    deps, token, _ = await setup(app_client)
+    await post(app_client, token, fx("text_received_mixed"))
+    async with deps.session_factory() as db:
+        message = (await db.scalars(select(Message))).one()
+        alert = await create_alert(db, message, {})
+        await db.execute(update(Job).where(Job.type == "deliver_alert").values(status="done"))
+        alert.delivery_status = held_status
+        message.verdict = "harmful"
+        await db.commit()
+        await create_alert(db, message, {"violence": 0.9}, confirmed=True)
+        await create_alert(db, message, {"violence": 0.9}, confirmed=True)
+        jobs = (
+            await db.scalars(select(Job).where(Job.type == "deliver_alert", Job.status == "queued"))
+        ).all()
+        assert len(jobs) == 1 and jobs[0].payload["force"]
+        assert alert.delivery_status == "pending"
+    await deps.providers.aclose()
+
+
+async def test_resumed_harmful_alert_is_queued_even_when_review_alerts_are_off(
+    app_client: Any, monkeypatch: Any
+) -> None:
+    from unittest.mock import AsyncMock
+
+    from app.alerts.service import create_alert, notify_pending_reviews
+
+    deps, token, _ = await setup(app_client)
+    await post(app_client, token, fx("text_received_mixed"))
+    monkeypatch.setattr(
+        "app.openwa.client.OpenWAClient.session_ready", AsyncMock(return_value=True)
+    )
+    async with deps.session_factory() as db:
+        message = (await db.scalars(select(Message))).one()
+        message.verdict = "harmful"
+        await db.execute(update(Instance).where(Instance.kid_name == "Noa").values(enabled=False))
+        alert = await create_alert(db, message, {"violence": 0.9})
+        assert alert.delivery_status == "paused"
+        await db.execute(update(Instance).where(Instance.kid_name == "Noa").values(enabled=True))
+        await db.commit()
+        await notify_pending_reviews(db)
+        await notify_pending_reviews(db)
+        assert alert.delivery_status == "pending"
+        jobs = (
+            await db.scalars(select(Job).where(Job.type == "deliver_alert", Job.status == "queued"))
+        ).all()
+        assert len(jobs) == 1
     await deps.providers.aclose()

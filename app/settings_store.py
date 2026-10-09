@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.recipients import validate_recipients
 from app.classify.thresholds import validate_thresholds
+from app.config import validate_public_base_url
 from app.db.models import Setting
 from app.media.s3 import validate_endpoint
 from app.security.crypto import decrypt, encrypt
@@ -143,6 +144,8 @@ def _provider_url(v: Any) -> str | None:
 
 
 RUNTIME_FIELDS = (
+    "public_base_url",
+    "webhook_base_url",
     "classification_provider",
     "ollama_base_url",
     "ollama_model",
@@ -169,6 +172,12 @@ def _phone_roles(value: Any) -> dict[str, str]:
 
 
 REGISTRY: dict[str, Spec] = {
+    "runtime.webhook_base_url": Spec(
+        None, lambda v: None if v is None or v == "" else validate_public_base_url(_str(v))
+    ),
+    "runtime.public_base_url": Spec(
+        None, lambda v: None if v is None else validate_public_base_url(_str(v))
+    ),
     "phones.roles": Spec({}, _phone_roles),
     "phones.session_names": Spec(
         {}, lambda value: {str(int(k)): str(v)[:100] for k, v in dict(value or {}).items()}
@@ -217,8 +226,11 @@ REGISTRY: dict[str, Spec] = {
     "retention.alert_days": Spec(365, _int_range(1, 3650)),
     "alerts.sender_instance_id": Spec(None, _opt_int),
     "alerts.recipient": Spec(None, lambda v: validate_recipients(_opt_str(v))),
+    "alerts.send_interval_seconds": Spec(30, _int_range(5, 3600)),
+    "alerts.send_hourly_limit": Spec(60, _int_range(1, 1000)),
+    "alerts.send_daily_limit": Spec(250, _int_range(1, 10000)),
     "alerts.cooldown_minutes": Spec(10, _int_range(0, 1440)),
-    "alerts.alert_on_review": Spec(False, _bool),
+    "alerts.alert_on_review": Spec(True, _bool),
     "alerts.notify_changes": Spec(True, _bool),
     "alerts.timezone": Spec("Asia/Jerusalem", _timezone),
     "media.policy": Spec("off", _choice("off", "harmful", "harmful_review", "all")),

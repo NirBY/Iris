@@ -12,6 +12,19 @@ from app.db.migrate import upgrade_head
 from app.security.auth import bootstrap_admin
 
 
+async def test_login_rejects_oversized_password_before_hashing(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unexpected(*args: object) -> bool:
+        pytest.fail("Oversized passwords must not reach Argon2")
+
+    monkeypatch.setattr(auth_api, "verify_password", unexpected)
+    response = await client.post(
+        "/api/auth/login", json={"username": "admin", "password": "x" * 257}
+    )
+    assert response.status_code == 422
+
+
 @pytest.fixture
 async def client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -47,7 +60,11 @@ async def test_login_cookie_flags_and_me(client: httpx.AsyncClient) -> None:
     assert r.status_code == 200
     cookie = r.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=strict" in cookie and "max-age=604800" in cookie
-    assert (await client.get("/api/auth/me")).json() == {"username": "admin"}
+    assert (await client.get("/api/auth/me")).json() == {
+        "username": "admin",
+        "role": "admin",
+        "id": 1,
+    }
 
 
 async def test_me_requires_auth(client: httpx.AsyncClient) -> None:

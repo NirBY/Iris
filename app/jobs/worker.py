@@ -7,19 +7,21 @@ from collections.abc import Awaitable, Callable
 from loguru import logger
 from sqlalchemy.exc import OperationalError
 
-from app.alerts.delivery import deliver_alert, notify_change
+from app.alerts.delivery import deliver_alert, deliver_test, notify_change
 from app.chats import resolve_group_names
 from app.config import get_settings
 from app.jobs import queue
-from app.jobs.handlers import Deps, process_message
+from app.jobs.handlers import Deps, prepare_alert, process_message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
 from app.media.sweep import sweep_media
 
 Handler = Callable[[ClaimedJob, Deps], Awaitable[None]]
 HANDLERS: dict[str, Handler] = {
     "process_message": process_message,
+    "prepare_alert": prepare_alert,
     "deliver_alert": deliver_alert,
     "notify_change": notify_change,
+    "test_alert": deliver_test,
 }
 
 
@@ -51,7 +53,22 @@ async def _run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler]) ->
     try:
         if handler is None:
             raise PermanentError(f"no handler for job type {job.type!r}")
-        await handler(job, deps)
+        cfg = get_settings()
+        timeout = cfg.job_timeout_seconds
+        if not cfg.job_heartbeat_seconds:
+            timeout = min(timeout, int(queue.STALE_LOCK.total_seconds()) - 30)
+        async with asyncio.timeout(timeout):
+            await handler(job, deps)
+    except TimeoutError:
+        return await queue.fail(
+            factory,
+            job,
+            "Handler exceeded its execution time limit",
+            transient=job.type in ("process_message", "prepare_alert"),
+            uncertain_delivery=job.type in ("deliver_alert", "notify_change", "test_alert"),
+        )
+    except queue.DeferredError as exc:
+        return await queue.defer(factory, job, exc.delay)
     except TransientError as exc:
         status = await queue.fail(
             factory, job, str(exc), transient=True, retry_after=exc.retry_after
@@ -70,7 +87,7 @@ async def _run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler]) ->
         return await queue.fail(
             factory, job, f"unexpected {exc.__class__.__name__}", transient=False
         )
-    await queue.ack(factory, job.id)
+    await queue.ack(factory, job.id, job.attempts)
     return "done"
 
 
@@ -158,6 +175,13 @@ class WorkerPool:
                 except Exception:
                     logger.warning("monitoring session probe failed")
             try:
+                from app.alerts.service import notify_pending_reviews
+
+                async with self._deps.session_factory() as db:
+                    await notify_pending_reviews(db)
+            except Exception:
+                logger.exception("review notification catch-up failed; retrying")
+            try:
                 await resolve_group_names(self._deps.session_factory, self._deps.key_bytes)
             except Exception:
                 logger.exception("group name lookup failed")
@@ -171,7 +195,7 @@ class WorkerPool:
     async def _loop(self, n: int, delivery: bool = False, generation: int = 0) -> None:
         while generation == self._generation:
             try:
-                delivery_types = ("deliver_alert", "notify_change")
+                delivery_types = ("deliver_alert", "notify_change", "test_alert")
                 job = await queue.claim(
                     self._deps.session_factory,
                     types=delivery_types if delivery else None,

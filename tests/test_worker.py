@@ -188,6 +188,17 @@ async def test_failing_harmful_hook_does_not_fail_the_message(app_client: Any) -
     assert await drain(deps) == ["done"]
     m, _ = await message_and_job(app_client)
     assert m.status == "done" and m.verdict == "harmful"
+    async with deps.session_factory() as db:
+        pending = (await db.scalars(select(Job).where(Job.type == "prepare_alert"))).one()
+        assert pending.status == "queued"
+        pending.run_after = queue._naive(queue._now())
+        await db.commit()
+    assert await drain(deps) == ["done"]
+    from app.db.models import Alert
+
+    async with deps.session_factory() as db:
+        assert (await db.scalars(select(Alert))).one().message_id == m.id
+        assert len((await db.scalars(select(Classification))).all()) == 1
     await deps.providers.aclose()
 
 
@@ -218,3 +229,44 @@ async def test_provider_key_rotation_keeps_old_client_until_close() -> None:
     assert b is not a and not a._client.is_closed  # in-flight requests may still use it
     await p.aclose()
     assert a._client.is_closed and b._client.is_closed
+
+
+async def test_handler_timeout_stops_renewing_and_retries(
+    app_client: Any, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("IRIS_JOB_TIMEOUT_SECONDS", "1")
+    monkeypatch.setenv("IRIS_JOB_HEARTBEAT_SECONDS", "1")
+    get_settings.cache_clear()
+    deps, token = await setup(app_client)
+    await post(app_client, token, fx("text_received_mixed"))
+    cancelled = asyncio.Event()
+
+    async def stuck(*_: Any) -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    job = await queue.claim(deps.session_factory)
+    assert job and await run_one(job, deps, {"process_message": stuck}) == "queued"
+    assert cancelled.is_set()
+    await deps.providers.aclose()
+
+
+async def test_notification_job_does_not_block_reprocess(app_client: Any) -> None:
+    from datetime import UTC, datetime
+
+    from app.db.models import Chat
+
+    async with app_client.app.state.session_factory() as db:
+        chat = Chat(wa_chat_id="test", is_group=False)
+        db.add(chat)
+        await db.flush()
+        message = Message(
+            chat_id=chat.id, wa_message_id="test", type="text", sent_at=datetime.now(UTC)
+        )
+        db.add(message)
+        await db.flush()
+        db.add(Job(type="notify_change", status="running", payload={"message_id": message.id}))
+        await db.commit()
+        assert not await queue.has_active_job(db, message.id)

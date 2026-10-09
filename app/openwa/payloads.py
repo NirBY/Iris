@@ -50,6 +50,8 @@ class IncomingMessage(BaseModel):
     sender_name: str | None  # None for from_me; resolved from the instance's kid name
     from_me: bool
     type: MessageType
+    raw_type: str | None = None
+    diagnostics: dict[str, bool | str] | None = None
     text: str | None
     media: MediaRef | None
     quoted_wa_message_id: str | None
@@ -62,6 +64,15 @@ def message_hash(wa_id: str) -> str:
     if len(parts) < 3:
         raise PayloadError(f"unrecognised message id: {wa_id!r}")
     return parts[2]
+
+
+def _quoted_hash(quoted: Any) -> str | None:
+    if not isinstance(quoted, dict) or not isinstance(quoted.get("id"), str):
+        return None
+    try:
+        return message_hash(quoted["id"])
+    except PayloadError:
+        return None
 
 
 def _media(data: dict[str, Any]) -> MediaRef | None:
@@ -111,12 +122,17 @@ def parse_event(body: dict[str, Any]) -> IncomingMessage | None:
         sender_wa_id=sender_id,
         sender_name=sender_name,
         from_me=from_me,
-        type=raw_type if raw_type in _KNOWN_TYPES else "other",
+        type=raw_type if isinstance(raw_type, str) and raw_type in _KNOWN_TYPES else "other",
+        raw_type=raw_type[:255] if isinstance(raw_type, str) else None,
+        diagnostics={
+            "event": str(body["event"]),
+            "has_text": bool(data.get("body")),
+            "has_media": isinstance(data.get("media"), dict),
+            "has_quoted_message": isinstance(quoted, dict),
+        },
         text=data.get("body") or None,
         media=_media(data),
-        quoted_wa_message_id=message_hash(quoted["id"])
-        if isinstance(quoted, dict) and quoted.get("id")
-        else None,
+        quoted_wa_message_id=_quoted_hash(quoted),
         sent_at=datetime.fromtimestamp(ts, tz=UTC),
     )
 
@@ -139,5 +155,5 @@ def parse_change(body: dict[str, Any]) -> MessageChange | None:
     return MessageChange(
         kind="edited",
         wa_message_id=message_hash(wa_id),
-        new_text=text if isinstance(text, str) and text else None,
+        new_text=text if isinstance(text, str) else None,
     )

@@ -10,7 +10,7 @@ const KEYS: Record<string, string[]> = {
   review: ['review'],
   jobs: ['jobs'],
   stats: ['stats'],
-  instances: ['instances'],
+  instances: ['instances', 'auth-phones'],
   chats: ['chats'],
 }
 
