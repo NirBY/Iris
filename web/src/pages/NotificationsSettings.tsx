@@ -200,10 +200,10 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
         </p>
       </section>
       <section className="rounded-lg border bg-surface p-5">
-        <h2 className="text-lg font-medium">{t('GreenAPI — WhatsApp 2FA')}</h2>
+        <h2 className="text-lg font-medium">{t('GreenAPI — WhatsApp alerts and sign-in codes')}</h2>
         <p className="mb-4 text-sm text-muted-foreground">
           {t(
-            'GreenAPI sends WhatsApp alerts to individual numbers or group IDs. Sign-in codes use personal numbers with a Copy code button. Save your GreenAPI credentials, then send a test to your personal WhatsApp number configured in Settings → Users. Open the approval link in the test message. An approved email with tested SMTP or an approved WhatsApp number with tested GreenAPI is enough to enable 2FA.',
+            'GreenAPI sends parent alerts and sign-in codes through WhatsApp. Save your credentials and check the account, then select GreenAPI for each parent in Alert delivery. Parent alerts support individual numbers and group IDs. To use GreenAPI for two-factor authentication, test delivery to your personal number configured in Settings → Users and open the approval link. Sign-in codes are sent only to personal numbers.',
           )}
         </p>
         <form

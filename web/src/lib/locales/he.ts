@@ -545,7 +545,7 @@ export const hebrew: Record<string, string> = {
   'Test saved SMTP': 'בדיקת SMTP השמור',
   'Gmail uses your full email username and a Google app password. Choose STARTTLS port 587 or SSL / TLS port 465.':
     'Gmail משתמש בכתובת הדוא״ל המלאה ובסיסמת יישום של Google. בחרו STARTTLS בפורט 587 או SSL / TLS בפורט 465.',
-  'GreenAPI — WhatsApp 2FA': 'GreenAPI — אימות דו־שלבי ב־WhatsApp',
+  'GreenAPI — WhatsApp alerts and sign-in codes': 'GreenAPI — התראות וקודי כניסה ב־WhatsApp',
   'GreenAPI API URL': 'כתובת API של GreenAPI',
   'GreenAPI media URL': 'כתובת מדיה של GreenAPI',
   'Optional media endpoint from your GreenAPI account. Text alerts use the API URL.':
@@ -960,8 +960,8 @@ export const hebrew: Record<string, string> = {
   'Original message timestamp': 'זמן ההודעה המקורית',
   'This SMTP server delivers email alerts and sign-in codes. Enter its host, port, TLS mode and credentials. Configure your admin email in Settings → Users, then save and send a test. Open its approval link to approve the email for 2FA. Approval links use Iris base URL in Settings → Notifications.':
     'שרת SMTP זה שולח התראות דוא״ל וקודי כניסה. הזינו כתובת שרת, פורט, מצב TLS ופרטי גישה. הגדירו את דוא״ל המנהל בהגדרות ← משתמשים, שמרו ושלחו בדיקה. פתחו את קישור האישור כדי לאשר את הדוא״ל לאימות דו־שלבי. קישורי האישור משתמשים בכתובת הבסיס של Iris בהגדרות ← התראות ושליחה.',
-  'GreenAPI sends WhatsApp alerts to individual numbers or group IDs. Sign-in codes use personal numbers with a Copy code button. Save your GreenAPI credentials, then send a test to your personal WhatsApp number configured in Settings → Users. Open the approval link in the test message. An approved email with tested SMTP or an approved WhatsApp number with tested GreenAPI is enough to enable 2FA.':
-    'GreenAPI שולח התראות WhatsApp למספרים אישיים או למזהי קבוצות. קודי כניסה נשלחים למספרים אישיים עם כפתור העתקת קוד. שמרו את פרטי GreenAPI ושלחו בדיקה למספר WhatsApp האישי שהוגדר בהגדרות ← משתמשים. פתחו את קישור האישור בהודעת הבדיקה. דוא״ל מאושר עם SMTP שנבדק או מספר WhatsApp מאושר עם GreenAPI שנבדק מספיקים להפעלת אימות דו־שלבי.',
+  'GreenAPI sends parent alerts and sign-in codes through WhatsApp. Save your credentials and check the account, then select GreenAPI for each parent in Alert delivery. Parent alerts support individual numbers and group IDs. To use GreenAPI for two-factor authentication, test delivery to your personal number configured in Settings → Users and open the approval link. Sign-in codes are sent only to personal numbers.':
+    'GreenAPI שולח התראות להורים וקודי כניסה דרך WhatsApp. שמרו את פרטי החיבור ובדקו את החשבון, ואז בחרו ב־GreenAPI עבור כל הורה בהגדרות שליחת ההתראות. התראות להורים תומכות במספרים אישיים ובמזהי קבוצות. לשימוש ב־GreenAPI לאימות דו־שלבי, בדקו שליחה למספר האישי שהוגדר בהגדרות ← משתמשים ופתחו את קישור האישור. קודי כניסה נשלחים למספרים אישיים בלבד.',
   'Human review: messages ready for your Safe or Harmful decision. Messages still being checked by AI are in IrisReview. Reviewed text can guide future Ollama checks when learning is enabled.':
     'בדיקה אנושית: הודעות המוכנות להחלטת תקין או מזיק שלכם. הודעות שעדיין נבדקות ב־AI נמצאות בבדיקת Iris. טקסט שנבדק יכול להנחות בדיקות Ollama עתידיות כאשר הלמידה מופעלת.',
   'judged. Human labels are review records, not proof of AI accuracy.':
