@@ -351,6 +351,8 @@ async def _set_view(
         personal.status = status
     personal.seen_at = None if personal.status == "new" else (personal.seen_at or datetime.now(UTC))
     await db.commit()
+    # Return the persisted timestamp, including the database's datetime precision.
+    await db.refresh(personal)
     return personal
 
 
