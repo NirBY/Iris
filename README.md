@@ -56,6 +56,13 @@ the first displayed frame, not every frame of an animation; the original remains
 Settings → Schedules includes daily summaries, device/webhook verification, incident notifications,
 retention, media cleanup, stale job recovery, pending alert catch-up, group names and pairing cleanup.
 Daily summaries are disabled by default. Notifications respect child assignments and sending budgets.
+
+Settings → Notifications → Frequency and timing offers separate daily quiet hours for parent
+and system notifications. Both are disabled by default, with an initial 22:00–07:00 window in
+the configured alert timezone. Notifications remain in the durable job queue until the window
+opens, including across restarts. Resumed deliveries recheck recipients and provider status,
+preserve completed recipients and respect sending limits. Changing quiet hours wakes waiting
+jobs to reassess the window. Sign-in codes and explicit connection tests remain immediate.
 Run history retains at most ten runs per schedule, reserving space for three failures within those ten;
 failed runs expire after four days. Errors and stack traces are retained with credentials redacted.
 Message, alert and media retention controls remain in Settings → Retention.

@@ -12,7 +12,7 @@ from app.classify.thresholds import DEFAULT_THRESHOLDS, band_for
 from app.config import get_settings
 from app.db.models import Job, Setting
 from app.jobs.handlers import Deps
-from app.jobs.queue import ClaimedJob, DeferredError
+from app.jobs.queue import ClaimedJob, DeferredError, ensure_owned
 
 RESULT_KEY = "internal.learning_evaluation"
 
@@ -200,6 +200,7 @@ async def evaluate_job(job: ClaimedJob, deps: Deps) -> None:
             )
             job.payload["evaluation_checkpoint"] = checkpoint
     async with deps.session_factory() as db:
+        await ensure_owned(db, job)
         row = await db.get(Setting, RESULT_KEY)
         if row is None:
             db.add(Setting(key=RESULT_KEY, value=report))

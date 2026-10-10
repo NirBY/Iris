@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Job
-from app.jobs.queue import ClaimedJob, DeferredError
+from app.jobs.queue import ClaimedJob, DeferredError, ensure_owned
 from app.settings_store import get_setting
 
 
@@ -59,6 +59,7 @@ async def defer_if_quiet(
     job.payload["quiet_hours_resume_at"] = due.isoformat()
     stored = await db.get(Job, job.id)
     if stored is not None:
+        await ensure_owned(db, job)
         stored.payload = dict(job.payload)
         await db.commit()
     raise DeferredError(

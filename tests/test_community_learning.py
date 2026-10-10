@@ -106,6 +106,51 @@ async def test_checkpoint_bounds_retries_and_reports_only_safe_error_types():
     assert sum(report["request_errors"].values()) == 36
 
 
+@respx.mock
+async def test_evaluation_job_resumes_durably_without_consuming_retries(app_client, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+
+    from app.classify.evaluation import RESULT_KEY, evaluate_job
+    from app.db.models import Job, Setting
+    from app.jobs import queue
+    from app.jobs.worker import run_one
+
+    monkeypatch.setattr(
+        "app.classify.evaluation.get_settings",
+        lambda: SimpleNamespace(
+            classification_provider="ollama",
+            ollama_model="model",
+            ollama_base_url="http://ollama",
+            job_timeout_seconds=900,
+        ),
+    )
+    route = respx.post("http://ollama/api/chat").mock(
+        return_value=httpx.Response(
+            200, json={"message": {"content": json.dumps(dict.fromkeys(DEFAULT_THRESHOLDS, 0))}}
+        )
+    )
+    factory = app_client.app.state.session_factory
+    async with factory() as db:
+        jid = await queue.enqueue(db, "evaluate_learning", {"source": "synthetic"}, max_attempts=1)
+    for case in range(12):
+        claimed = await queue.claim(factory)
+        assert claimed is not None and claimed.id == jid
+        state = await run_one(
+            claimed, SimpleNamespace(session_factory=factory), {"evaluate_learning": evaluate_job}
+        )
+        assert state == ("done" if case == 11 else "queued")
+        async with factory() as db:
+            result = await db.get(Setting, RESULT_KEY)
+            assert result.value["evaluated"] == case + 1
+            stored = await db.get(Job, jid)
+            if case < 11:
+                assert stored.attempts == 0
+                stored.run_after = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
+                await db.commit()
+    assert len(route.calls) == 24
+
+
 async def test_evaluation_queue_validates_source_and_reuses_pending_job(app_client):
     first = await app_client.post("/api/learning/evaluation?source=held_out_human_reviews")
     assert first.status_code == 200
