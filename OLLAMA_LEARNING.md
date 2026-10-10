@@ -1,6 +1,6 @@
 # Ollama learning architecture and implementation plan
 
-See [the Hebrew learning flow and training logic](LEARNING_FLOW.he.md) for the current
+See [the learning flow and training logic](LEARNING_FLOW.md) for the current
 two-track design, Mermaid diagrams, privacy boundary and optional local LoRA commands.
 The versioned synthetic pack is separate from private human reviews. It can be enabled in
 Settings for Shadow comparisons, including targets without a private retrieval match.

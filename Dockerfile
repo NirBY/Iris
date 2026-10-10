@@ -11,7 +11,7 @@ RUN npm run build
 
 # Stage 2: runtime (Debian-based so ffmpeg and manylinux wheels work on amd64 and arm64).
 FROM mirror.gcr.io/library/python:3.12-slim
-ARG VERSION=2026.10.0-beta.53
+ARG VERSION=2026.10.0-beta.54
 ARG REVISION=unknown
 LABEL org.opencontainers.image.title="iris" \
       org.opencontainers.image.description="Self-hosted WhatsApp safety monitor for kids" \

@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
+from weakref import WeakValueDictionary
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from loguru import logger
@@ -43,7 +44,17 @@ COMPLETED_PREFIX = "pairing.completed."
 LEASE_SECONDS = 120
 MAX_AGE = 1800
 QR_SECONDS = 120
-_lock = asyncio.Lock()
+_locks: WeakValueDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = WeakValueDictionary()
+
+
+def _pairing_lock() -> asyncio.Lock:
+    """Serialize workflows in their running loop, without retaining closed test/app loops."""
+    loop = asyncio.get_running_loop()
+    lock = _locks.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _locks[loop] = lock
+    return lock
 
 
 class PairingIn(BaseModel):
@@ -163,7 +174,7 @@ async def begin(
     body: PairingIn, db: DB, cfg: Cfg, user: Owner, response: Response
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
-    async with _lock:
+    async with _pairing_lock():
         count = await db.scalar(
             select(func.count()).select_from(Setting).where(Setting.key.startswith(PREFIX))
         )
@@ -316,7 +327,7 @@ async def _status(
 @router.get("/{token}")
 async def status(token: str, db: DB, cfg: Cfg, user: Owner, response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
-    async with _lock:
+    async with _pairing_lock():
         row, data = await _owned(db, token, user, cfg)
         return await _status(db, row, data, cfg)
 
@@ -324,14 +335,14 @@ async def status(token: str, db: DB, cfg: Cfg, user: Owner, response: Response) 
 @router.post("/{token}/refresh")
 async def refresh(token: str, db: DB, cfg: Cfg, user: Owner, response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
-    async with _lock:
+    async with _pairing_lock():
         row, data = await _owned(db, token, user, cfg)
         return await _status(db, row, data, cfg, refresh=True)
 
 
 @router.delete("/{token}", status_code=204)
 async def cancel(token: str, db: DB, cfg: Cfg, user: Owner) -> None:
-    async with _lock:
+    async with _pairing_lock():
         row = await db.get(Setting, PREFIX + token)
         if row is None:
             return
@@ -348,7 +359,7 @@ async def cancel(token: str, db: DB, cfg: Cfg, user: Owner) -> None:
 
 @router.post("/{token}/complete", status_code=201)
 async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Owner) -> InstanceOut:
-    async with _lock:
+    async with _pairing_lock():
         receipt_key = COMPLETED_PREFIX + hashlib.sha256(token.encode()).hexdigest()
         receipt = await db.get(Setting, receipt_key)
         if receipt is not None:
@@ -417,7 +428,7 @@ async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Ow
 
 
 async def cleanup_once(factory: async_sessionmaker[AsyncSession]) -> None:
-    async with _lock, factory() as db:
+    async with _pairing_lock(), factory() as db:
         cfg = get_settings()
         completed = (
             await db.scalars(select(Setting).where(Setting.key.startswith(COMPLETED_PREFIX)))
