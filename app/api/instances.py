@@ -517,6 +517,7 @@ async def register_webhook(instance_id: int, db: DB, settings: Cfg) -> dict[str,
             inst.openwa_instance_id,
             f"{settings.webhook_url_base}/webhooks/{inst.webhook_token}",
             webhook_secret(settings, inst.webhook_token),
+            retry_count=int(await get_setting(db, "openwa.webhook_attempts")),
         )
     except OpenWAError as exc:
         hint = ""

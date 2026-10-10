@@ -2,6 +2,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithApp } from '../test-utils'
 import { Review } from '../../src/pages/Review'
+import { toast } from 'sonner'
 
 const item = {
   message: {
@@ -37,6 +38,30 @@ const item = {
   ],
 }
 
+test('sends explicit categories and a Hebrew explanation with the human decision', async () => {
+  const user = userEvent.setup()
+  const calls = renderWithApp(<Review />, {
+    '/api/review': { items: [item], total: 1, page: 1, page_size: 25 },
+  })
+  await user.click(await screen.findByText('Add review details (optional)'))
+  await user.click(screen.getByRole('checkbox', { name: /^violence$/ }))
+  const explanation = screen.getByLabelText('Your explanation')
+  expect(explanation).toHaveAttribute('dir', 'auto')
+  await user.type(explanation, 'איום ישיר')
+  await user.click(screen.getByRole('button', { name: 'Mark harmful' }))
+  await waitFor(() =>
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/review/9')?.body).toEqual({
+      resolution: 'harmful',
+      categories: ['violence'],
+      explanation: 'איום ישיר',
+    }),
+  )
+  toast.dismiss()
+  await waitFor(() =>
+    expect(screen.queryByText('Marked harmful. An alert was created.')).not.toBeInTheDocument(),
+  )
+})
+
 test('rejudges with AI and copies the saved trace', async () => {
   const user = userEvent.setup()
   const clipboard = vi.spyOn(navigator.clipboard, 'writeText')
@@ -45,7 +70,7 @@ test('rejudges with AI and copies the saved trace', async () => {
     '/api/review/9/trace': trace,
     '/api/review': { items: [item], total: 1, page: 1, page_size: 25 },
   })
-  await user.click(await screen.findByText('Note: additional options'))
+  expect(screen.queryByText('Note: additional options')).not.toBeInTheDocument()
   await user.click(await screen.findByRole('button', { name: 'Copy full trace' }))
   await waitFor(() => expect(clipboard).toHaveBeenCalledWith(JSON.stringify(trace, null, 2)))
   await user.click(screen.getByRole('button', { name: 'Ask AI to judge again' }))
@@ -56,7 +81,7 @@ test('rejudges with AI and copies the saved trace', async () => {
   )
 })
 
-test('queued AI recheck disables decision and advanced action buttons', async () => {
+test('queued AI messages do not appear in human Review', async () => {
   renderWithApp(<Review />, {
     '/api/review': {
       items: [{ ...item, message: { ...item.message, status: 'pending' } }],
@@ -65,12 +90,10 @@ test('queued AI recheck disables decision and advanced action buttons', async ()
       page_size: 25,
     },
   })
-  expect(await screen.findByRole('button', { name: 'Mark safe' })).toBeDisabled()
-  expect(screen.getByRole('button', { name: 'Mark harmful' })).toBeDisabled()
-  expect(screen.getByRole('button', { name: 'Ignore — missing data' })).toBeDisabled()
-  await userEvent.click(screen.getByText('Note: additional options'))
-  expect(screen.getByRole('button', { name: 'Copy full trace' })).toBeDisabled()
-  expect(screen.getByRole('button', { name: 'Skip chat' })).toBeDisabled()
+  await screen.findByText(/1 awaiting review/)
+  expect(screen.queryByRole('button', { name: 'Mark safe' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Mark harmful' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Copy full trace' })).not.toBeInTheDocument()
 })
 
 test('review voice content is revealed before its audio player is mounted', async () => {
@@ -122,7 +145,7 @@ test('parent response history keeps the first choice and shows later conflict no
   expect(
     await screen.findByText('Parent B chose Harmful. Kept the first decision: SAFE.'),
   ).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Mark harmful/ })).toBeDisabled()
+  expect(screen.queryByRole('button', { name: /Mark harmful/ })).not.toBeInTheDocument()
   expect(calls.some((c) => c.url.includes('view=responses'))).toBe(true)
 })
 

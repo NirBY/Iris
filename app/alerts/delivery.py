@@ -459,3 +459,7 @@ async def deliver_test(job: ClaimedJob, deps: "Deps") -> None:
         if not isinstance(text, str):
             raise PermanentError("Test message is missing")
         await send_to_parents(db, job, sender, deps.key_bytes, text, "")
+        from app.setup_checks import record_notifier_test
+
+        await record_notifier_test(db, job.payload.get("channel", "openwa"))
+        await db.commit()

@@ -19,6 +19,15 @@ if TYPE_CHECKING:
     from app.jobs.handlers import Deps
 
 CATALOG: dict[str, dict[str, Any]] = {
+    "openwa_recovery": {
+        "name": "OpenWA message catch-up",
+        "interval": 60,
+        "enabled": True,
+        "description": (
+            "Apply webhook retry settings and recover missed messages "
+            "from retained OpenWA history without duplicates."
+        ),
+    },
     "review_responses": {
         "name": "Parent alert responses",
         "interval": 30,
@@ -151,6 +160,11 @@ async def tracked(
         status, result, error, trace = "success", None, None, None
         try:
             result = await callback()
+            if key == "openwa_recovery" and result.get("errors"):
+                status = "partial"
+                error = (
+                    f"OpenWA catch-up unavailable for {len(result['errors'])} phone(s); will retry."
+                )
             return result
         except DeferredError as exc:
             status, error = "waiting", str(exc)
@@ -554,6 +568,12 @@ async def run_schedule(job: ClaimedJob, deps: "Deps") -> None:
             from app.alerts.actions import poll
 
             return await poll(deps.session_factory)
+        if key == "openwa_recovery":
+            from app.openwa.recovery import recover
+
+            return await recover(
+                deps.session_factory, deps.key_bytes, manual=bool(job.payload.get("manual"))
+            )
         if key == "connections":
             return await check_connections(deps)
         if key in ("daily_summary", "connection_notifications"):

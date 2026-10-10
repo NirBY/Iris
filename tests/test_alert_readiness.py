@@ -46,6 +46,7 @@ async def provider(c: Any, key: str) -> None:
             "api_url": "https://api.green-api.com",
             "instance_id": "123",
             "token": "testtoken",
+            "sender_number": "+15559999999",
         }
         if key == GREEN_API_KEY
         else {"verified": True}
@@ -55,8 +56,27 @@ async def provider(c: Any, key: str) -> None:
         await db.commit()
 
 
+async def test_verified_greenapi_sender_does_not_require_personal_approval_or_identity_cache(
+    app_client: Any,
+) -> None:
+    await parent(app_client, "approved-parent", "+15550100102", approved=True)
+    await provider(app_client, GREEN_API_KEY)
+    async with app_client.app.state.session_factory() as db:
+        await save(
+            db,
+            GREEN_API_KEY,
+            encrypt(get_settings().key_bytes, json.dumps({"verified": True})),
+            True,
+        )
+        await db.commit()
+    await app_client.put("/api/settings", json={"settings": {"alerts.recipient": "+15550100102"}})
+    status = (await app_client.get("/api/settings/alert-readiness?channel=greenapi")).json()
+    assert status["provider_ready"] and status["ready"]
+    assert status["provider_error"] is None
+
+
 @respx.mock
-async def test_greenapi_requires_verified_connection_but_not_phone_approval(
+async def test_greenapi_requires_verified_connection_without_phone_approval(
     app_client: Any,
 ) -> None:
     c = app_client
@@ -73,6 +93,12 @@ async def test_greenapi_requires_verified_connection_but_not_phone_approval(
     result = await c.put("/api/settings", json={"settings": {"alerts.channel": "greenapi"}})
     assert result.status_code == 422 and "successfully test GreenAPI" in result.text
     await provider(c, GREEN_API_KEY)
+    result = await c.put("/api/settings", json={"settings": {"alerts.channel": "greenapi"}})
+    assert result.status_code == 200
+    async with c.app.state.session_factory() as db:
+        user = await db.get(User, 2)
+        user.whatsapp_verified = True
+        await db.commit()
     result = await c.put("/api/settings", json={"settings": {"alerts.channel": "greenapi"}})
     assert result.status_code == 200, result.text
     status = (await c.get("/api/settings/alert-readiness")).json()
@@ -179,6 +205,9 @@ async def test_return_to_whatsapp_rechecks_approval_and_keeps_last_channel_on_er
     deps, _, _ = await setup(c, recipient=None)
     uid = await parent(c, "parent", "+15550100101", True)
     selected = "parent@example.com"
+    async with c.app.state.session_factory() as db:
+        await save(db, f"security.telegram_approved.{uid}", {"chat_id": "1234"})
+        await db.commit()
     assert (
         await c.put(
             "/api/settings",
@@ -256,7 +285,7 @@ async def test_legacy_destinations_still_work_and_users_are_not_auto_selected(
 
 async def test_telegram_requires_chat_id_but_phone_is_optional(app_client: Any) -> None:
     c = app_client
-    await parent(c, "parent")
+    uid = await parent(c, "parent")
     await c.put(
         "/api/settings",
         json={
@@ -278,6 +307,22 @@ async def test_telegram_requires_chat_id_but_phone_is_optional(app_client: Any) 
         },
     )
     assert valid.status_code == 200
+    async with c.app.state.session_factory() as db:
+        await save(db, f"security.telegram_approved.{uid}", {"chat_id": "1234"})
+        await db.commit()
+    assert (
+        await c.put(
+            "/api/settings",
+            json={
+                "settings": {
+                    "alerts.channel": "telegram",
+                    "alerts.recipient_contacts": {
+                        "parent@example.com": {"telegram_chat_id": "1234"}
+                    },
+                }
+            },
+        )
+    ).status_code == 200
 
 
 async def test_smtp_user_approval_and_provider_both_required(app_client: Any) -> None:

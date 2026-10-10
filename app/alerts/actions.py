@@ -94,6 +94,8 @@ async def decide(
     factory: Any,
     user_id: int | None = None,
     record_audit: bool = True,
+    categories: list[str] | None = None,
+    explanation: str | None = None,
 ) -> dict[str, Any]:
     """The unique feedback key arbitrates races; every later response becomes a note."""
     async with _lock:
@@ -113,7 +115,15 @@ async def decide(
         if feedback is None:
             try:
                 async with db.begin_nested():
-                    feedback = ReviewFeedback(message_id=message.id, verdict=choice)
+                    from app.classify.learning import content_hash
+
+                    feedback = ReviewFeedback(
+                        message_id=message.id,
+                        verdict=choice,
+                        categories=categories or None,
+                        explanation=explanation if not message.redacted else None,
+                        content_hash=content_hash(message),
+                    )
                     db.add(feedback)
                     await db.flush()
                 applied = True
@@ -161,6 +171,9 @@ async def decide(
         alert_id = None
         if applied:
             message.verdict, message.review_reason = choice, None
+            from app.classify.learning import capture
+
+            await capture(db, message, choice)
             alert = await db.scalar(select(Alert).where(Alert.message_id == message.id))
             if alert:
                 alert.status = "acknowledged" if choice == "harmful" else "dismissed"

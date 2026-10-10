@@ -277,20 +277,17 @@ def _to_out(
     )
 
 
-@router.get("")
-async def search_messages(
-    db: DB,
+async def message_filters(
+    db: AsyncSession,
     q: str | None = None,
     instance_id: int | None = None,
     chat_id: int | None = None,
     sender: str | None = None,
     type: str | None = None,
     verdict: str | None = None,
-    from_: Annotated[datetime | None, Query(alias="from")] = None,
+    from_: datetime | None = None,
     to: datetime | None = None,
-    page: Annotated[int, Query(ge=1)] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
-) -> MessagePage:
+) -> tuple[list[ColumnElement[bool]], dict[int, str]]:
     conds: list[ColumnElement[bool]] = []
     snippets: dict[int, str] = {}
     tokens = search_tokens(q) if q else []
@@ -318,6 +315,27 @@ async def search_messages(
         conds.append(Message.sent_at >= from_)
     if to:
         conds.append(Message.sent_at <= to)
+
+    return conds, snippets
+
+
+@router.get("")
+async def search_messages(
+    db: DB,
+    q: str | None = None,
+    instance_id: int | None = None,
+    chat_id: int | None = None,
+    sender: str | None = None,
+    type: str | None = None,
+    verdict: str | None = None,
+    from_: Annotated[datetime | None, Query(alias="from")] = None,
+    to: datetime | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 25,
+) -> MessagePage:
+    conds, snippets = await message_filters(
+        db, q, instance_id, chat_id, sender, type, verdict, from_, to
+    )
 
     where = and_(*conds) if conds else None
     count_stmt = select(func.count()).select_from(Message)

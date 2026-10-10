@@ -32,14 +32,25 @@ _SAFE_MODELS = {
     "Setting",
     "Message",
     "Alert",
+    "AlertView",
     "ReviewFeedback",
+    "LearningExample",
     "ReviewResponse",
     "ReviewDataIssue",
     "SkippedGroup",
     "StoredMedia",
     "Job",
 }
-_CONTENT = {"text", "transcript", "quote", "media", "diagnostics", "payload", "webhook_token"}
+_CONTENT = {
+    "text",
+    "transcript",
+    "quote",
+    "media",
+    "diagnostics",
+    "payload",
+    "webhook_token",
+    "explanation",
+}
 
 
 def safe_value(field: str, value: Any, secret: bool = False) -> Any:

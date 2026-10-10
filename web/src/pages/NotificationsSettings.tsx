@@ -15,7 +15,13 @@ type SMTP = {
   sender: string
   verified?: boolean
 }
-type GreenAPI = { media_url?: string; api_url: string; instance_id: string; verified?: boolean }
+type GreenAPI = {
+  media_url?: string
+  api_url: string
+  instance_id: string
+  verified?: boolean
+  sender_number?: string
+}
 const emptyGreen = { api_url: 'https://api.green-api.com', instance_id: '', token: '' }
 const emptySMTP = {
   host: '',
@@ -212,7 +218,9 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
                 }),
               })
               setGreen((g) => ({ ...g, token: '' }))
-              setGreenResult('GreenAPI saved. Run the test before enabling 2FA.')
+              setGreenResult(
+                'GreenAPI saved. Check the sender account, then test delivery. Personal recipient numbers must be different from this sender.',
+              )
               setGreenFailed(false)
             })
           }}

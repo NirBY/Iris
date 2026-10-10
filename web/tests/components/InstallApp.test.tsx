@@ -2,6 +2,17 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { InstallApp } from '../../src/components/InstallApp'
 
+beforeEach(() => localStorage.removeItem('iris.app-installed'))
+
+test('hides the install button after installation and remembers it on reload', () => {
+  const first = render(<InstallApp />)
+  act(() => window.dispatchEvent(new Event('appinstalled')))
+  expect(screen.queryByRole('button', { name: /app/i })).not.toBeInTheDocument()
+  first.unmount()
+  render(<InstallApp />)
+  expect(screen.queryByRole('button', { name: /app/i })).not.toBeInTheDocument()
+})
+
 test('offers installation guidance when a native prompt is unavailable', async () => {
   render(<InstallApp />)
   await userEvent.click(screen.getByRole('button', { name: 'Install app' }))

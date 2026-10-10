@@ -22,10 +22,12 @@ from app.api import (
     database,
     instances,
     jobs,
+    learning,
     media,
     messages,
     operations,
     pairing,
+    setup,
     stats,
     system,
     users,
@@ -172,6 +174,7 @@ def create_app() -> FastAPI:
     app.add_middleware(AuditMiddleware)
 
     app.include_router(system.router)
+    app.include_router(setup.router)
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(instances.router)
@@ -182,6 +185,7 @@ def create_app() -> FastAPI:
     app.include_router(stats.router)
     app.include_router(settings_api.router)
     app.include_router(classify.router)
+    app.include_router(learning.router)
     app.include_router(database.router)
     app.include_router(media.router)
     app.include_router(events_api.router)

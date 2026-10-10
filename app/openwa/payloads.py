@@ -17,8 +17,10 @@ from pydantic import BaseModel
 
 MESSAGE_EVENTS = {"message.received", "message.sent"}
 CHANGE_EVENTS = {"message.edited", "message.revoked"}
-MessageType = Literal["text", "image", "audio", "voice", "video", "sticker", "document", "other"]
-_KNOWN_TYPES = {"text", "image", "audio", "voice", "video", "sticker", "document"}
+MessageType = Literal[
+    "text", "image", "audio", "voice", "video", "sticker", "document", "poll", "other"
+]
+_KNOWN_TYPES = {"text", "image", "audio", "voice", "video", "sticker", "document", "poll"}
 
 
 class PayloadError(ValueError):
@@ -87,6 +89,36 @@ def _media(data: dict[str, Any]) -> MediaRef | None:
     )
 
 
+def poll_text(data: dict[str, Any]) -> tuple[str | None, bool]:
+    """Preserve the supplied question/options as analyzable text; never infer poll contents."""
+    poll = data.get("poll")
+    body = data.get("body")
+    text = body if isinstance(body, str) and body else None
+    if not isinstance(poll, dict):
+        return text, False
+    question = poll.get("question")
+    if isinstance(question, str) and question:
+        text = question
+    options = poll.get("options")
+    if not isinstance(options, list) or not options:
+        return text, False
+    names = [
+        option
+        if isinstance(option, str)
+        else option.get("name")
+        if isinstance(option, dict)
+        else None
+        for option in options
+    ]
+    if not all(isinstance(name, str) and name.strip() for name in names):
+        raise PayloadError("Invalid poll options")
+    lines = [text] if text else []
+    lines.extend("• " + str(name) for name in names)
+    if isinstance(poll.get("allowMultipleAnswers"), bool):
+        lines.append("Multiple answers: " + ("yes" if poll["allowMultipleAnswers"] else "no"))
+    return "\n".join(lines), True
+
+
 def parse_event(body: dict[str, Any]) -> IncomingMessage | None:
     """Return the message for message events, or None for events Iris ignores."""
     if body.get("event") not in MESSAGE_EVENTS:
@@ -111,7 +143,23 @@ def parse_event(body: dict[str, Any]) -> IncomingMessage | None:
     sender_id = data.get("author") if is_group and data.get("author") else data.get("from")
     sender_name = None if from_me else (contact.get("pushName") or contact.get("name") or sender_id)
     raw_type = data.get("type")
+    normalized_type = (
+        {"chat": "text", "ptt": "voice", "poll_creation": "poll"}.get(raw_type, raw_type)
+        if isinstance(raw_type, str)
+        else None
+    )
     quoted = data.get("quotedMessage")
+    text, has_poll_options = (
+        poll_text(data) if normalized_type == "poll" else (data.get("body") or None, False)
+    )
+    diagnostics: dict[str, bool | str] = {
+        "event": str(body["event"]),
+        "has_text": bool(text),
+        "has_media": isinstance(data.get("media"), dict),
+        "has_quoted_message": isinstance(quoted, dict),
+    }
+    if has_poll_options:
+        diagnostics["has_poll_options"] = True
 
     return IncomingMessage(
         wa_message_id=message_hash(wa_id),
@@ -122,15 +170,10 @@ def parse_event(body: dict[str, Any]) -> IncomingMessage | None:
         sender_wa_id=sender_id,
         sender_name=sender_name,
         from_me=from_me,
-        type=raw_type if isinstance(raw_type, str) and raw_type in _KNOWN_TYPES else "other",
+        type=normalized_type if normalized_type in _KNOWN_TYPES else "other",
         raw_type=raw_type[:255] if isinstance(raw_type, str) else None,
-        diagnostics={
-            "event": str(body["event"]),
-            "has_text": bool(data.get("body")),
-            "has_media": isinstance(data.get("media"), dict),
-            "has_quoted_message": isinstance(quoted, dict),
-        },
-        text=data.get("body") or None,
+        diagnostics=diagnostics,
+        text=text,
         media=_media(data),
         quoted_wa_message_id=_quoted_hash(quoted),
         sent_at=datetime.fromtimestamp(ts, tz=UTC),

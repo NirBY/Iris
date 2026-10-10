@@ -1,7 +1,7 @@
 """One channel-specific recipient policy for settings, delivery and health.
 
 Recipient keys remain stable across transports, preserving legacy lists and child
-assignments. Account-linked contacts require current approval; standalone legacy
+assignments. OpenWA and email contacts require current approval; standalone legacy
 destinations remain usable without inventing approval records for them.
 """
 
@@ -134,7 +134,8 @@ async def delivery_readiness(
         if not (await smtp_config(db, cfg)).get("verified"):
             provider_error = "Save and successfully test SMTP before choosing email alerts."
     elif channel == "greenapi":
-        if not (await green_api_config(db, cfg)).get("verified"):
+        green = await green_api_config(db, cfg)
+        if not green.get("verified"):
             provider_error = "Save and successfully test GreenAPI before choosing WhatsApp alerts."
     elif channel == "telegram":
         token = (
@@ -194,6 +195,19 @@ async def delivery_readiness(
                     "No WhatsApp number. Adding a number is optional; "
                     "this user cannot receive WhatsApp alerts without one."
                 )
+            elif (
+                channel == "greenapi"
+                and destination
+                == (await green_api_config(db, cfg)).get("sender_number", "").lstrip("+") + "@c.us"
+            ):
+                reason = "Recipient number is the GreenAPI sender. Use a different personal number."
+            elif (
+                channel == "openwa"
+                and sender
+                and sender.phone_number
+                and destination == sender.phone_number.lstrip("+") + "@c.us"
+            ):
+                reason = "Recipient number is the OpenWA sender. Use a different personal number."
             elif channel == "openwa" and user and not user.whatsapp_verified:
                 reason = "WhatsApp number is not approved. Approve the current number in Users."
         elif channel == "smtp":
@@ -275,8 +289,12 @@ async def delivery_readiness(
         result.issues.append(f"No eligible recipients for {LABELS[channel]}.")
     invalid = sum(not r.eligible for r in result.recipients)
     if invalid:
+        checks = (
+            "Check destinations and child assignments."
+            if channel in ("greenapi", "telegram")
+            else "Check destinations, approvals and child assignments."
+        )
         result.issues.append(
-            f"{invalid} selected recipient(s) cannot receive {LABELS[channel]} alerts. "
-            "Check destinations, approvals and child assignments."
+            f"{invalid} selected recipient(s) cannot receive {LABELS[channel]} alerts. " + checks
         )
     return result

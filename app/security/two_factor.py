@@ -86,6 +86,30 @@ async def green_api_config(db: AsyncSession, cfg: Settings) -> dict[str, Any]:
     return json.loads(decrypt(cfg.key_bytes, encrypted)) if encrypted else {}
 
 
+async def green_sender_number(config: dict[str, Any], *, refresh: bool = False) -> str | None:
+    """Identify the sending account without sending a message or reading chats."""
+    if config.get("sender_number") and not refresh:
+        return str(config["sender_number"])
+    if not config.get("instance_id") or not config.get("token"):
+        return None
+    url = f"{config['api_url']}/waInstance{config['instance_id']}/getSettings/{config['token']}"
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            wid = response.json().get("wid", "")
+        number = whatsapp_number("+" + str(wid).split("@")[0].lstrip("+"))
+        if not number:
+            raise ValueError("Missing account identity")
+    except (httpx.HTTPError, ValueError, AttributeError):
+        raise HTTPException(
+            503,
+            "Could not verify the GreenAPI sender number. Check its connection in Notifications.",
+        ) from None
+    config["sender_number"] = number
+    return number
+
+
 async def whatsapp_ready(db: AsyncSession, cfg: Settings) -> bool:
     return bool((await green_api_config(db, cfg)).get("verified"))
 
@@ -102,8 +126,10 @@ async def available_channels(db: AsyncSession, cfg: Settings, user: User) -> lis
 CONTACT_PREFIX = "security.contact_approval."
 
 
-async def contact_link(db: AsyncSession, cfg: Settings, user: User, channel: str) -> str:
-    contact = user.email if channel == "email" else user.whatsapp_number
+async def contact_link(
+    db: AsyncSession, cfg: Settings, user: User, channel: str, destination: str | None = None
+) -> str:
+    contact = destination or (user.email if channel == "email" else user.whatsapp_number)
     if not contact:
         raise HTTPException(422, "Save this user's contact first")
     token = secrets.token_urlsafe(32)

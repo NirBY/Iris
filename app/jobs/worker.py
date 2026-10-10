@@ -125,6 +125,7 @@ class WorkerPool:
         self._deps = deps
         self._size = size
         self._delivery_size = get_settings().delivery_workers if size else 0
+        self._operations_size = 1 if size else 0
         self._poll = poll_interval
         self._tasks: list[asyncio.Task[None]] = []
         self._generation = 0
@@ -146,6 +147,16 @@ class WorkerPool:
             )
             for i in range(self._delivery_size)
         )
+        if self._operations_size:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._loop(
+                        self._size + self._delivery_size,
+                        operations=True,
+                        generation=self._generation,
+                    )
+                )
+            )
         if self._size:
             self._tasks.append(asyncio.create_task(self._maintenance()))
             self._maintenance_started = True
@@ -157,6 +168,7 @@ class WorkerPool:
             return
         self._generation += 1
         self._size, self._delivery_size = size, delivery_size
+        self._operations_size = 1 if size else 0
         active = [task for task in self._tasks if not task.done()]
         generation = self._generation
         self._tasks = [
@@ -166,6 +178,12 @@ class WorkerPool:
             asyncio.create_task(self._loop(size + i, delivery=True, generation=generation))
             for i in range(delivery_size)
         )
+        if self._operations_size:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._loop(size + delivery_size, operations=True, generation=generation)
+                )
+            )
         self._tasks.extend(active)
         if size and not self._maintenance_started:
             self._tasks.append(asyncio.create_task(self._maintenance()))
@@ -183,7 +201,7 @@ class WorkerPool:
 
     @property
     def size(self) -> int:
-        return self._size + self._delivery_size
+        return self._size + self._delivery_size + self._operations_size
 
     async def _maintenance(self) -> None:
         """Housekeeping: re-queue orphaned jobs, and name groups that still have no name."""
@@ -198,14 +216,23 @@ class WorkerPool:
                 except Exception:
                     logger.exception("Schedule dispatch failed")
 
-    async def _loop(self, n: int, delivery: bool = False, generation: int = 0) -> None:
+    async def _loop(
+        self, n: int, delivery: bool = False, operations: bool = False, generation: int = 0
+    ) -> None:
         while generation == self._generation:
             try:
                 delivery_types = ("deliver_alert", "notify_change", "test_alert")
                 job = await queue.claim(
                     self._deps.session_factory,
-                    types=delivery_types if delivery else None,
-                    exclude_types=delivery_types if self._delivery_size and not delivery else (),
+                    types=("run_schedule",)
+                    if operations
+                    else (delivery_types if delivery else None),
+                    exclude_types=(
+                        ()
+                        if operations
+                        else ("run_schedule",)
+                        + (delivery_types if self._delivery_size and not delivery else ())
+                    ),
                 )
                 if job is None:
                     await asyncio.sleep(self._poll)

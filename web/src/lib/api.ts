@@ -68,7 +68,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
           const body = await res.json().catch(() => ({}))
           throw new ApiError(
             res.status,
-            errorDetail(body.detail) || res.statusText || 'Request failed',
+            errorDetail(body.detail) || res.statusText || `Request failed (HTTP ${res.status}).`,
           )
         }
         if (res.status === 204 || res.status === 205) return undefined as T

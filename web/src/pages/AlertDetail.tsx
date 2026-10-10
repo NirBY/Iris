@@ -1,7 +1,6 @@
 import { useMe } from '../lib/auth'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Check,
   ChevronLeft,
   CircleAlert,
   MessagesSquare,
@@ -30,8 +29,9 @@ import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { dateTime } from '../lib/format'
 import type { AlertDetail as Detail } from '../lib/types'
+import { useEffect, useRef } from 'react'
 
-const STATUS = { new: 'New', acknowledged: 'Seen', dismissed: 'Dismissed' } as const
+const STATUS = { new: 'Unseen', acknowledged: 'Seen', dismissed: 'Dismissed' } as const
 
 function reason(e: unknown, fallback: string) {
   return e instanceof ApiError ? e.message : fallback
@@ -41,18 +41,52 @@ export function AlertDetail() {
   const { id } = useParams()
   const { revealed, toggle } = useReveal(id)
   const qc = useQueryClient()
-  const { data: me } = useMe()
+  const { data: me, isError: authError, refetch: refetchMe } = useMe()
   const canAct = me?.role === 'admin' || me?.role === 'parent'
+  const opened = useRef('')
   const {
     data: a,
     isError,
     error,
     refetch,
   } = useQuery({
-    queryKey: ['alert', id],
+    queryKey: ['alert', me?.id, id],
     queryFn: () => api<Detail>(`/api/alerts/${id}`),
+    enabled: !!me,
   })
   const refresh = () => qc.invalidateQueries()
+  const seen = useMutation({
+    mutationFn: (value: boolean) =>
+      api<Detail>(`/api/alerts/${id}/seen`, {
+        method: 'POST',
+        body: JSON.stringify({ seen: value }),
+      }),
+    onSuccess: (result, value) => {
+      qc.setQueryData<Detail>(['alert', me?.id, id], (previous) =>
+        previous
+          ? {
+              ...previous,
+              status: value
+                ? result.status === 'dismissed'
+                  ? 'dismissed'
+                  : 'acknowledged'
+                : 'new',
+              seen_at: result.seen_at,
+            }
+          : previous,
+      )
+      void qc.invalidateQueries({ queryKey: ['alerts'] })
+      void qc.invalidateQueries({ queryKey: ['stats'] })
+    },
+    onError: (e) => toast.error(reason(e, 'Could not save your read status.')),
+  })
+  useEffect(() => {
+    const key = `${me?.id}:${id}`
+    if (a && me && a.status === 'new' && opened.current !== key) {
+      opened.current = key
+      seen.mutate(true)
+    }
+  }, [a, me, id, seen])
   const setStatus = useMutation({
     mutationFn: (status: string) =>
       api(`/api/alerts/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
@@ -77,7 +111,7 @@ export function AlertDetail() {
     onError: (e) => toast.error(reason(e, 'Could not resend the alert.')),
   })
 
-  if (isError)
+  if (isError || authError)
     return (
       <div className="flex flex-col gap-4">
         <PageHeader title="Alert" />
@@ -86,7 +120,10 @@ export function AlertDetail() {
             This alert no longer exists. It may have been removed by the retention window.
           </p>
         ) : (
-          <QueryError what="this alert" onRetry={() => void refetch()} />
+          <QueryError
+            what="this alert"
+            onRetry={() => void (authError ? refetchMe() : refetch())}
+          />
         )}
       </div>
     )
@@ -247,27 +284,15 @@ export function AlertDetail() {
       )}
 
       <div className="flex flex-wrap gap-2">
-        {a.status === 'new' ? (
-          <Button
-            variant="primary"
-            size="sm"
-            title="Mark this alert as seen"
-            onClick={() => setStatus.mutate('acknowledged')}
-            disabled={setStatus.isPending || !canAct}
-          >
-            <Check /> Mark as seen
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            title="Reopen this alert"
-            onClick={() => setStatus.mutate('new')}
-            disabled={setStatus.isPending || !canAct}
-          >
-            <RotateCcw /> Reopen
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          title="Mark this alert unread for your account"
+          onClick={() => seen.mutate(false)}
+          disabled={seen.isPending || !me}
+        >
+          <RotateCcw /> Mark unseen
+        </Button>
         {a.status !== 'dismissed' && (
           <Button
             variant="outline"

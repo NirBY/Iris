@@ -52,6 +52,12 @@ async def configure(client: Any, monkeypatch: pytest.MonkeyPatch) -> Mock:
     auth.limiter = auth.LoginLimiter()
     monkeypatch.setattr("app.api.users.reserve_green", AsyncMock())
     monkeypatch.setattr("app.security.two_factor.reserve_green", AsyncMock())
+
+    async def sender_identity(config: dict, **kwargs: Any) -> str:
+        config["sender_number"] = "+972501234567"
+        return config["sender_number"]
+
+    monkeypatch.setattr("app.api.users.green_sender_number", sender_identity)
     phone_id = (
         await client.post("/api/instances", json={**BODY, "phone_number": "972501234567"})
     ).json()["id"]

@@ -24,7 +24,7 @@ import { dateTime } from '../lib/format'
 import { useUrlState } from '../lib/urlState'
 import type { Instance, MessagePage } from '../lib/types'
 
-const TYPES = ['text', 'image', 'audio', 'voice', 'video', 'sticker', 'document', 'other']
+const TYPES = ['text', 'image', 'audio', 'voice', 'video', 'sticker', 'document', 'poll', 'other']
 const VERDICTS = [
   { value: 'harmful', label: 'Harmful' },
   { value: 'review', label: 'Needs review' },

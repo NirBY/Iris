@@ -14,8 +14,8 @@ export function ContactApproval() {
       <h1 className="mb-3 text-xl font-semibold">Approve your Iris contact</h1>
       <p className="mb-4">
         {approved
-          ? 'Your contact is approved for two-factor authentication.'
-          : 'Confirm that this email address or WhatsApp number belongs to you. This link expires after 30 minutes.'}
+          ? 'Your contact is approved for alerts and two-factor authentication. Your administrator can now select you as an alert recipient.'
+          : 'Confirm that this email address, WhatsApp number or Telegram destination belongs to you. This link expires after 30 minutes.'}
       </p>
       {error && (
         <p role="alert" className="mb-3 text-danger">

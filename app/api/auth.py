@@ -352,6 +352,26 @@ async def confirm_contact(
     if not row or datetime.fromisoformat(row.value["expires"]) <= datetime.now(UTC):
         raise HTTPException(400, "Approval link is invalid or expired. Request a new one.")
     value = row.value
+    if value["channel"] == "telegram":
+        from app.alerts.readiness import delivery_readiness
+        from app.security.two_factor import save
+
+        readiness = await delivery_readiness(db, "telegram")
+        if not any(
+            r.user_id == value["user_id"] and r.destination == value["contact"]
+            for r in readiness.recipients
+        ):
+            raise HTTPException(400, "Telegram destination changed. Request a new approval link.")
+        claimed = cast(
+            CursorResult[Any], await db.execute(delete(Setting).where(Setting.key == key))
+        )
+        if claimed.rowcount != 1:
+            raise HTTPException(400, "Approval link has already been used")
+        await save(
+            db, f"security.telegram_approved.{value['user_id']}", {"chat_id": value["contact"]}
+        )
+        await db.commit()
+        return {"channel": "telegram"}
     contact_column = User.email if value["channel"] == "email" else User.whatsapp_number
     verification_column = "email_verified" if value["channel"] == "email" else "whatsapp_verified"
     claimed = cast(CursorResult[Any], await db.execute(delete(Setting).where(Setting.key == key)))

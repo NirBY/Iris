@@ -22,7 +22,17 @@ export function MessageBody({ m, revealed = false }: { m: Message; revealed?: bo
       </span>
     )
   const body = m.text || m.transcript
-  if (!body) return <em className="text-muted-foreground">[{m.type}]</em>
+  if (!body) {
+    const label =
+      m.raw_type === 'revoked' || m.revoked_at
+        ? 'Deleted WhatsApp message — original content is unavailable.'
+        : m.type === 'poll' || m.raw_type === 'poll' || m.raw_type === 'poll_creation'
+          ? 'WhatsApp poll — its question and options were not provided by OpenWA.'
+          : m.type === 'other'
+            ? 'Unsupported WhatsApp message — OpenWA provided no readable content.'
+            : `[${m.type}]`
+    return <em className="text-muted-foreground">{label}</em>
+  }
   return (
     <span dir="auto" className="whitespace-pre-wrap break-words">
       <Concealed revealed={revealed} length={body.length}>

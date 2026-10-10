@@ -386,6 +386,7 @@ async def complete(token: str, body: PairingComplete, db: DB, cfg: Cfg, user: Ow
                         data["session_id"],
                         f"{cfg.webhook_url_base}/webhooks/{inst.webhook_token}",
                         webhook_secret(cfg, inst.webhook_token),
+                        retry_count=int(await get_setting(db, "openwa.webhook_attempts")),
                     )
             except OpenWAError:
                 raise HTTPException(

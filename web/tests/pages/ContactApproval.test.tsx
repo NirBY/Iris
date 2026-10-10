@@ -18,7 +18,7 @@ test('approval requires a deliberate confirmation, not opening the link', async 
   expect(fetch).not.toHaveBeenCalled()
   await userEvent.click(screen.getByRole('button', { name: 'Approve contact' }))
   expect(
-    await screen.findByText('Your contact is approved for two-factor authentication.'),
+    await screen.findByText(/Your contact is approved for alerts and two-factor authentication/),
   ).toBeInTheDocument()
   expect(fetch).toHaveBeenCalledTimes(1)
   expect(fetch.mock.calls[0]?.[0]).toBe('/api/auth/confirm-contact')

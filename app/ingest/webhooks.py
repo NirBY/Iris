@@ -89,7 +89,7 @@ def _media_ref(inst_id: int, msg: IncomingMessage) -> dict[str, Any]:
 
 def _remember_media_ref(message: Message, inst_id: int, msg: IncomingMessage) -> None:
     """Keep the other session's way to fetch the media: it may be the only one OpenWA can serve."""
-    if not msg.media:
+    if not msg.media or message.redacted or message.revoked_at is not None:
         return
     ref = _media_ref(inst_id, msg)
     current = message.media
@@ -100,6 +100,24 @@ def _remember_media_ref(message: Message, inst_id: int, msg: IncomingMessage) ->
     if any(k.get("instance_id") == inst_id for k in known if isinstance(k, dict)):
         return
     message.media = {**current, "alternates": [*current.get("alternates", []), ref]}
+
+
+def remember_message_type(existing: Message, incoming: IncomingMessage) -> bool:
+    """Repair only type metadata on a duplicate; never restore withheld/deleted content."""
+    if existing.type != "other":
+        return False
+    changed = False
+    if (
+        incoming.raw_type
+        and existing.raw_type in (None, "unknown")
+        and existing.raw_type != incoming.raw_type
+    ):
+        existing.raw_type = incoming.raw_type
+        changed = True
+    if incoming.type == "poll" and incoming.raw_type in {"poll", "poll_creation"}:
+        existing.type = "poll"
+        changed = True
+    return changed
 
 
 async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: IncomingMessage) -> str:
@@ -120,6 +138,7 @@ async def _store_once(db: AsyncSession, inst_id: int, kid_name: str, msg: Incomi
         await db.execute(select(Message).where(Message.wa_message_id == msg.wa_message_id).limit(1))
     ).scalar_one_or_none()
     if existing is not None:
+        remember_message_type(existing, msg)
         chat = await db.get(Chat, existing.chat_id)
         if chat is not None and not chat.name and not msg.is_group and not msg.from_me:
             chat.name = kid_name if existing.from_me else msg.sender_name

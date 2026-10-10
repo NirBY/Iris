@@ -32,8 +32,10 @@ export function AlertDeliveryHealth({ channel }: { channel?: string }) {
       </p>
       <p className="text-sm text-muted-foreground">
         {data.channel === 'greenapi'
-          ? 'GreenAPI requires a verified connection and a recipient number; individual phone approval is not required.'
-          : 'Readiness uses saved provider settings and current contact approvals.'}{' '}
+          ? 'GreenAPI requires a verified connection and a recipient number or group ID. Individual sender and recipient approval is not required.'
+          : data.channel === 'telegram'
+            ? 'Telegram requires a bot token and a destination chat ID. Individual sender and recipient approval is not required.'
+            : 'Readiness uses saved provider settings and current contact approvals.'}{' '}
         Only explicitly selected recipients receive alerts. Phone numbers are optional.
       </p>
       <ul className="flex flex-col gap-2">

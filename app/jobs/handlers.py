@@ -21,6 +21,7 @@ from app.alerts.service import (
     wipe_revisions,
 )
 from app.chats import resolve_group_names
+from app.classify.learning import compare
 from app.classify.pipeline import PipelineOutcome, run_pipeline
 from app.classify.stages import StageContext, message_body
 from app.classify.thresholds import effective_thresholds
@@ -121,7 +122,13 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
         )
     if message.type == "document":
         return Prepared(problem=PermanentError("Document attachment requires manual review"))
-    if message.type in ("text", "other"):
+    if message.type == "poll" and not (message.diagnostics or {}).get("has_poll_options"):
+        return Prepared(
+            problem=PermanentError(
+                "Poll options were not provided by OpenWA; manual review required"
+            )
+        )
+    if message.type in ("text", "other", "poll"):
         return Prepared()  # only text (or a caption/filename) can be moderated
     cfg = get_settings()
     try:
@@ -203,7 +210,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         message.review_reason = None
         # Only known content-free gateway system events may bypass moderation.
         if (
-            message.raw_type in {"e2e_notification", "notification_template", "gp2"}
+            message.raw_type in {"e2e_notification", "notification_template", "gp2", "revoked"}
             and not message.text
             and not message.transcript
             and message.media is None
@@ -261,9 +268,15 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         try:
             outcome = await run_pipeline(message, ctx)
         except ValueError:
-            if cfg.local_safety_mode and (prepared.problem is not None or message.type == "other"):
+            if cfg.local_safety_mode and (
+                prepared.problem is not None or message.type in ("other", "poll")
+            ):
                 if prepared.problem is None:
-                    prepared.problem = PermanentError("Unknown message type; no analyzable content")
+                    prepared.problem = PermanentError(
+                        "Poll content was not provided by OpenWA; manual review required"
+                        if message.type == "poll"
+                        else "Unknown message type; no analyzable content"
+                    )
                 outcome = PipelineOutcome(verdict="review")
             else:
                 message.status = "skipped"  # nothing to classify (no text, transcript or image)
@@ -314,6 +327,9 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             if prepared.problem is not None and outcome.verdict != "harmful":
                 outcome.verdict = "review"
 
+        # Compare only fully prepared text; media and preserved revisions keep their own checks.
+        if prepared.problem is None and prepared.image is None:
+            outcome = await compare(message, ctx, outcome)
         _persist(db, message, outcome)
         problem = prepared.problem
         if problem is not None and outcome.verdict != "harmful" and not cfg.local_safety_mode:

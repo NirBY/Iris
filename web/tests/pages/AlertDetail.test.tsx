@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router-dom'
 import { renderWithApp } from '../test-utils'
@@ -49,6 +49,29 @@ function page(a: unknown) {
     '/alerts/3',
   )
 }
+
+test('opening an alert marks it read once and can restore it to the personal unseen list', async () => {
+  const calls = page(alert)
+  await screen.findByRole('heading', { name: 'The message' })
+  await waitFor(() =>
+    expect(calls.filter((c) => c.method === 'POST' && c.url === '/api/alerts/3/seen')).toHaveLength(
+      1,
+    ),
+  )
+  expect(calls.find((c) => c.method === 'POST' && c.url === '/api/alerts/3/seen')?.body).toEqual({
+    seen: true,
+  })
+  expect(screen.queryByRole('button', { name: 'Mark as seen' })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Mark unseen' }))
+  await waitFor(() =>
+    expect(calls.filter((c) => c.url === '/api/alerts/3/seen' && c.method === 'POST')).toHaveLength(
+      2,
+    ),
+  )
+  expect(
+    calls.filter((c) => c.url === '/api/alerts/3/seen' && c.method === 'POST')[1].body,
+  ).toEqual({ seen: false })
+})
 
 test('everything stored is hidden until the eye is pressed', async () => {
   const calls = page({ ...alert, media })

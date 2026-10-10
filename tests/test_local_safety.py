@@ -428,7 +428,7 @@ async def test_worker_resize_does_not_cancel_inflight_job(
     try:
         await asyncio.wait_for(started.wait(), 5)
         await pool.reconfigure(2, 1)
-        assert not finished.is_set() and pool.size == 3
+        assert not finished.is_set() and pool.size == 4  # includes the reserved operations worker
         release.set()
         await asyncio.wait_for(finished.wait(), 5)
     finally:
@@ -473,6 +473,8 @@ async def test_video_transcript_does_not_clear_unchecked_visuals(
         ("new_unknown_kind", True, "review"),
         ("new_unknown_kind", False, "skipped"),
         ("e2e_notification", True, "skipped"),
+        ("revoked", True, "skipped"),
+        ("poll", True, "review"),
     ],
 )
 @respx.mock
@@ -504,8 +506,10 @@ async def test_unknown_messages_and_system_events_have_diagnostics(
     }
     reason = message["review_reason"] or message["skip_reason"]
     assert reason == (
-        "Confirmed system event: e2e_notification"
-        if raw_type == "e2e_notification"
+        "Confirmed system event: " + raw_type
+        if raw_type in {"e2e_notification", "revoked"}
+        else "Poll options were not provided by OpenWA; manual review required"
+        if raw_type == "poll"
         else "Unknown message type; no analyzable content"
     )
     assert not route.called
@@ -576,3 +580,26 @@ async def test_startup_quarantines_unreviewed_documents_and_failed_checks(app_cl
         await db.refresh(failed)
         assert document.verdict == failed.verdict == "review"
         assert document.review_reason and failed.review_reason
+
+
+@respx.mock
+async def test_poll_options_are_checked_as_content(app_client: Any, monkeypatch: Any):
+    import json
+
+    enable(monkeypatch)
+    deps, token = await setup(app_client)
+    route = respx.post(URL).mock(return_value=mod_response(violence=0.95))
+    body = json.loads(fx("text_received_mixed"))
+    body["data"]["type"] = "poll"
+    body["data"]["poll"] = {
+        "question": "מה עושים?",
+        "options": ["לשחק", "I will kill you"],
+        "allowMultipleAnswers": False,
+    }
+    await post(app_client, token, json.dumps(body).encode())
+    await drain(deps)
+    message = (await app_client.get("/api/messages")).json()["items"][0]
+    assert message["type"] == "poll" and message["verdict"] == "harmful"
+    assert message["diagnostics"]["has_poll_options"] is True
+    assert "I will kill you" in route.calls.last.request.content.decode()
+    await deps.providers.aclose()

@@ -28,7 +28,8 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run mypy
       - name: Backend regression tests
-        run: uv run pytest -q --junitxml=.local/test-results/backend.xml
+        timeout-minutes: 20
+        run: uv run pytest -v -o faulthandler_timeout=90 --junitxml=.local/test-results/backend.xml
       - name: Save backend test results
         if: always()
         uses: actions/upload-artifact@v7
@@ -44,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: mirror.gcr.io/library/postgres:16
         env:
           POSTGRES_PASSWORD: pw
           POSTGRES_DB: iris
@@ -61,7 +62,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: uv sync --frozen
       - name: Backend regression tests
-        run: uv run pytest -q --junitxml=.local/test-results/backend.xml
+        timeout-minutes: 20
+        run: uv run pytest -v -o faulthandler_timeout=90 --junitxml=.local/test-results/backend.xml
       - name: Copy from SQLite into PostgreSQL
         env:
           IRIS_DATABASE_URL: ""
@@ -84,7 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mysql:
-        image: mysql:8
+        image: mirror.gcr.io/library/mysql:8
         env:
           MYSQL_ROOT_PASSWORD: pw
           MYSQL_DATABASE: iris
@@ -101,7 +103,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: uv sync --frozen
       - name: Backend regression tests
-        run: uv run pytest -q --junitxml=.local/test-results/backend.xml
+        timeout-minutes: 20
+        run: uv run pytest -v -o faulthandler_timeout=90 --junitxml=.local/test-results/backend.xml
       - name: Copy from SQLite into MySQL
         env:
           IRIS_DATABASE_URL: ""

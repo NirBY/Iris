@@ -188,6 +188,32 @@ class Alert(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_now, onupdate=_now)
 
 
+class AlertView(Base):
+    """Personal read/dismiss state; never changes the shared safety decision."""
+
+    __tablename__ = "alert_views"
+    alert_id: Mapped[int] = mapped_column(
+        ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="new")
+    seen_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+
+class MediaWarningDismissal(Base):
+    """Hide a missing-media warning for this user without reading the alert."""
+
+    __tablename__ = "media_warning_dismissals"
+    alert_id: Mapped[int] = mapped_column(
+        ForeignKey("alerts.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+
+
 class Job(Base):
     __tablename__ = "jobs"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -244,6 +270,9 @@ class ReviewFeedback(Base):
     )
     verdict: Mapped[str] = mapped_column(String(20))
     reviewed_at: Mapped[datetime] = _ts()
+    categories: Mapped[list[str] | None] = mapped_column(JSON(none_as_null=True))
+    explanation: Mapped[str | None] = mapped_column(Text)
+    content_hash: Mapped[str | None] = mapped_column(String(64))
 
 
 class ReviewDataIssue(Base):
@@ -255,6 +284,43 @@ class ReviewDataIssue(Base):
     )
     issue: Mapped[str] = mapped_column(String(32))
     reported_at: Mapped[datetime] = _ts()
+
+
+class LearningExample(Base):
+    """A reviewed label bound to exact source content, without a second content copy."""
+
+    __tablename__ = "learning_examples"
+    message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    content_hash: Mapped[str] = mapped_column(String(64))
+    verdict: Mapped[str] = mapped_column(String(20))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = _ts()
+
+
+class LearningRun(Base):
+    """Comparison evidence; contains scores and source IDs, never message content."""
+
+    __tablename__ = "learning_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    mode: Mapped[str] = mapped_column(String(20))
+    model: Mapped[str] = mapped_column(String(255))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    retrieval_version: Mapped[str] = mapped_column(String(40))
+    retrieval: Mapped[dict[str, Any] | None] = mapped_column(JSON(none_as_null=True))
+    baseline_verdict: Mapped[str] = mapped_column(String(20))
+    candidate_verdict: Mapped[str | None] = mapped_column(String(20))
+    example_ids: Mapped[list[int]] = mapped_column(JSON)
+    baseline_scores: Mapped[dict[str, Any]] = mapped_column(JSON)
+    candidate_scores: Mapped[dict[str, Any] | None] = mapped_column(JSON(none_as_null=True))
+    thresholds: Mapped[dict[str, Any]] = mapped_column(JSON)
+    latency_ms: Mapped[int] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = _ts()
 
 
 class ScheduleRun(Base):

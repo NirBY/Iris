@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import shutil
 import time
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
@@ -11,25 +12,35 @@ from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field
+from sqlalchemy import func, literal, select, true
+from sqlalchemy.dialects.mysql import insert as mysql_insert
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.dml import Insert
 
+from app.alerts.media_status import missing_media_copy
 from app.alerts.readiness import delivery_readiness
 from app.config import get_settings
 from app.db.models import (
     Alert,
+    AlertView,
     Chat,
     ChatInstance,
     Instance,
     Job,
+    MediaWarningDismissal,
     Message,
     MessageReceipt,
     ReviewDataIssue,
     ScheduleRun,
     StoredMedia,
+    User,
 )
 from app.deps import get_db
+from app.resources import container_resources
+from app.review_queue import ai_pending
 from app.security.auth import admin_user, current_user
 from app.settings_store import get_setting
 
@@ -43,6 +54,7 @@ class Stats(BaseModel):
     alerts_by_status: dict[str, int]
     alerts_by_delivery: dict[str, int]
     review_queue: int
+    iris_review_queue: int = 0
     jobs_by_status: dict[str, int]
     queue_depth: int  # queued + running
     failed_jobs: int  # failed + dead
@@ -57,6 +69,8 @@ class Stats(BaseModel):
     media_files: int  # kept media that can be shown
     media_bytes: int
     alert_media_not_saved: int = 0
+    alert_media_warning_count: int = 0
+    alert_media_warning_latest_id: int = 0
     alert_channel: str = "openwa"
     sender_is_recipient: bool = False
     unavailable_instances: int = 0
@@ -72,8 +86,59 @@ async def _count(db: AsyncSession, stmt) -> int:  # type: ignore[no-untyped-def]
     return int((await db.execute(stmt)).scalar_one())
 
 
+class DismissMediaWarning(BaseModel):
+    through_alert_id: int = Field(ge=0)
+
+
+@router.post("/stats/media-warning/dismiss")
+async def dismiss_media_warning(
+    body: DismissMediaWarning, db: DB, user: Annotated[User, Depends(current_user)]
+) -> dict[str, bool]:
+    affected = (
+        select(Alert.id, literal(user.id))
+        .join(Message, Message.id == Alert.message_id)
+        .where(missing_media_copy(), Alert.id <= body.through_alert_id)
+    )
+    dialect = db.get_bind().dialect.name
+    if dialect == "mysql":
+        mysql_statement = mysql_insert(MediaWarningDismissal).from_select(
+            ["alert_id", "user_id"], affected
+        )
+        statement: Insert = mysql_statement.on_duplicate_key_update(
+            user_id=mysql_statement.inserted.user_id
+        )
+    else:
+        insert = postgres_insert if dialect == "postgresql" else sqlite_insert
+        statement = (
+            insert(MediaWarningDismissal)
+            .from_select(["alert_id", "user_id"], affected)
+            .on_conflict_do_nothing()
+        )
+    await db.execute(statement)
+    await db.commit()
+    from app.events import bus
+
+    bus.publish("stats")
+    return {"dismissed": True}
+
+
 @router.get("/stats")
-async def stats(db: DB) -> Stats:
+async def stats(db: DB, user: Annotated[User | None, Depends(current_user)] = None) -> Stats:
+    warning_query = (
+        select(func.count(), func.coalesce(func.max(Alert.id), 0))
+        .select_from(Alert)
+        .join(Message, Message.id == Alert.message_id)
+        .where(missing_media_copy())
+    )
+    if user is not None:
+        warning_query = warning_query.where(
+            Alert.id.not_in(
+                select(MediaWarningDismissal.alert_id).where(
+                    MediaWarningDismissal.user_id == user.id
+                )
+            )
+        )
+    warning_count, warning_latest_id = (await db.execute(warning_query)).one()
     now = datetime.now(UTC).replace(tzinfo=None)  # stored as naive UTC
     timezone = ZoneInfo(str(await get_setting(db, "alerts.timezone")))
     local_today = datetime.now(timezone).date()
@@ -85,6 +150,20 @@ async def stats(db: DB) -> Stats:
     by_alert = dict(
         (await db.execute(select(Alert.status, func.count()).group_by(Alert.status))).all()
     )
+    if user is not None:
+        personal_status = func.coalesce(AlertView.status, "new")
+        by_alert = dict(
+            (
+                await db.execute(
+                    select(personal_status, func.count())
+                    .select_from(Alert)
+                    .outerjoin(
+                        AlertView, (AlertView.alert_id == Alert.id) & (AlertView.user_id == user.id)
+                    )
+                    .group_by(personal_status)
+                )
+            ).all()
+        )
     by_delivery = dict(
         (
             await db.execute(
@@ -143,8 +222,14 @@ async def stats(db: DB) -> Stats:
             select(func.count())
             .select_from(Message)
             .where(
-                (Message.verdict == "review") & ~Message.id.in_(select(ReviewDataIssue.message_id))
+                (Message.verdict == "review")
+                & ~ai_pending()
+                & ~Message.id.in_(select(ReviewDataIssue.message_id))
             ),
+        ),
+        iris_review_queue=await _count(
+            db,
+            select(func.count()).select_from(Message).where(ai_pending()),
         ),
         jobs_by_status=jobs,
         queue_depth=jobs.get("queued", 0) + jobs.get("running", 0),
@@ -176,20 +261,14 @@ async def stats(db: DB) -> Stats:
             ),
         ),
         alert_channel=str(await get_setting(db, "alerts.channel")),
+        alert_media_warning_count=int(warning_count),
+        alert_media_warning_latest_id=int(warning_latest_id),
         alert_media_not_saved=await _count(
             db,
             select(func.count())
             .select_from(Alert)
             .join(Message, Message.id == Alert.message_id)
-            .where(
-                Message.type.in_(
-                    ("image", "audio", "voice", "ptt", "video", "sticker", "document")
-                ),
-                Message.redacted.is_(False),
-                Message.id.not_in(
-                    select(StoredMedia.message_id).where(StoredMedia.purge.is_(False))
-                ),
-            ),
+            .where(missing_media_copy()),
         ),
         media_policy=str(await get_setting(db, "media.policy")),
         media_files=await _count(
@@ -228,7 +307,28 @@ class ChatOut(BaseModel):
 
 
 @router.get("/chats")
-async def list_chats(db: DB) -> list[ChatOut]:
+async def list_chats(
+    db: DB,
+    q: str | None = None,
+    instance_id: int | None = None,
+    sender: str | None = None,
+    type: str | None = None,
+    verdict: str | None = None,
+    from_: Annotated[datetime | None, Query(alias="from")] = None,
+    to: datetime | None = None,
+) -> list[ChatOut]:
+    from app.api.messages import message_filters
+
+    conds, _ = await message_filters(
+        db,
+        q=q,
+        instance_id=instance_id,
+        sender=sender,
+        type=type,
+        verdict=verdict,
+        from_=from_,
+        to=to,
+    )
     msg = (
         select(Message.chat_id, func.count().label("n"), func.max(Message.sent_at).label("last"))
         .group_by(Message.chat_id)
@@ -245,6 +345,7 @@ async def list_chats(db: DB) -> list[ChatOut]:
             select(Chat, msg.c.n, msg.c.last, alerts.c.n)
             .outerjoin(msg, msg.c.chat_id == Chat.id)
             .outerjoin(alerts, alerts.c.chat_id == Chat.id)
+            .where(Chat.id.in_(select(Message.chat_id).where(*conds)) if conds else true())
             .order_by(
                 msg.c.last.is_(None), msg.c.last.desc(), Chat.id.desc()
             )  # NULLs last everywhere
@@ -394,6 +495,24 @@ def provider_storage(path: Path | None, report: Path | None) -> dict[str, int | 
     return measure_directory(path)
 
 
+def disk_capacity(path: Path) -> dict[str, int | str | None]:
+    try:
+        usage = shutil.disk_usage(path)
+        return {
+            "total_bytes": usage.total,
+            "used_bytes": usage.used,
+            "free_bytes": usage.free,
+            "status": "measured",
+        }
+    except OSError:
+        return {
+            "total_bytes": None,
+            "used_bytes": None,
+            "free_bytes": None,
+            "status": "unavailable",
+        }
+
+
 @router.get("/stats/storage", dependencies=[Depends(admin_user)])
 async def storage(db: DB) -> dict[str, object]:
     cfg = get_settings()
@@ -404,6 +523,8 @@ async def storage(db: DB) -> dict[str, object]:
     return {
         "iris": iris,
         "openwa": openwa,
+        "disk": await asyncio.to_thread(disk_capacity, cfg.data_dir),
+        "resources": await asyncio.to_thread(container_resources),
         "iris_media_bytes": await _count(
             db,
             select(func.coalesce(func.sum(StoredMedia.size_bytes), 0)).where(

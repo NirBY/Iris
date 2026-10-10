@@ -72,7 +72,9 @@ class OpenWAClient:
         body = data.get("data", data) if isinstance(data, dict) else {}
         return isinstance(body, dict) and str(body.get("status", "")).lower() == "ready"
 
-    async def register_webhook(self, session_id: str, url: str, secret: str) -> str:
+    async def register_webhook(
+        self, session_id: str, url: str, secret: str, retry_count: int = 3
+    ) -> str:
         """Subscribe the session's webhook for `url` to Iris's events and return its id.
 
         A webhook already pointing at `url` is updated (its existing events are kept), so running
@@ -95,16 +97,59 @@ class OpenWAClient:
             await self._request(
                 "PUT",
                 f"{base}/{quote(str(existing['id']), safe='')}",
-                json={"events": events, "secret": secret},
+                json={"events": events, "secret": secret, "retryCount": retry_count},
             )
             return str(existing["id"])
         data = await self._request(
             "POST",
             base,
-            json={"url": url, "events": WEBHOOK_EVENTS, "secret": secret, "retryCount": 3},
+            json={
+                "url": url,
+                "events": WEBHOOK_EVENTS,
+                "secret": secret,
+                "retryCount": retry_count,
+            },
         )
         body = data.get("data", data) if isinstance(data, dict) else {}
         return str(body.get("id", ""))
+
+    async def set_webhook_retries(self, session_id: str, url: str, attempts: int) -> int:
+        base = f"/api/sessions/{quote(session_id, safe='')}/webhooks"
+        data = await self._request("GET", base)
+        rows = data.get("data", data) if isinstance(data, dict) else data
+        if not isinstance(rows, list):
+            raise OpenWAError(502, "Invalid webhook list")
+        changed = 0
+        for row in rows:
+            if (
+                isinstance(row, dict)
+                and row.get("url") == url
+                and row.get("id")
+                and row.get("retryCount") != attempts
+            ):
+                await self._request(
+                    "PUT", f"{base}/{quote(str(row['id']), safe='')}", json={"retryCount": attempts}
+                )
+                changed += 1
+        return changed
+
+    async def stored_messages(
+        self, session_id: str, after: str | None = None
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"limit": 100, "inlineMedia": "false"}
+        if after:
+            params["after"] = after
+        data = await self._request(
+            "GET", f"/api/sessions/{quote(session_id, safe='')}/messages", params=params
+        )
+        rows = data.get("messages") if isinstance(data, dict) else None
+        if (
+            not isinstance(rows, list)
+            or len(rows) > 100
+            or any(not isinstance(r, dict) for r in rows)
+        ):
+            raise OpenWAError(502, "Invalid stored-message page")
+        return rows
 
     async def get_group_name(self, session_id: str, group_id: str) -> str | None:
         """The group's subject from `GET /api/sessions/{id}/groups/{groupId}` (None if unnamed)."""

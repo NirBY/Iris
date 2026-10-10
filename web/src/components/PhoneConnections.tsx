@@ -736,7 +736,9 @@ function ParentRecipients() {
   })
   return (
     <section className="flex flex-col gap-3 rounded-lg border bg-surface p-4">
-      <h2 className="text-lg font-semibold">Parent alert recipients</h2>
+      <h2 id="parent-alert-recipients" tabIndex={-1} className="scroll-mt-6 text-lg font-semibold">
+        Parent alert recipients
+      </h2>
       <p className="text-sm text-muted-foreground">
         Choose which children each parent receives alerts for. All children is the default.
         Selecting no children pauses alerts for that parent. Up to ten recipients.

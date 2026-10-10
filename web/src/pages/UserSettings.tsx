@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api } from '../lib/api'
@@ -39,7 +40,12 @@ export function UserSettings() {
     queryFn: () => api<AlertReadiness>('/api/settings/alert-readiness'),
     refetchInterval: 30_000,
   })
-  const users = useQuery({ queryKey: ['users'], queryFn: () => api<User[]>('/api/users') })
+  const users = useQuery({
+    // Refresh after the recipient confirms a link in another browser.
+    queryKey: ['users'],
+    queryFn: () => api<User[]>('/api/users'),
+    refetchInterval: 10_000,
+  })
   const settings = useQuery({
     queryKey: ['settings'],
     queryFn: () => api<Record<string, unknown>>('/api/settings'),
@@ -118,11 +124,12 @@ export function UserSettings() {
                 (() => {
                   const status = readiness.data.users.find((status) => status.id === u.id)!
                   return (
-                    <span
-                      className={status.eligible ? 'text-sm text-success' : 'text-sm text-warning'}
+                    <Link
+                      to="/settings?tab=Notifications#parent-alert-recipients"
+                      className={`text-sm underline underline-offset-2 ${status.eligible ? 'text-success' : 'text-warning'}`}
                     >
                       Alerts: {status.eligible ? 'Eligible' : status.reason}
-                    </span>
+                    </Link>
                   )
                 })()}
               {u.email &&
@@ -142,7 +149,7 @@ export function UserSettings() {
                       })
                     }
                   >
-                    Approve email
+                    Send email approval
                   </Button>
                 ))}
               {u.whatsapp_number &&
@@ -150,7 +157,11 @@ export function UserSettings() {
                   <span className="text-sm text-success">WhatsApp approved</span>
                 ) : (
                   <Button
-                    disabled={busy || !security.data?.green_api?.verified}
+                    disabled={
+                      busy ||
+                      (!security.data?.green_api?.verified &&
+                        !settings.data?.['alerts.sender_instance_id'])
+                    }
                     aria-label={`Send WhatsApp approval for ${u.username}`}
                     onClick={() =>
                       void run(async () => {
@@ -158,13 +169,16 @@ export function UserSettings() {
                           method: 'POST',
                           body: JSON.stringify({ channel: 'whatsapp' }),
                         })
-                        toast.success('WhatsApp approval link sent.')
+                        toast.success(
+                          'Approval link sent. Open it on the recipient’s WhatsApp and confirm ownership; sending alone does not approve the number.',
+                        )
                       })
                     }
                   >
-                    Approve WhatsApp
+                    Send WhatsApp approval
                   </Button>
                 ))}
+
               <Button
                 onClick={() => {
                   setSaveError('')
@@ -226,8 +240,8 @@ export function UserSettings() {
                 body: JSON.stringify({
                   username: form.username,
                   role: form.role,
-                  email: form.email || null,
-                  whatsapp_number: form.whatsapp_number || null,
+                  email: form.email?.trim() || null,
+                  whatsapp_number: form.whatsapp_number?.trim() || null,
                   password: form.password || undefined,
                 }),
               })
@@ -281,8 +295,11 @@ export function UserSettings() {
               onChange={(e) => setForm({ ...form, whatsapp_number: e.target.value })}
             />
             <p className="text-sm text-muted-foreground">
-              Your personal number for receiving 2FA codes. Include + and country code. Codes are
-              sent through GreenAPI configured in Settings → Notifications.
+              Optional. Leave empty to remove the number. Your personal number for receiving alerts
+              and 2FA codes. It must differ from the GreenAPI sender number. Include + and country
+              code. Codes are sent through GreenAPI configured in Settings → Notifications.
+              Ownership approval can also use a connected OpenWA sender. Sending an approval request
+              does not approve the number; the recipient must open the link and confirm it.
             </p>
           </Field>
           <div className="flex items-end gap-2">

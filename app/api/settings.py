@@ -21,7 +21,7 @@ from app.classify.moderation import ModerationClient
 from app.classify.ollama import OllamaModerator
 from app.classify.thresholds import DEFAULT_THRESHOLDS, effective_thresholds
 from app.config import Settings, get_settings
-from app.db.models import Instance
+from app.db.models import Instance, User
 from app.deps import get_db
 from app.jobs.queue import DeferredError, PermanentError, TransientError, enqueue
 from app.media.factory import MediaOverrides, build_store
@@ -158,6 +158,18 @@ async def update_settings(
             errors["alerts.recipient_children"] = "Select existing child phones"
     if errors:
         raise HTTPException(status_code=422, detail=errors)
+    if body.settings.get("alerts.sender_instance_id"):
+        sender = await db.get(Instance, body.settings["alerts.sender_instance_id"])
+        if (
+            sender
+            and sender.phone_number
+            and await db.scalar(
+                select(User.id).where(User.whatsapp_number == "+" + sender.phone_number.lstrip("+"))
+            )
+        ):
+            raise HTTPException(
+                422, "OpenWA alert sender must differ from users' personal WhatsApp numbers."
+            )
     if "alerts.channel" in body.settings:
         # Recheck even when returning to a previously saved channel. Approval
         # belongs to the current contact, never to a prior channel selection.
@@ -275,7 +287,14 @@ async def ollama_models(
 @router.post("/test/{target}")
 async def test_provider(
     target: Literal[
-        "openai", "cloudflare", "alert", "media", "ollama", "ollama_image", "local_whisper"
+        "openai",
+        "cloudflare",
+        "alert",
+        "media",
+        "ollama",
+        "ollama_image",
+        "ollama_embedding",
+        "local_whisper",
     ],
     db: Annotated[AsyncSession, Depends(get_db)],
     cfg: Annotated[Settings, Depends(get_settings)],
@@ -283,13 +302,25 @@ async def test_provider(
 ) -> TestResult:
     body = body or TestRequest()
     try:
-        if target in ("ollama", "ollama_image"):
+        if target in ("ollama", "ollama_image", "ollama_embedding"):
             if cfg.classification_provider != "ollama" and not body.base_url:
                 return TestResult(ok=False, detail="Ollama is not enabled")
             url = REGISTRY["runtime.ollama_base_url"].validate(body.base_url or cfg.ollama_base_url)
             model = body.model or cfg.ollama_model
+            if target == "ollama_embedding":
+                model = body.model or await get_setting(
+                    db, "classification.learning_embedding_model"
+                )
+                if not model:
+                    return TestResult(ok=False, detail="Enter an installed embedding model name")
             local = OllamaModerator(url, model)
             try:
+                if target == "ollama_embedding":
+                    vectors = await local.embed(model, ["שלום, זו בדיקה", "Hello, this is a test"])
+                    return TestResult(
+                        ok=True,
+                        detail=f"Embedding model answered: {len(vectors[0])} dimensions",
+                    )
                 if target == "ollama_image":
                     import base64
 
@@ -525,6 +556,14 @@ async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
         return TestResult(
             ok=False, detail=f"{len(errors)} recipient(s) failed: " + "; ".join(errors)
         )
+    from app.setup_checks import record_notifier_test
+
+    # Entered test values must match the saved deployment to count toward setup.
+    if sender_id == await get_setting(db, "alerts.sender_instance_id") and targets == recipients(
+        await get_setting(db, "alerts.recipient")
+    ):
+        await record_notifier_test(db, "openwa")
+    await db.commit()
     return TestResult(
         ok=True,
         detail="Test message sent"

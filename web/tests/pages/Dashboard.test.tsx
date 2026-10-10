@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { Dashboard } from '../../src/pages/Dashboard'
@@ -114,6 +114,7 @@ test('recent alert errors show retry instead of an empty state', async () => {
     await screen.findByText(/Could not load recent alerts/, {}, { timeout: 10000 }),
   ).toBeInTheDocument()
   expect(screen.queryByText('No alerts yet')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Recent alerts' }))
   expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
 })
 
@@ -167,7 +168,7 @@ test('recent alerts show no quote until the eye is pressed', async () => {
       </MemoryRouter>
     </QueryClientProvider>,
   )
-  await screen.findByText('Recent alerts')
+  await userEvent.click(await screen.findByRole('button', { name: 'Recent alerts' }))
   expect(screen.queryByText('a private quote')).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'Show content' }))
   expect(await screen.findByText('a private quote')).toBeInTheDocument()
@@ -203,4 +204,67 @@ test('activity defaults to 14 days and all children, then queries the selected f
   await userEvent.selectOptions(period, '30')
   await userEvent.selectOptions(child, '1')
   expect(fetch).toHaveBeenCalledWith('/api/stats/timeline?days=30&instance_id=1', expect.anything())
+})
+
+test('system resources is the final Home section', async () => {
+  renderPage()
+  const storage = await screen.findByRole('region', { name: 'System resources' })
+  expect(storage.parentElement?.lastElementChild).toBe(storage)
+})
+
+test('Home sections collapse independently and preserve activity filters', async () => {
+  renderPage()
+  const period = await screen.findByRole('combobox', { name: 'Activity time period' })
+  await userEvent.selectOptions(period, '30')
+  for (const name of [
+    'Activity, last 30 days',
+    'Alerts per group / contact',
+    'Recent alerts',
+    'System resources',
+  ]) {
+    const button = screen.getByRole('button', { name })
+    const initiallyOpen = name.startsWith('Activity')
+    expect(button).toHaveAttribute('aria-expanded', String(initiallyOpen))
+    await userEvent.click(button)
+    expect(button).toHaveAttribute('aria-expanded', String(!initiallyOpen))
+    await userEvent.click(button)
+    expect(button).toHaveAttribute('aria-expanded', String(initiallyOpen))
+  }
+  expect(period).toHaveValue('30')
+})
+
+test('the missing-media warning links to all affected alerts, including read ones', async () => {
+  renderPage({ alert_media_not_saved: 56 })
+  expect(await screen.findByRole('link', { name: 'View affected alerts' })).toHaveAttribute(
+    'href',
+    '/alerts?view=all&media=missing',
+  )
+})
+
+test('dismisses the media warning and keeps affected alerts available', async () => {
+  const data = {
+    alert_media_not_saved: 56,
+    alert_media_warning_count: 56,
+    alert_media_warning_latest_id: 99,
+  }
+  renderPage(data)
+  const button = await screen.findByRole('button', { name: 'Dismiss warning' })
+  const originalFetch = fetch
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/stats/media-warning/dismiss') {
+        expect(init?.method).toBe('POST')
+        expect(JSON.parse(init?.body as string)).toEqual({ through_alert_id: 99 })
+        data.alert_media_warning_count = 0
+        return new Response('{"dismissed":true}')
+      }
+      return originalFetch(url, init)
+    }),
+  )
+  await userEvent.click(button)
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Dismiss warning' })).not.toBeInTheDocument(),
+  )
+  expect(data.alert_media_not_saved).toBe(56)
 })

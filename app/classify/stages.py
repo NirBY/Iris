@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classify.moderation import ModerationResult
+from app.classify.ollama import OllamaModerator
 from app.classify.thresholds import Band, Thresholds, band_for
 from app.db.models import Message
 
@@ -33,6 +34,7 @@ class StageContext:
     context_max_age: timedelta
     # JPEG data URL of the message's image/sticker, when it has one.
     image_data_url: str | None = None
+    learning_examples: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -86,7 +88,10 @@ async def _moderate(
     target_id: int | None = None,
 ) -> StageResult:
     started = time.perf_counter()
-    res = await ctx.moderator.moderate(ctx.model, payload)
+    if ctx.learning_examples and isinstance(ctx.moderator, OllamaModerator):
+        res = await ctx.moderator.moderate(ctx.model, payload, examples=ctx.learning_examples)
+    else:
+        res = await ctx.moderator.moderate(ctx.model, payload)
     band, high, low = band_for(res.scores, ctx.thresholds)
     return StageResult(
         stage=stage,

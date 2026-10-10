@@ -15,6 +15,7 @@ const page = <K extends string>(load: () => Promise<Record<K, React.ComponentTyp
 const Alerts = page(() => import('./pages/Alerts'), 'Alerts')
 const AlertDetail = page(() => import('./pages/AlertDetail'), 'AlertDetail')
 const Review = page(() => import('./pages/Review'), 'Review')
+const IrisReview = page(() => import('./pages/IrisReview'), 'IrisReview')
 const Messages = page(() => import('./pages/Messages'), 'Messages')
 const MessageContext = page(() => import('./pages/MessageContext'), 'MessageContext')
 const Chats = page(() => import('./pages/Chats'), 'Chats')
@@ -23,6 +24,7 @@ const Instances = page(() => import('./pages/Instances'), 'Instances')
 const MediaViewer = page(() => import('./pages/MediaViewer'), 'MediaViewer')
 const TryIt = page(() => import('./pages/TryIt'), 'TryIt')
 const Settings = page(() => import('./pages/Settings'), 'Settings')
+const Setup = page(() => import('./pages/Setup'), 'Setup')
 
 export function App() {
   return (
@@ -56,9 +58,11 @@ function AppContent() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
+        <Route path="setup" element={manage(<Setup />)} />
         <Route path="alerts" element={<Alerts />} />
         <Route path="alerts/:id" element={<AlertDetail />} />
         <Route path="review" element={<Review />} />
+        <Route path="iris-review" element={<IrisReview />} />
         <Route path="messages" element={<Messages />} />
         <Route path="messages/:id" element={<MessageContext />} />
         <Route path="chats" element={<Chats />} />

@@ -91,6 +91,7 @@ export interface MediaInfo extends KeptMedia {
 }
 
 export interface Alert {
+  seen_at?: string | null
   verdict?: string | null
   review_reason?: string | null
   id: number
@@ -138,6 +139,12 @@ export interface AlertDetail extends Alert {
 }
 
 export interface ReviewItem {
+  human_feedback?: {
+    verdict: string
+    categories: string[] | null
+    explanation: string | null
+    details_current: boolean
+  } | null
   response_notes?: ResponseNote[]
   missing_data?: boolean
   message: Message
@@ -171,6 +178,7 @@ export interface Stats {
   alerts_by_status: Record<string, number>
   alerts_by_delivery: Record<string, number>
   review_queue: number
+  iris_review_queue?: number
   jobs_by_status: Record<string, number>
   queue_depth: number
   failed_jobs: number
@@ -187,6 +195,8 @@ export interface Stats {
   media_policy?: string
   media_files?: number
   alert_media_not_saved?: number
+  alert_media_warning_count?: number
+  alert_media_warning_latest_id?: number
   alert_channel?: string
   media_bytes?: number
 }

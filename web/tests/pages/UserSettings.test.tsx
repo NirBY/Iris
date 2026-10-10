@@ -7,6 +7,56 @@ import { NotificationsSettings } from '../../src/pages/NotificationsSettings'
 const config = { smtp: {}, password_set: false, enabled: false }
 const admin = { id: 1, username: 'admin', role: 'admin', email: null, whatsapp_number: null }
 
+test('clearing the optional personal number submits null without changing other contacts', async () => {
+  const calls = renderWithApp(<UserSettings />, {
+    '/api/users/security/config': config,
+    '/api/users': [{ ...admin, email: 'admin@example.com', whatsapp_number: '+15550100102' }],
+    '/api/settings': {},
+    '/api/settings/alert-readiness': { users: [] },
+  })
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+  await userEvent.clear(screen.getByRole('textbox', { name: 'Personal WhatsApp number' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Save user' }))
+  await waitFor(() =>
+    expect(
+      calls.some(
+        (call) =>
+          call.url === '/api/users/1' &&
+          call.method === 'PUT' &&
+          (call.body as { whatsapp_number?: string | null }).whatsapp_number === null,
+      ),
+    ).toBe(true),
+  )
+})
+
+test('recipient status links to Notifications and OpenWA can request WhatsApp approval', async () => {
+  const calls = renderWithApp(<UserSettings />, {
+    '/api/users/security/config': config,
+    '/api/users': [{ ...admin, whatsapp_number: '+15550100102' }],
+    '/api/settings': { 'alerts.sender_instance_id': 2 },
+    '/api/settings/alert-readiness': {
+      users: [
+        { id: 1, selected: false, eligible: false, reason: 'Not selected as an alert recipient.' },
+      ],
+    },
+  })
+  expect(
+    await screen.findByRole('link', { name: 'Alerts: Not selected as an alert recipient.' }),
+  ).toHaveAttribute('href', '/settings?tab=Notifications#parent-alert-recipients')
+  const request = screen.getByRole('button', { name: 'Send WhatsApp approval for admin' })
+  await waitFor(() => expect(request).toBeEnabled())
+  await userEvent.click(request)
+  await waitFor(() =>
+    expect(
+      calls.some(
+        (c) =>
+          c.url === '/api/users/1/approve-contact' &&
+          JSON.stringify(c.body) === '{"channel":"whatsapp"}',
+      ),
+    ).toBe(true),
+  )
+})
+
 test('2FA stays disabled before providers and contacts are ready', async () => {
   renderWithApp(<UserSettings />, { '/api/users/security/config': config, '/api/users': [admin] })
   expect(await screen.findByRole('button', { name: 'Enable 2FA' })).toBeDisabled()

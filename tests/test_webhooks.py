@@ -332,3 +332,23 @@ async def test_manual_phone_requires_signed_webhooks_from_creation(app_client: A
     phone = (await app_client.get(f"/api/instances/{iid}")).json()
     assert phone["monitoring_status"] == "registered"
     assert phone["monitoring_error"] is None
+
+
+async def test_duplicate_repairs_type_without_restoring_withheld_content(app_client: Any):
+    _, token = await make_instance(app_client)
+    raw = json.loads(fx("text_received_mixed"))
+    raw["data"]["type"] = "unknown"
+    await post(app_client, token, json.dumps(raw).encode())
+    async with app_client.app.state.session_factory() as db:
+        m = await db.scalar(select(Message))
+        m.redacted, m.text, m.verdict = True, None, "harmful"
+        await db.commit()
+    raw["data"]["type"] = "poll"
+    response = await post(app_client, token, json.dumps(raw).encode())
+    assert response.json()["result"] == "duplicate"
+    async with app_client.app.state.session_factory() as db:
+        m = await db.scalar(select(Message))
+        assert m.type == "poll" and m.raw_type == "poll"
+        assert m.redacted and m.text is None and m.verdict == "harmful"
+        assert await db.scalar(select(func.count()).select_from(Message)) == 1
+        assert await db.scalar(select(func.count()).select_from(Job)) == 1

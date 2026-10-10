@@ -168,7 +168,7 @@ async def test_worker_pool_processes_webhook_job_end_to_end(app_client: Any) -> 
     pool = WorkerPool(deps, size=2, poll_interval=0.02)
     await pool.start()
     try:
-        assert pool.alive == 2
+        assert pool.alive == 3  # Two classification workers and one reserved operations worker.
         await post(app_client, token, fx("text_received_mixed"))
         for _ in range(100):
             m, _ = await message_and_job(app_client)
@@ -180,6 +180,51 @@ async def test_worker_pool_processes_webhook_job_end_to_end(app_client: Any) -> 
         await pool.stop()
     assert pool.alive == 0
     await deps.providers.aclose()
+
+
+@respx.mock
+async def test_catch_up_runs_while_all_ai_workers_are_busy(app_client: Any, monkeypatch: Any):
+    deps, token = await setup(app_client)
+    started, finish = asyncio.Event(), asyncio.Event()
+
+    async def delayed(_request: Any) -> httpx.Response:
+        started.set()
+        await finish.wait()
+        return mod_response()
+
+    async def no_due_schedules(_deps: Any) -> None:
+        pass
+
+    monkeypatch.setattr("app.jobs.worker.due_schedules", no_due_schedules)
+    respx.post(URL).mock(side_effect=delayed)
+    await post(app_client, token, fx("text_received_mixed"))
+    pool = WorkerPool(deps, size=1, poll_interval=0.02)
+    await pool.start()
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        async with deps.session_factory() as db:
+            jid = await queue.enqueue(db, "run_schedule", {"schedule_key": "openwa_recovery"})
+        for _ in range(100):
+            async with deps.session_factory() as db:
+                scheduled = await db.get(Job, jid)
+                if scheduled.status == "done":
+                    break
+            await asyncio.sleep(0.03)
+        assert scheduled.status == "done"
+        assert not finish.is_set()  # Scheduled work completed while inference remained blocked.
+        finish.set()
+        for _ in range(100):
+            message, _ = await message_and_job(app_client)
+            if message.status == "done":
+                break
+            await asyncio.sleep(0.03)
+        assert message.status == "done"
+        await pool.reconfigure(0, 0)
+        assert pool.size == 0
+    finally:
+        finish.set()
+        await pool.stop()
+        await deps.providers.aclose()
 
 
 @respx.mock

@@ -57,6 +57,7 @@ test.each([false, true])(
           return authenticated
             ? Response.json({ id: 1, username: 'admin', role: 'admin' })
             : Response.json({ detail: 'Not authenticated' }, { status: 401 })
+        if (url === '/api/auth/phones' || url === '/api/chats') return Response.json([])
         if (url === '/api/version') return Response.json({ version: 'test' })
         if (url.startsWith('/api/stats'))
           return Response.json({

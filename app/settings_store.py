@@ -3,6 +3,7 @@
 Secrets are AES-256-GCM encrypted at rest and never returned by the API (only `{"set": bool}`).
 """
 
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -42,6 +43,14 @@ def _str(v: Any) -> str:
 
 def _opt_str(v: Any) -> str | None:
     return None if v is None or v == "" else _str(v)
+
+
+def _similarity(v: Any) -> float:
+    if isinstance(v, bool) or not isinstance(v, int | float) or not math.isfinite(v):
+        raise ValueError("must be a number between 0 and 1")
+    if not 0 <= v <= 1:
+        raise ValueError("must be a number between 0 and 1")
+    return float(v)
 
 
 def _opt_int(v: Any) -> int | None:
@@ -274,6 +283,9 @@ def _schedules(value: Any) -> dict[str, Any]:
 
 
 REGISTRY: dict[str, Spec] = {
+    "openwa.webhook_attempts": Spec(3, _int_range(1, 5)),
+    "openwa.recovery_enabled": Spec(True, _bool),
+    "openwa.recovery_hours": Spec(24, _int_range(1, 720)),
     "schedules.config": Spec({}, _schedules),
     "runtime.webhook_base_url": Spec(
         None, lambda v: None if v is None or v == "" else validate_public_base_url(_str(v))
@@ -319,6 +331,10 @@ REGISTRY: dict[str, Spec] = {
     ),
     "openai.api_key": Spec(None, _opt_secret, secret=True),
     "classification.model": Spec("omni-moderation-latest", _str),
+    "classification.learning_mode": Spec("off", _choice("off", "shadow", "active")),
+    "classification.learning_retrieval": Spec("lexical", _choice("lexical", "semantic")),
+    "classification.learning_embedding_model": Spec(None, _opt_str),
+    "classification.learning_min_similarity": Spec(0.7, _similarity),
     "classification.thresholds": Spec({}, _thresholds),
     "classification.context_window_size": Spec(8, _int_range(1, 20)),
     "classification.context_max_age_hours": Spec(6, _int_range(1, 168)),

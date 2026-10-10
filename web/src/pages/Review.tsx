@@ -29,8 +29,11 @@ import { relativeTime } from '../lib/format'
 import type { Message, ReviewPage } from '../lib/types'
 import { useMe } from '../lib/auth'
 import { QueryError } from '../components/QueryError'
+import { useState } from 'react'
+import { ReviewDetails, type ReviewDraft } from '../components/ReviewDetails'
 
 export function Review() {
+  const [drafts, setDrafts] = useState<Record<number, ReviewDraft>>({})
   const { get, page, update } = useUrlState()
   const view =
     get('view') === 'responses'
@@ -44,6 +47,7 @@ export function Review() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['review', view, page],
     queryFn: () => api<ReviewPage>(`/api/review?page=${page}&page_size=${pageSize}&view=${view}`),
+    refetchInterval: 15_000,
   })
   const purge = useMutation({
     mutationFn: () => api('/api/media', { method: 'DELETE' }),
@@ -60,7 +64,13 @@ export function Review() {
         body: JSON.stringify(
           v.resolution === 'missing_data'
             ? { issue: 'missing_data' }
-            : { resolution: v.resolution },
+            : {
+                resolution: v.resolution,
+                ...(drafts[v.id]?.explanation ? { explanation: drafts[v.id].explanation } : {}),
+                ...(v.resolution === 'harmful' && drafts[v.id]?.categories.length
+                  ? { categories: drafts[v.id].categories }
+                  : {}),
+              },
         ),
       }),
     onSuccess: (_d, v) => {
@@ -100,8 +110,11 @@ export function Review() {
     <div className="flex max-w-3xl flex-col gap-5">
       <PageHeader
         title="Review"
-        description="Messages Iris could not decide on, even with the chat around them. Your call. Parents and admins can resolve reviews. Decisions are recorded without changing future AI classifications."
+        description="Human review: messages ready for your Safe or Harmful decision. Messages still being checked by AI are in IrisReview. Reviewed text can guide future Ollama checks when learning is enabled."
       />
+      <Link to="/iris-review" className="text-sm text-primary">
+        Open IrisReview AI queue
+      </Link>
       {['admin', 'parent'].includes(me?.role || '') && (
         <ConfirmDialog
           trigger={
@@ -162,141 +175,169 @@ export function Review() {
         </div>
       )}
       <ul className="flex flex-col gap-4">
-        {data?.items.map(
-          ({ message: m, classifications, missing_data: missingData, response_notes: notes }) => (
-            <li
-              key={m.id}
-              className={cn(
-                'flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5',
-                revokedClass(m, 'row'),
-              )}
-            >
-              <div className="flex flex-wrap items-center gap-3">
-                <KidStack names={m.kids.map((k) => k.kid_name)} />
-                <span className="font-medium">{m.kids.map((k) => k.kid_name).join(' and ')}</span>
-                {m.chat_name && (
-                  <span className="text-sm text-muted-foreground">in {m.chat_name}</span>
+        {data?.items
+          .filter(({ message: m }) => !['pending', 'processing'].includes(m.status))
+          .map(
+            ({
+              message: m,
+              classifications,
+              missing_data: missingData,
+              response_notes: notes,
+              human_feedback: feedback,
+            }) => (
+              <li
+                key={m.id}
+                className={cn(
+                  'flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5',
+                  revokedClass(m, 'row'),
                 )}
-                <span className="ms-auto text-xs text-muted-foreground">
-                  {relativeTime(m.sent_at)}
-                </span>
-              </div>
-              <div className="max-w-prose text-lg leading-relaxed">
-                {m.sender_name && (
-                  <span className="me-2 text-sm text-muted-foreground">{m.sender_name}:</span>
+              >
+                <div className="flex flex-wrap items-center gap-3">
+                  <KidStack names={m.kids.map((k) => k.kid_name)} />
+                  <span className="font-medium">{m.kids.map((k) => k.kid_name).join(' and ')}</span>
+                  {m.chat_name && (
+                    <span className="text-sm text-muted-foreground">in {m.chat_name}</span>
+                  )}
+                  <span className="ms-auto text-xs text-muted-foreground">
+                    {relativeTime(m.sent_at)}
+                  </span>
+                </div>
+                <div className="max-w-prose text-lg leading-relaxed">
+                  {m.sender_name && (
+                    <span className="me-2 text-sm text-muted-foreground">{m.sender_name}:</span>
+                  )}
+                  <RevealableMessage m={m} showMedia />
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
+                  <MessageFlags m={m} history />
+                </div>
+                {missingData && (
+                  <p role="status" className="rounded-md bg-warning-soft p-3 text-sm text-warning">
+                    Ignored because data is missing. This report is saved separately from safety
+                    decisions.
+                  </p>
                 )}
-                <RevealableMessage m={m} showMedia />
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5 empty:hidden">
-                <MessageFlags m={m} history />
-              </div>
-              {missingData && (
-                <p role="status" className="rounded-md bg-warning-soft p-3 text-sm text-warning">
-                  Ignored because data is missing. This report is saved separately from safety
-                  decisions.
-                </p>
-              )}
-              {!!notes?.length && (
-                <section className="rounded-lg bg-surface-2/40 p-3">
-                  <h3 className="mb-2 text-sm font-medium">Parent response notes</h3>
-                  <ul className="flex flex-col gap-2">
-                    {notes.map((note, i) => (
-                      <li key={i} className="text-sm">
-                        <p>{note.note}</p>
-                        <time className="text-xs text-muted-foreground">
-                          {relativeTime(note.created_at)}
-                        </time>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-              {m.review_reason && (
-                <p className="text-sm text-muted-foreground">{m.review_reason}</p>
-              )}
-              {classifications.slice(-1).map((c) => (
-                <details key={c.id} className="group rounded-md bg-surface-2/60 p-3">
-                  <summary className="cursor-pointer text-sm font-medium">
-                    Why it is unclear
-                  </summary>
-                  <div className="mt-3">
-                    <Scores scores={c.scores} min={0.05} />
-                  </div>
-                </details>
-              ))}
-              <div className="flex flex-wrap items-center gap-2 border-t pt-3 [&>button]:min-w-0 [&>button]:whitespace-normal">
-                <Button
-                  variant="success"
-                  size="sm"
-                  aria-label="Mark safe"
-                  title="Mark this message safe"
-                  disabled={
-                    view === 'responses' ||
-                    resolve.isPending ||
-                    rejudging(m) ||
-                    !['admin', 'parent'].includes(me?.role || '')
-                  }
-                  onClick={() => resolve.mutate({ id: m.id, resolution: 'safe' })}
-                >
-                  <Check /> Safe
-                </Button>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  aria-label="Mark harmful"
-                  title="Mark this message harmful"
-                  disabled={
-                    view === 'responses' ||
-                    resolve.isPending ||
-                    rejudging(m) ||
-                    !['admin', 'parent'].includes(me?.role || '')
-                  }
-                  onClick={() => resolve.mutate({ id: m.id, resolution: 'harmful' })}
-                >
-                  <ShieldAlert /> Harmful
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  aria-label={missingData ? 'Missing data reported' : 'Ignore — missing data'}
-                  title="Ignore this item and save a missing-data report without judging safety."
-                  className="min-[400px]:col-span-2 sm:col-span-1"
-                  disabled={
-                    view === 'responses' ||
-                    resolve.isPending ||
-                    rejudging(m) ||
-                    missingData ||
-                    !['admin', 'parent'].includes(me?.role || '')
-                  }
-                  onClick={() => resolve.mutate({ id: m.id, resolution: 'missing_data' })}
-                >
-                  <CircleHelp /> {missingData ? 'Reported' : 'Ignore'}
-                </Button>
-                <Button
-                  asChild
-                  variant="ghost"
-                  size="sm"
-                  className="min-w-0 whitespace-normal min-[400px]:col-span-2 sm:col-span-1"
-                >
-                  <Link
-                    to={`/messages/${m.id}`}
-                    aria-label="See the conversation"
-                    title="Open the full conversation"
+                {!!notes?.length && (
+                  <section className="rounded-lg bg-surface-2/40 p-3">
+                    <h3 className="mb-2 text-sm font-medium">Parent response notes</h3>
+                    <ul className="flex flex-col gap-2">
+                      {notes.map((note, i) => (
+                        <li key={i} className="text-sm">
+                          <p>{note.note}</p>
+                          <time className="text-xs text-muted-foreground">
+                            {relativeTime(note.created_at)}
+                          </time>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+                {m.review_reason && (
+                  <p className="text-sm text-muted-foreground">{m.review_reason}</p>
+                )}
+                {feedback && (
+                  <section className="rounded-md bg-surface-2 p-3 text-sm">
+                    <p className="font-medium">Human decision: {feedback.verdict}</p>
+                    {!!feedback.categories?.length && <p>{feedback.categories.join(', ')}</p>}
+                    {feedback.explanation && (
+                      <p dir="auto" className="whitespace-pre-wrap">
+                        {feedback.explanation}
+                      </p>
+                    )}
+                  </section>
+                )}
+                {view !== 'responses' &&
+                  ['admin', 'parent'].includes(me?.role || '') &&
+                  !m.redacted && (
+                    <ReviewDetails
+                      id={m.id}
+                      value={drafts[m.id] || { categories: [], explanation: '' }}
+                      disabled={resolve.isPending || rejudging(m)}
+                      onChange={(value) =>
+                        setDrafts((previous) => ({ ...previous, [m.id]: value }))
+                      }
+                    />
+                  )}
+                {classifications.slice(-1).map((c) => (
+                  <details key={c.id} className="group rounded-md bg-surface-2/60 p-3">
+                    <summary className="cursor-pointer text-sm font-medium">
+                      Why it is unclear
+                    </summary>
+                    <div className="mt-3">
+                      <Scores scores={c.scores} min={0.05} />
+                    </div>
+                  </details>
+                ))}
+                <div className="flex flex-wrap items-center gap-2 border-t pt-3 [&>button]:min-w-0 [&>button]:whitespace-normal">
+                  {view !== 'responses' && (
+                    <>
+                      <Button
+                        variant="success"
+                        size="sm"
+                        aria-label="Mark safe"
+                        title="Mark this message safe"
+                        disabled={
+                          resolve.isPending ||
+                          rejudging(m) ||
+                          !['admin', 'parent'].includes(me?.role || '')
+                        }
+                        onClick={() => resolve.mutate({ id: m.id, resolution: 'safe' })}
+                      >
+                        <Check /> Safe
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        aria-label="Mark harmful"
+                        title="Mark this message harmful"
+                        disabled={
+                          resolve.isPending ||
+                          rejudging(m) ||
+                          !['admin', 'parent'].includes(me?.role || '')
+                        }
+                        onClick={() => resolve.mutate({ id: m.id, resolution: 'harmful' })}
+                      >
+                        <ShieldAlert /> Harmful
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={missingData ? 'Missing data reported' : 'Ignore — missing data'}
+                        title="Ignore this item and save a missing-data report without judging safety."
+                        className="min-[400px]:col-span-2 sm:col-span-1"
+                        disabled={
+                          resolve.isPending ||
+                          rejudging(m) ||
+                          missingData ||
+                          !['admin', 'parent'].includes(me?.role || '')
+                        }
+                        onClick={() => resolve.mutate({ id: m.id, resolution: 'missing_data' })}
+                      >
+                        <CircleHelp /> {missingData ? 'Reported' : 'Ignore'}
+                      </Button>
+                    </>
+                  )}
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="min-w-0 whitespace-normal min-[400px]:col-span-2 sm:col-span-1"
                   >
-                    <MessagesSquare /> Chat
-                  </Link>
-                </Button>
-              </div>
-              {rejudging(m) && (
-                <p role="status" className="text-xs text-muted-foreground">
-                  AI recheck queued or running. Actions unlock when it finishes.
-                </p>
-              )}
-              <details className="rounded-md border border-dashed p-3">
-                <summary className="cursor-pointer text-xs text-muted-foreground">
-                  Note: additional options
-                </summary>
-                <div className="mt-3 flex flex-wrap gap-2">
+                    <Link
+                      to={`/messages/${m.id}`}
+                      aria-label="See the conversation"
+                      title="Open the full conversation"
+                    >
+                      <MessagesSquare /> Chat
+                    </Link>
+                  </Button>
+                </div>
+                {rejudging(m) && (
+                  <p role="status" className="text-xs text-muted-foreground">
+                    AI recheck queued or running. Actions unlock when it finishes.
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
                   <SkipGroup messageId={m.id} isGroup={m.is_group} disabled={rejudging(m)} />
                   <Button
                     variant="outline"
@@ -325,10 +366,9 @@ export function Review() {
                     <Copy />
                   </Button>
                 </div>
-              </details>
-            </li>
-          ),
-        )}
+              </li>
+            ),
+          )}
       </ul>
       {data && (
         <Pagination

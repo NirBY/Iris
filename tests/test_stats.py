@@ -50,6 +50,7 @@ async def test_stats_counts(app_client: Any) -> None:
     async with app_client.app.state.session_factory() as s:
         msgs = (await s.execute(select(Message).order_by(Message.id))).scalars().all()
         msgs[1].verdict = "review"
+        msgs[1].status = "failed"  # terminal AI failure is ready for a human decision
         await create_alert(s, msgs[0], {"violence": 0.9})
         await s.execute(update(Job).where(Job.id == 2).values(status="failed"))
         await s.commit()
@@ -224,3 +225,51 @@ def test_provider_storage_uses_fresh_metadata_and_rejects_stale_report(tmp_path)
     assert provider_storage(None, report)["bytes"] == 100
     report.write_text(json.dumps({"bytes": 100, "database_bytes": 40, "measured_at": 0}))
     assert provider_storage(None, report)["bytes"] is None
+
+
+async def test_chats_filters_match_the_same_message(app_client: Any) -> None:
+    iid, token = await make_instance(app_client, "Noa")
+    other_id, other_token = await make_instance(app_client, "Dan")
+    await post(app_client, token, fx("group_text_received"))
+    await post(app_client, other_token, fx("text_received_mixed"))
+    async with app_client.app.state.session_factory() as db:
+        messages = list(await db.scalars(select(Message).order_by(Message.id)))
+        messages[0].verdict = "harmful"
+        messages[0].sender_name = "Dana"
+        messages[1].verdict = "safe"
+        messages[1].sender_name = "Other"
+        group_id = messages[0].chat_id
+        await db.commit()
+    filters = {"instance_id": iid, "type": "text", "verdict": "harmful", "sender": "Dana"}
+    chats = (await app_client.get("/api/chats", params=filters)).json()
+    assert [c["id"] for c in chats] == [group_id]
+    assert chats[0]["message_count"] == 1
+    for change in (
+        {"instance_id": other_id},
+        {"type": "video"},
+        {"verdict": "safe"},
+        {"sender": "missing"},
+        {"from": "2100-01-01T00:00:00Z"},
+        {"q": "!!!"},
+    ):
+        assert (await app_client.get("/api/chats", params=filters | change)).json() == []
+    # Use the existing indexed Hebrew/English search implementation identically to Messages.
+    for q in ("שלום", "hello"):
+        params = {"q": q}
+        matches = (await app_client.get("/api/messages", params=params)).json()["items"]
+        chats = (await app_client.get("/api/chats", params=params)).json()
+        assert {c["id"] for c in chats} == {m["chat_id"] for m in matches}
+    assert len((await app_client.get("/api/chats")).json()) == 2
+
+
+def test_disk_capacity_reports_real_volume_and_missing_path(tmp_path: Any) -> None:
+    import shutil
+
+    from app.api.stats import disk_capacity
+
+    expected = shutil.disk_usage(tmp_path)
+    result = disk_capacity(tmp_path)
+    assert result["total_bytes"] == expected.total
+    assert result["used_bytes"] is not None and result["free_bytes"] is not None
+    assert result["status"] == "measured"
+    assert disk_capacity(tmp_path / "missing")["total_bytes"] is None

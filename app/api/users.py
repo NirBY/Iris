@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.alerts.readiness import bind_recipient_users
 from app.api.auth import _set_session_cookie
 from app.config import Settings, get_settings
-from app.db.models import LoginChallenge, Setting, User
+from app.db.models import Instance, LoginChallenge, Setting, User
 from app.deps import get_db
 from app.security.auth import admin_user, hash_password
 from app.security.crypto import encrypt
@@ -28,6 +28,7 @@ from app.security.two_factor import (
     contact_link,
     email_address,
     green_api_config,
+    green_sender_number,
     load,
     reserve_green,
     save,
@@ -96,6 +97,29 @@ async def validate_enrollment_contact(db: AsyncSession, user: User, cfg: Setting
 
 
 async def unique_contacts(db: AsyncSession, body: UserBody, user_id: int | None = None) -> None:
+    from app.settings_store import get_setting
+
+    sender_id = await get_setting(db, "alerts.sender_instance_id")
+    sender = await db.get(Instance, sender_id) if sender_id else None
+    if (
+        body.whatsapp_number
+        and sender
+        and sender.phone_number
+        and body.whatsapp_number.lstrip("+") == sender.phone_number.lstrip("+")
+    ):
+        raise HTTPException(
+            422, "Personal WhatsApp number must differ from the OpenWA alert sender number."
+        )
+    config = await green_api_config(db, get_settings())
+    if body.whatsapp_number and config.get("instance_id"):
+        green_number = await green_sender_number(config)
+        if green_number == body.whatsapp_number:
+            raise HTTPException(
+                422,
+                "Personal WhatsApp number must differ from the GreenAPI alert sender number. "
+                "Use the parent's own number.",
+            )
+        await save(db, GREEN_API_KEY, encrypt(get_settings().key_bytes, json.dumps(config)), True)
     for column, value, label in (
         (
             func.lower(func.trim(User.email)),
@@ -350,16 +374,37 @@ async def configure_whatsapp(body: WhatsAppBody, db: DB, cfg: Cfg) -> dict[str, 
     if not body.instance_id or not token:
         raise HTTPException(422, "GreenAPI instance ID and API token are required")
     config = {"api_url": body.api_url, "instance_id": body.instance_id, "token": token}
+    if same_account and token == previous.get("token") and previous.get("sender_number"):
+        config["sender_number"] = previous["sender_number"]
     if body.media_url:
         config["media_url"] = body.media_url
+    try:
+        await verify_green_sender(db, config)
+    except HTTPException as exc:
+        if exc.status_code != 503:
+            raise
+        # Save credentials for a disconnected account; it remains unverified.
+        config.pop("sender_number", None)
     config["verified"] = (
         bool(previous.get("verified"))
         if all(previous.get(k) == v for k, v in config.items())
         else False
     )
+    config["delivery_verified"] = bool(previous.get("delivery_verified")) and config["verified"]
     await save(db, GREEN_API_KEY, encrypt(cfg.key_bytes, json.dumps(config)), True)
     await db.commit()
     return {"ok": True}
+
+
+async def verify_green_sender(db: AsyncSession, config: dict[str, Any]) -> None:
+    number = await green_sender_number(config, refresh=True)
+    if number and await db.scalar(select(User.id).where(User.whatsapp_number == number)):
+        config["verified"] = False
+        raise HTTPException(
+            422,
+            "The GreenAPI sender is assigned as a user's personal WhatsApp number. "
+            "Change that user's number in Users, then verify GreenAPI again.",
+        )
 
 
 @router.post("/security/whatsapp/check")
@@ -378,18 +423,35 @@ async def check_whatsapp_account(db: DB, cfg: Cfg) -> dict[str, Any]:
             result.raise_for_status()
             authorized = result.json().get("stateInstance") == "authorized"
     except (httpx.HTTPError, ValueError):
+        config["verified"] = False
+        config["delivery_verified"] = False
+        await save(db, GREEN_API_KEY, encrypt(cfg.key_bytes, json.dumps(config)), True)
+        await db.commit()
         return {
             "ok": False,
             "detail": "GreenAPI account check failed; verify the saved credentials",
         }
     if not authorized:
+        config["verified"] = False
+        config["delivery_verified"] = False
+        await save(db, GREEN_API_KEY, encrypt(cfg.key_bytes, json.dumps(config)), True)
+        await db.commit()
         return {"ok": False, "detail": "GreenAPI account is not connected"}
+    try:
+        await verify_green_sender(db, config)
+    except HTTPException:
+        config["verified"] = False
+        config["delivery_verified"] = False
+        await save(db, GREEN_API_KEY, encrypt(cfg.key_bytes, json.dumps(config)), True)
+        await db.commit()
+        raise
     config["verified"] = True
     await save(db, GREEN_API_KEY, encrypt(cfg.key_bytes, json.dumps(config)), True)
     await db.commit()
     return {
         "ok": True,
-        "detail": "GreenAPI connected. Alerts are ready; 2FA needs an approved personal number.",
+        "detail": "GreenAPI connected. Test delivery next; "
+        "alerts and 2FA need approved recipient numbers.",
     }
 
 
@@ -398,6 +460,7 @@ async def test_whatsapp(db: DB, cfg: Cfg, admin: Admin) -> dict[str, Any]:
     if not admin.whatsapp_number:
         raise HTTPException(422, "Configure your personal WhatsApp number in Settings > Users")
     config = await green_api_config(db, cfg)
+    await verify_green_sender(db, config)
     try:
         link = await contact_link(db, cfg, admin, "whatsapp")
         await reserve_green(db, config, admin.whatsapp_number)
@@ -413,6 +476,7 @@ async def test_whatsapp(db: DB, cfg: Cfg, admin: Admin) -> dict[str, Any]:
             "detail": "GreenAPI test failed. Check credentials and WhatsApp connection.",
         }
     config["verified"] = True
+    config["delivery_verified"] = True
     await save(db, GREEN_API_KEY, encrypt(cfg.key_bytes, json.dumps(config)), True)
     await db.commit()
     return {
@@ -423,7 +487,7 @@ async def test_whatsapp(db: DB, cfg: Cfg, admin: Admin) -> dict[str, Any]:
 
 
 class ContactApprovalBody(BaseModel):
-    channel: Literal["email", "whatsapp"]
+    channel: Literal["email", "whatsapp", "telegram"]
 
 
 @router.post("/{user_id}/approve-contact")
@@ -433,7 +497,25 @@ async def request_contact_approval(
     user = await db.get(User, user_id)
     if user is None:
         raise HTTPException(404, "User not found")
-    link = await contact_link(db, cfg, user, body.channel)
+    import httpx
+
+    from app.alerts.readiness import delivery_readiness
+    from app.settings_store import get_secret, get_setting
+
+    destination = None
+    if body.channel == "telegram":
+        readiness = await delivery_readiness(db, "telegram")
+        destination = next(
+            (r.destination for r in readiness.recipients if r.user_id == user.id and r.destination),
+            None,
+        )
+        if not destination:
+            raise HTTPException(
+                422,
+                "Select this user as a parent recipient and save their Telegram chat ID "
+                "in Notifications first.",
+            )
+    link = await contact_link(db, cfg, user, body.channel, destination)
     try:
         if body.channel == "email":
             config = await smtp_config(db, cfg)
@@ -441,13 +523,80 @@ async def request_contact_approval(
                 raise HTTPException(422, "Test SMTP first in Settings > Notifications")
             assert user.email
             await asyncio.to_thread(send_smtp, config, user.email, "123456", link)
+        elif body.channel == "telegram":
+            token = await get_secret(db, "alerts.telegram_bot_token", cfg.key_bytes)
+            if not token:
+                raise HTTPException(422, "Save the Telegram bot token in Notifications first.")
+            async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
+                result = await client.post(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    json={
+                        "chat_id": destination,
+                        "text": f"Approve your Iris Telegram alert destination:\n{link}\n"
+                        "This link expires in 30 minutes.",
+                    },
+                )
+                result.raise_for_status()
+                if not result.json().get("ok"):
+                    raise HTTPException(503, "Telegram did not accept the approval message.")
         else:
             config = await green_api_config(db, cfg)
             if not config.get("verified"):
-                raise HTTPException(422, "Test GreenAPI first in Settings > Notifications")
-            assert user.whatsapp_number
-            await reserve_green(db, config, user.whatsapp_number)
-            await send_green_code(config, user.whatsapp_number, "123456", link)
+                from app.openwa.client import OpenWAClient
+                from app.security.crypto import decrypt
+
+                sender_id = await get_setting(db, "alerts.sender_instance_id")
+                phone = await db.get(Instance, sender_id) if sender_id else None
+                if not phone or not phone.openwa_api_key_enc:
+                    raise HTTPException(
+                        422,
+                        "Test GreenAPI or configure a connected OpenWA sender "
+                        "in Notifications first.",
+                    )
+                assert user.whatsapp_number
+                if phone.phone_number and phone.phone_number.lstrip(
+                    "+"
+                ) == user.whatsapp_number.lstrip("+"):
+                    raise HTTPException(
+                        422, "Use a personal number different from the OpenWA sender."
+                    )
+                openwa_client = OpenWAClient(
+                    phone.openwa_base_url, decrypt(cfg.key_bytes, phone.openwa_api_key_enc)
+                )
+                try:
+                    if not await openwa_client.session_ready(phone.openwa_instance_id):
+                        raise HTTPException(
+                            422, "OpenWA sender is not connected. Pair it in Notifications first."
+                        )
+                    from app.alerts.pacing import reserve
+                    from app.jobs.queue import DeferredError
+
+                    try:
+                        await reserve(
+                            db, f"openwa:{phone.id}", user.whatsapp_number, authentication=True
+                        )
+                    except DeferredError as exc:
+                        raise HTTPException(
+                            429,
+                            f"Approval limit reached. Retry in {int(exc.delay) + 1} seconds.",
+                        ) from None
+                    await openwa_client.send_text(
+                        phone.openwa_instance_id,
+                        user.whatsapp_number.lstrip("+") + "@c.us",
+                        f"Approve your Iris WhatsApp contact:\n{link}\n"
+                        "This link expires in 30 minutes.",
+                    )
+                finally:
+                    await openwa_client.aclose()
+            else:
+                assert user.whatsapp_number
+                sender = await green_sender_number(config)
+                if sender == user.whatsapp_number:
+                    raise HTTPException(
+                        422, "Use a personal WhatsApp number different from the GreenAPI sender."
+                    )
+                await reserve_green(db, config, user.whatsapp_number)
+                await send_green_code(config, user.whatsapp_number, "123456", link)
     except HTTPException:
         raise
     except Exception:
@@ -464,6 +613,7 @@ async def delete_user(user_id: int, db: DB) -> Response:
     if user.role == "admin":
         raise HTTPException(422, "Admin accounts cannot be deleted")
     await bind_recipient_users(db)
+    await db.execute(delete(Setting).where(Setting.key == f"security.telegram_approved.{user_id}"))
     await db.execute(delete(LoginChallenge).where(LoginChallenge.user_id == user_id))
     await db.execute(
         delete(Setting).where(

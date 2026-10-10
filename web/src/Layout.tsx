@@ -37,9 +37,11 @@ const THEMES: { value: Theme; label: string; icon: typeof Sun }[] = [
 const withoutCount = (title: string) => title.replace(/^\(\d+\) /, '')
 
 function useShellData() {
+  const { data: me } = useMe()
   const { data: stats } = useQuery({
-    queryKey: ['stats'],
+    queryKey: ['stats', me?.id],
     queryFn: () => api<Stats>('/api/stats'),
+    enabled: !!me,
     refetchInterval: 60_000,
   })
   const { data: version } = useQuery({

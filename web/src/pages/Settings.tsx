@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { ParentConnections } from '../components/PhoneConnections'
 import { AlertDeliveryHealth } from '../components/AlertDeliveryHealth'
 import { OllamaModelPicker } from '../components/OllamaModelPicker'
@@ -20,7 +20,7 @@ import {
   XCircle,
   type LucideIcon,
 } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
 import { PageHeader } from '../components/PageHeader'
 import { PageLoading } from '../components/PageLoading'
@@ -41,9 +41,13 @@ import { NotificationsSettings } from './NotificationsSettings'
 import { DatabaseTab } from './DatabaseTab'
 import { ScheduleSettings } from './ScheduleSettings'
 import { AuditSettings } from './AuditSettings'
+import { LearningSettings } from './LearningSettings'
 
 type Secret = { set: boolean }
 interface Values {
+  'openwa.webhook_attempts'?: number
+  'openwa.recovery_enabled'?: boolean
+  'openwa.recovery_hours'?: number
   'runtime.public_base_url'?: string
   'runtime.webhook_base_url'?: string | null
   'runtime.classification_provider'?: string
@@ -84,6 +88,10 @@ interface Values {
   'transcription.cloudflare_api_token': Secret
   'transcription.cloudflare_model': string
   'classification.model': string
+  'classification.learning_mode'?: 'off' | 'shadow' | 'active'
+  'classification.learning_retrieval'?: 'lexical' | 'semantic'
+  'classification.learning_embedding_model'?: string | null
+  'classification.learning_min_similarity'?: number
   'classification.context_window_size': number
   'classification.context_max_age_hours': number
   'scope.monitor_from_me': boolean
@@ -145,6 +153,8 @@ const SECRETS = [
   'alerts.telegram_bot_token',
 ]
 const NUMBERS = [
+  'openwa.webhook_attempts',
+  'openwa.recovery_hours',
   'runtime.workers',
   'runtime.delivery_workers',
   'runtime.job_heartbeat_seconds',
@@ -155,6 +165,7 @@ const NUMBERS = [
   'alerts.cooldown_minutes',
   'classification.context_window_size',
   'classification.context_max_age_hours',
+  'classification.learning_min_similarity',
   'retention.message_days',
   'retention.message_hours',
   'media.retention_hours',
@@ -175,6 +186,7 @@ const NUMBER_LABELS: Record<string, string> = {
   'media.retention_days': 'Keep media for',
 }
 const BOOLEANS = [
+  'openwa.recovery_enabled',
   'runtime.local_safety_mode',
   'runtime.require_webhook_signatures',
   'runtime.whisper_use_environment_key',
@@ -460,6 +472,15 @@ function Account() {
 
 export function Settings() {
   const qc = useQueryClient()
+  const recoverOpenWA = useMutation({
+    mutationFn: () => api('/api/schedules/openwa_recovery/run', { method: 'POST' }),
+    onSuccess: () => {
+      toast.success('OpenWA catch-up queued. See Schedules for results.')
+      void qc.invalidateQueries({ queryKey: ['schedules'] })
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Could not queue catch-up.'),
+  })
   const { data, isError, refetch } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api<Values>('/api/settings'),
@@ -473,6 +494,23 @@ export function Settings() {
     queryFn: () => api<ThresholdRow[]>('/api/settings/thresholds'),
   })
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  useEffect(() => {
+    if (location.hash !== '#parent-alert-recipients') return
+    const focus = () => {
+      const target = document.getElementById('parent-alert-recipients')
+      if (!target) return false
+      target.scrollIntoView({ block: 'start' })
+      target.focus({ preventScroll: true })
+      return true
+    }
+    if (focus()) return
+    const observer = new MutationObserver(() => {
+      if (focus()) observer.disconnect()
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [location.hash, location.search])
   const requestedTab =
     searchParams.get('tab') === 'Alerts' ? 'Notifications' : searchParams.get('tab')
   const tab: Tab = TABS.find((t) => t === requestedTab) ?? 'Providers'
@@ -600,6 +638,9 @@ export function Settings() {
         title="Settings"
         description="Providers, how Iris judges messages, where alerts go, and how long things are kept."
       />
+      <Link to="/setup" className="text-sm text-primary underline">
+        Open setup checklist
+      </Link>
       {saveError && (
         <p role="alert" className="text-sm text-danger">
           {saveError}
@@ -879,7 +920,72 @@ export function Settings() {
               </Field>
               {num('classification.context_window_size', 'Messages of context (1 to 20)', 1, 20)}
               {num('classification.context_max_age_hours', 'Context goes back (hours)', 1, 168)}
+              <Field label="Ollama learning from reviewed text">
+                <Select
+                  value={get('classification.learning_mode') || 'off'}
+                  onChange={(e) => set('classification.learning_mode')(e.target.value)}
+                >
+                  <option value="off">Off</option>
+                  <option value="shadow">Shadow: compare without changing alerts</option>
+                  <option value="active">Active: use examples to detect additional harm</option>
+                </Select>
+              </Field>
+              <p className="text-sm text-muted-foreground">
+                Start with Shadow. Active keeps stronger baseline decisions and may add alerts or
+                reviews. Applies to Ollama text messages; it does not train model weights.
+              </p>
+              <Field label="Find reviewed examples by">
+                <Select
+                  value={get('classification.learning_retrieval') || 'lexical'}
+                  onChange={(e) => set('classification.learning_retrieval')(e.target.value)}
+                >
+                  <option value="lexical">Matching words</option>
+                  <option value="semantic">Meaning (local embeddings)</option>
+                </Select>
+              </Field>
+              {get('classification.learning_retrieval') === 'semantic' && (
+                <>
+                  <Field label="Installed Ollama embedding model">
+                    <Input
+                      dir="ltr"
+                      value={get('classification.learning_embedding_model')}
+                      onChange={(e) =>
+                        set('classification.learning_embedding_model')(e.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="Minimum semantic similarity (0 to 1)">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={
+                        edit['classification.learning_min_similarity'] ??
+                        (get('classification.learning_min_similarity') || '0.7')
+                      }
+                      onChange={(e) =>
+                        set('classification.learning_min_similarity')(e.target.value)
+                      }
+                    />
+                  </Field>
+                  <TestButton
+                    target="ollama_embedding"
+                    label="Test embedding model"
+                    body={{
+                      base_url: get('runtime.ollama_base_url'),
+                      model: get('classification.learning_embedding_model'),
+                    }}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Use an installed multilingual embedding model. If it is unavailable, Iris falls
+                    back to matching words. The similarity cutoff depends on the model; compare
+                    results in Shadow before using Active.
+                  </p>
+                </>
+              )}
             </Section>
+            <LearningSettings />
             <Section
               title="Thresholds"
               description="Scores are 0 to 1. Lower numbers make Iris more cautious."
@@ -963,6 +1069,45 @@ export function Settings() {
                   onChange={(e) => set('runtime.webhook_base_url')(e.target.value)}
                 />
               </Field>
+              <Field label="Webhook delivery attempts (1–5 total)">
+                <Input
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={get('openwa.webhook_attempts')}
+                  onChange={(e) => set('openwa.webhook_attempts')(e.target.value)}
+                />
+              </Field>
+              <Toggle
+                label="Recover missed OpenWA messages automatically"
+                checked={get('openwa.recovery_enabled') !== 'false'}
+                onChange={(value) => set('openwa.recovery_enabled')(String(value))}
+              />
+              <Field label="Catch-up lookback (hours, 1–720)">
+                <Input
+                  type="number"
+                  min={1}
+                  max={720}
+                  value={get('openwa.recovery_hours')}
+                  onChange={(e) => set('openwa.recovery_hours')(e.target.value)}
+                />
+              </Field>
+              <p className="text-sm text-muted-foreground">
+                Saved retry settings apply to existing Iris webhooks within a minute. Catch-up uses
+                retained OpenWA messages, respects monitoring scope and retention, and avoids
+                duplicates. Use Schedules → OpenWA message catch-up → Run now for manual recovery.
+              </p>
+              <Button
+                variant="outline"
+                disabled={
+                  recoverOpenWA.isPending ||
+                  saving ||
+                  Object.keys(edit).some((key) => key.startsWith('openwa.'))
+                }
+                onClick={() => recoverOpenWA.mutate()}
+              >
+                Recover missed messages now
+              </Button>
             </Section>
             <ParentConnections
               showSender={!get('alerts.channel') || get('alerts.channel') === 'openwa'}

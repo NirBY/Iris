@@ -67,13 +67,16 @@ test('desktop shows the sidebar with every destination and live badges', async (
     'Home',
     'Alerts',
     'Review',
+    'IrisReview',
     'Messages',
     'Chats',
     'Phones',
     'Jobs',
     'Settings',
   ])
-    expect(await within(nav).findByRole('link', { name: new RegExp(name) })).toBeInTheDocument()
+    expect(
+      await within(nav).findByRole('link', { name: new RegExp('^' + name) }),
+    ).toBeInTheDocument()
   expect(await within(nav).findByText('3 waiting')).toBeInTheDocument() // new alerts
   expect(within(nav).getByText('2 waiting')).toBeInTheDocument() // review queue
   expect(within(nav).getByRole('link', { name: /Alerts/ })).toHaveAttribute('aria-current', 'page')

@@ -18,7 +18,13 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
 
 Ollama can use accepted parent text reviews as examples for future checks. Settings →
 Classification includes Off, Shadow comparison, and conservative Active learning modes.
-See the [architecture flowchart, implementation plan, and evaluation guide](docs/OLLAMA_LEARNING.md).
+See the [architecture flowchart, implementation plan, and evaluation guide](OLLAMA_LEARNING.md).
+
+**IrisReview** shows messages queued for AI or being checked, with a thinking icon per message.
+Parents and admins can skip AI to move a message into human **Review**. Cancelling AI revokes its
+job lease, so a late AI result cannot overwrite a subsequent human decision. Human Review excludes
+AI work and shows Safe/Harmful actions only for unresolved decisions; response history is read-only.
+Review actions are visible directly, without an additional-options section.
 
 ### Operational settings
 
@@ -721,6 +727,44 @@ outside this Git repository. Temporary test runs and generated reports belong un
 contact real services are marked `integration` and require explicit test configuration. A green
 GitHub run verifies the revision that was pushed, not subsequent uncommitted local changes.
 
+## OpenWA retry settings and missed-message recovery
+
+The Alerts page defaults to **Unseen for the signed-in account**. Opening an alert detail page
+marks it read for that account and updates its list and badge. Browsing the list or fetching a
+detail through the read-only API does not mark it read; the portal posts to
+`/api/alerts/{id}/seen` after opening the detail successfully. **Seen**, **All**, and **Dismissed**
+views retain access to existing alert records. **Mark unseen** returns an alert to your Unseen
+list. Read/dismiss state is keyed by both account and alert, and cannot clear another account's
+unseen alerts. It does not change the message's safety verdict or delete the alert. Existing
+global statuses are not attributed to individual users during migration, so older alerts start
+unseen for each account until that account opens them.
+
+OpenWA recovery is configured under **Settings → Notifications → OpenWA webhooks**:
+choose **1–5 total delivery attempts**, enable automatic catch-up, and set a **1–720 hour**
+lookback (default 24 hours). Iris applies the attempt count to its existing webhooks on the next
+minute's catch-up run and uses it for new registrations. Other webhooks are left untouched.
+Retry backoff/timeout remain OpenWA server settings.
+
+Scheduled operations have one reserved worker whenever classification workers are enabled.
+Catch-up and device checks therefore run while AI workers are busy. The health endpoint's worker
+count includes this reserved worker; setting classification workers to zero pauses scheduled work.
+
+**Recover missed messages now** queues a manual pull even when automatic recovery is off.
+**Settings → Schedules → OpenWA message catch-up** shows counts, errors and execution history,
+and controls the schedule. Recovery reads OpenWA's persisted message history with inline media
+disabled; failed-delivery diagnostics alone do not contain the message body. Each phone scans
+up to three 100-row pages per run with a persistent keyset cursor and a two-minute overlap.
+Incomplete runs resume next time, and changing the lookback starts a fresh bounded scan.
+The retention window also caps recovery. Scope, paused phones, parent/sender roles, skipped chats,
+own-alert detection, existing human decisions and withheld content remain enforced by normal
+ingestion. Recovered messages enter IrisReview and the normal classification/alert pipeline.
+Upstream errors leave progress unchanged and appear in schedule results without message content.
+
+Recovery requires messages still retained in OpenWA and a key permitted to read session history.
+It cannot recreate purged messages, missing media bytes, or historical edit/revocation webhook
+events that the history API does not expose. It does not resend failed outgoing WhatsApp messages.
+
+
 ## License
 
 MIT License. See [LICENSE](LICENSE).
@@ -966,3 +1010,33 @@ GreenAPI recipient phones do not need individual approval. A successfully verifi
 connection and a valid selected recipient number are sufficient. Missing optional phone numbers,
 watch users, deleted accounts and empty child assignments remain ineligible. The same policy is
 used for channel selection, delivery, review-button responses and dashboard readiness.
+
+
+## Chats filters
+
+Chats supports the same time, phone, message type, verdict, sender, and message/transcript search filters as Messages, including Hebrew. A conversation matches only when a single message satisfies all selected filters. Opening a chat carries those filters into Messages. Chat message and alert counts continue to show the full conversation totals.
+
+
+## Home resource metrics
+
+System resources appears last on Home. Activity, alerts per group/contact, recent alerts and system resources each have an accessible collapse control and start expanded. Collapsing preserves filters and loaded content. Disk measures the filesystem hosting Iris, including other files on that volume. CPU samples the Iris container over 250 ms and respects its CPU quota; RAM measures its cgroup memory use (including cache) against its configured limit. The cards refresh each minute, support Hebrew RTL and reduced motion, and show unavailable when counters cannot be read. Disk uses a liquid glass, CPU a pulse, and RAM illuminated segments.
+
+
+### Reading alerts on page entry
+
+Entering Alerts marks the displayed batch read for the signed-in user and refreshes Home/sidebar unread counts. The rows stay visible during that visit so they can be read; returning to Unseen excludes them. Next unread alerts loads the first remaining batch, avoiding pagination skips as the unread list shrinks. Background data requests remain read-only, other accounts are unaffected, and read errors offer a retry.
+
+
+### Missing saved media
+
+Home's missing-media warning links to `/alerts?view=all&media=missing`, so its affected list includes read alerts. Alerts offers a No saved media copy filter. The warning and list share the same predicate: retained non-withheld image/audio/voice/video/sticker/document alerts with no non-purged saved media row. This differs from Human review, which lists messages awaiting a human decision.
+
+
+### WhatsApp message types
+
+Polls are recognized separately and their available text can be searched and checked. Empty deleted-message markers and unsupported gateway messages have explanatory labels instead of `[other]`. Deleted content and unsupported fields cannot be reconstructed when OpenWA provides neither a body nor media. Catch-up can repair older missing type metadata on duplicate messages without restoring content or changing existing verdicts. Empty confirmed deletion markers bypass AI; genuinely unsupported messages stay subject to review.
+
+
+The installed OpenWA poll mapper also preserves question, option names and multiple-answer mode in webhooks and stored-message metadata. Iris converts these fields into searchable/classifiable text; incomplete polls stay reviewable. Poll secrets and voter identities are not included. Older gateway rows may contain only the question; changing a type label cannot reconstruct missing options or votes.
+
+Home shows unfinished or skipped setup steps to admins. OpenWA, a tested notifier, an approved parent recipient and a connected child remain visible until ready. The defaults-review reminder is dismissible per admin; dismissal does not complete setup. The setup checklist remains available from Home and Settings.

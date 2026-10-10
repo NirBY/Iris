@@ -6,6 +6,9 @@ import { Toaster } from '../../src/components/ui/toaster'
 import { Settings } from '../../src/pages/Settings'
 
 const settings = {
+  'openwa.webhook_attempts': 3,
+  'openwa.recovery_enabled': true,
+  'openwa.recovery_hours': 24,
   'openai.api_key': { set: true },
   'transcription.provider': 'openai',
   'transcription.openai_model': 'gpt-4o-mini-transcribe',
@@ -54,6 +57,21 @@ function renderPage(values: Record<string, unknown> = settings) {
           status: 200,
         })
       if (url.startsWith('/api/users')) return new Response('[]', { status: 200 })
+      if (url.startsWith('/api/learning/examples'))
+        return new Response(JSON.stringify({ items: [] }), { status: 200 })
+      if (url.startsWith('/api/learning/runs'))
+        return new Response(
+          JSON.stringify({
+            items: [],
+            summary: {
+              sampled_runs: 0,
+              reviewed_messages: 0,
+              baseline: { false_positive: 0, false_negative: 0, review: 0 },
+              candidate: { false_positive: 0, false_negative: 0, review: 0 },
+            },
+          }),
+          { status: 200 },
+        )
       const body = url.startsWith('/api/stats')
         ? { media_files: 3, media_bytes: 3 * 1024 * 1024 }
         : url.startsWith('/api/settings/test')
@@ -97,6 +115,22 @@ test('local providers show dedicated tests and keep cloud controls hidden', asyn
   expect(calls.some((c) => c.url === '/api/settings/test/local_whisper')).toBe(true)
   expect(screen.queryByLabelText('API key')).not.toBeInTheDocument()
   expect(screen.getByLabelText('Provider')).toBeInTheDocument()
+})
+
+test('OpenWA retry and catch-up settings save typed values and offer manual recovery', async () => {
+  const user = userEvent.setup()
+  const calls = renderPage()
+  await user.click(await screen.findByRole('tab', { name: 'Notifications' }))
+  const attempts = screen.getByLabelText('Webhook delivery attempts (1–5 total)')
+  await user.clear(attempts)
+  await user.type(attempts, '5')
+  expect(screen.getByRole('button', { name: 'Recover missed messages now' })).toBeDisabled()
+  await user.click(screen.getByRole('button', { name: 'Save' }))
+  expect(
+    calls.some((c) => c.body && JSON.parse(c.body).settings?.['openwa.webhook_attempts'] === 5),
+  ).toBe(true)
+  await user.click(screen.getByRole('button', { name: 'Recover missed messages now' }))
+  expect(calls.some((c) => c.url === '/api/schedules/openwa_recovery/run')).toBe(true)
 })
 
 test('never shows the saved key, and blank secret is not sent on save', async () => {
@@ -152,6 +186,38 @@ test.each([false, true])('review buttons save a boolean when initially %s', asyn
   await userEvent.click(screen.getByRole('button', { name: 'Save' }))
   const put = calls.find((c) => c.url === '/api/settings' && c.body)
   expect(JSON.parse(put!.body!).settings).toEqual({ 'alerts.review_buttons': !enabled })
+})
+
+test('learning defaults to Off and saves Shadow explicitly', async () => {
+  const calls = renderPage()
+  await userEvent.click(await screen.findByRole('tab', { name: 'Classification' }))
+  const mode = screen.getByLabelText('Ollama learning from reviewed text')
+  expect(mode).toHaveValue('off')
+  await userEvent.selectOptions(mode, 'shadow')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const put = calls.find((c) => c.url === '/api/settings' && c.body)
+  expect(JSON.parse(put!.body!).settings).toEqual({ 'classification.learning_mode': 'shadow' })
+})
+
+test('semantic retrieval saves its model and numeric cutoff and has a connection test', async () => {
+  const calls = renderPage()
+  await userEvent.click(await screen.findByRole('tab', { name: 'Classification' }))
+  await userEvent.selectOptions(screen.getByLabelText('Find reviewed examples by'), 'semantic')
+  await userEvent.type(screen.getByLabelText('Installed Ollama embedding model'), 'multilingual')
+  const cutoff = screen.getByLabelText('Minimum semantic similarity (0 to 1)')
+  await userEvent.clear(cutoff)
+  await userEvent.type(cutoff, '0.8')
+  await userEvent.click(screen.getByRole('button', { name: 'Test embedding model' }))
+  expect(calls.some((c) => c.url === '/api/settings/test/ollama_embedding')).toBe(true)
+  const embeddingTest = calls.find((c) => c.url === '/api/settings/test/ollama_embedding')
+  expect(JSON.parse(embeddingTest!.body!).model).toBe('multilingual')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  const put = calls.find((c) => c.url === '/api/settings' && c.body)
+  expect(JSON.parse(put!.body!).settings).toEqual({
+    'classification.learning_retrieval': 'semantic',
+    'classification.learning_embedding_model': 'multilingual',
+    'classification.learning_min_similarity': 0.8,
+  })
 })
 
 test('Retention shows separate provider archive status and saves bounded recovery controls', async () => {
