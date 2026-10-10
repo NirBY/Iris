@@ -51,12 +51,21 @@ class TransientError(Exception):
 class DeferredError(Exception):
     """Waiting for sending capacity is not a failed delivery attempt."""
 
-    def __init__(self, message: str, delay: float) -> None:
+    def __init__(
+        self, message: str, delay: float, *, reason: str = "Waiting for sending capacity"
+    ) -> None:
         super().__init__(message)
         self.delay = delay
+        self.reason = reason
 
 
-async def defer(factory: async_sessionmaker[AsyncSession], job: "ClaimedJob", delay: float) -> str:
+async def defer(
+    factory: async_sessionmaker[AsyncSession],
+    job: "ClaimedJob",
+    delay: float,
+    *,
+    reason: str = "Waiting for sending capacity",
+) -> str:
     async with factory() as db:
         result = await db.execute(
             update(Job)
@@ -66,7 +75,7 @@ async def defer(factory: async_sessionmaker[AsyncSession], job: "ClaimedJob", de
                 locked_at=None,
                 attempts=Job.attempts - 1,
                 run_after=_naive(_now() + timedelta(seconds=max(1, delay))),
-                last_error="Waiting for sending capacity",
+                last_error=reason,
             )
         )
         changed = result.rowcount == 1  # type: ignore[attr-defined]
@@ -74,9 +83,7 @@ async def defer(factory: async_sessionmaker[AsyncSession], job: "ClaimedJob", de
             alert = await db.get(Alert, job.payload.get("alert_id"))
             if alert is not None:
                 due = _now() + timedelta(seconds=max(1, delay))
-                alert.delivery_error = (
-                    f"Queued for sending capacity; next attempt {due.isoformat()}"
-                )
+                alert.delivery_error = f"{reason}; next attempt {due.isoformat()}"
         await db.commit()
         bus.publish("jobs", "alerts", "stats")
         return "queued" if changed else "superseded"

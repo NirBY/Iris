@@ -1,6 +1,7 @@
 """Bounded synthetic evaluation and explicit promotion gate; no conversation exports."""
 
 import asyncio
+import hashlib
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -9,9 +10,9 @@ from app.classify.community import guidance, load_pack, public_manifest
 from app.classify.ollama import OllamaModerator
 from app.classify.thresholds import DEFAULT_THRESHOLDS, band_for
 from app.config import get_settings
-from app.db.models import Setting
+from app.db.models import Job, Setting
 from app.jobs.handlers import Deps
-from app.jobs.queue import ClaimedJob
+from app.jobs.queue import ClaimedJob, DeferredError
 
 RESULT_KEY = "internal.learning_evaluation"
 
@@ -44,7 +45,7 @@ def promotion_gate(report: dict[str, Any]) -> dict[str, Any]:
         reasons.append(
             "At least 100 held-out labels, including 30 harmful and 30 safe, are required."
         )
-    if report.get("failures"):
+    if report.get("failures") or report.get("pending"):
         reasons.append("Evaluation has failed or incomplete model requests.")
     if (
         candidate["false_negative"] > baseline["false_negative"]
@@ -60,29 +61,49 @@ def promotion_gate(report: dict[str, Any]) -> dict[str, Any]:
     return {"eligible": not reasons, "reasons": reasons, "automatic_promotion": False}
 
 
-async def evaluate_community(model: str, base_url: str) -> dict[str, Any]:
+async def evaluate_community(
+    model: str,
+    base_url: str,
+    *,
+    checkpoint: dict[str, Any] | None = None,
+    request_timeout: float = 30,
+) -> dict[str, Any]:
     client = OllamaModerator(base_url, model)
-    rows: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = [] if checkpoint is None else checkpoint.setdefault("rows", [])
     failures = 0
     started = time.monotonic()
     pack = await asyncio.to_thread(load_pack)
+    attempts: dict[str, int] = {} if checkpoint is None else checkpoint.setdefault("attempts", {})
+    errors: dict[str, int] = {} if checkpoint is None else checkpoint.setdefault("errors", {})
+    completed = {r.get("case_id") for r in rows}
+    cases = [
+        e for e in pack["evaluation"] if e["id"] not in completed and attempts.get(e["id"], 0) < 3
+    ]
+    if checkpoint is not None:
+        cases = sorted(cases, key=lambda e: attempts.get(e["id"], 0))[:1]
     try:
-        for example in pack["evaluation"]:
+        for example in cases:
             if time.monotonic() - started > 300:
                 failures += len(pack["evaluation"]) - len(rows) - failures
                 break
             try:
-                baseline = await asyncio.wait_for(client.moderate(model, example["content"]), 30)
+                stage = "baseline"
+                attempts[example["id"]] = attempts.get(example["id"], 0) + 1
+                baseline = await asyncio.wait_for(
+                    client.moderate(model, example["content"]), request_timeout
+                )
+                stage = "candidate"
                 candidate = await asyncio.wait_for(
                     client.moderate(
                         model, example["content"], examples=guidance(example["content"])
                     ),
-                    30,
+                    request_timeout,
                 )
                 band0, _, _ = band_for(baseline.scores, DEFAULT_THRESHOLDS)
                 band1, _, _ = band_for(candidate.scores, DEFAULT_THRESHOLDS)
                 rows.append(
                     {
+                        "case_id": example["id"],
                         "human": example["verdict"],
                         "language": example["language"],
                         "baseline": "review" if band0 == "inconclusive" else band0,
@@ -92,14 +113,25 @@ async def evaluate_community(model: str, base_url: str) -> dict[str, Any]:
                         "candidate_categories": candidate.scores,
                     }
                 )
-            except Exception:
+            except Exception as exc:
                 failures += 1
+                key = stage + ":" + type(exc).__name__
+                errors[key] = errors.get(key, 0) + 1
+        completed = {r.get("case_id") for r in rows}
+        pending = sum(
+            e["id"] not in completed and attempts.get(e["id"], 0) < 3 for e in pack["evaluation"]
+        )
+        if checkpoint is not None:
+            failures = len(pack["evaluation"]) - len(rows) - pending
         report: dict[str, Any] = {
             "source": "synthetic",
             "model": model,
             "pack": public_manifest(),
             "checked_at": datetime.now(UTC).isoformat(),
             "evaluated": len(rows),
+            "expected": len(pack["evaluation"]),
+            "pending": pending if checkpoint is not None else 0,
+            "request_errors": errors,
             "failures": failures,
             "latency_ms": int((time.monotonic() - started) * 1000),
             "baseline": metrics(rows, "baseline"),
@@ -151,11 +183,33 @@ async def evaluate_job(job: ClaimedJob, deps: Deps) -> None:
 
             report = await evaluate(200, emit=False)
         else:
-            report = await evaluate_community(cfg.ollama_model, cfg.ollama_base_url)
+            fingerprint = hashlib.sha256(
+                (
+                    cfg.ollama_model + cfg.ollama_base_url + str(public_manifest()) + "eval-v2"
+                ).encode()
+            ).hexdigest()
+            checkpoint = job.payload.get("evaluation_checkpoint", {})
+            if checkpoint.get("fingerprint") != fingerprint:
+                checkpoint = {"fingerprint": fingerprint}
+            timeout = min(float(cfg.job_timeout_seconds), 570.0)
+            report = await evaluate_community(
+                cfg.ollama_model,
+                cfg.ollama_base_url,
+                checkpoint=checkpoint,
+                request_timeout=max(0.1, min(120.0, (timeout - 10) / 2)),
+            )
+            job.payload["evaluation_checkpoint"] = checkpoint
     async with deps.session_factory() as db:
         row = await db.get(Setting, RESULT_KEY)
         if row is None:
             db.add(Setting(key=RESULT_KEY, value=report))
         else:
             row.value = report
+        stored = await db.get(Job, job.id)
+        if stored is not None:
+            stored.payload = dict(job.payload)
         await db.commit()
+    if report.get("pending"):
+        raise DeferredError(
+            "Continuing learning evaluation", 1, reason="Continuing learning evaluation"
+        )

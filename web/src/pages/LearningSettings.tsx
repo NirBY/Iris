@@ -35,6 +35,7 @@ type Evaluation = {
   result?: {
     source?: string
     evaluated?: number
+    expected?: number
     failures?: number
     baseline?: Metric
     candidate?: Metric
@@ -155,8 +156,10 @@ export function LearningSettings() {
                   ? 'Synthetic benchmark'
                   : 'Held-out local reviews',
               )}
-              : {evaluation.data.result.evaluated ?? 0} · {t('Failed checks')}:{' '}
-              {evaluation.data.result.failures ?? 0}
+              : {evaluation.data.result.evaluated ?? 0}
+              {evaluation.data.result.expected !== undefined &&
+                ` / ${evaluation.data.result.expected}`}{' '}
+              · {t('Failed checks')}: {evaluation.data.result.failures ?? 0}
             </p>
             {evaluation.data.result.error && <p role="alert">{t(evaluation.data.result.error)}</p>}
             {evaluation.data.result.promotion && (

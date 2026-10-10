@@ -9,7 +9,7 @@ from typing import Annotated, Any, Literal
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts import ALERT_PREFIX
@@ -21,7 +21,7 @@ from app.classify.moderation import ModerationClient
 from app.classify.ollama import OllamaModerator
 from app.classify.thresholds import DEFAULT_THRESHOLDS, effective_thresholds
 from app.config import Settings, get_settings
-from app.db.models import Instance, User
+from app.db.models import Instance, Job, User
 from app.deps import get_db
 from app.jobs.queue import DeferredError, PermanentError, TransientError, enqueue
 from app.media.factory import MediaOverrides, build_store
@@ -269,6 +269,21 @@ async def update_settings(
         )
     for key, value in body.settings.items():
         await set_setting(db, key, value, cfg.key_bytes)
+    wake_types = []
+    if {"alerts.parent_quiet_hours", "alerts.timezone"} & body.settings.keys():
+        wake_types.extend(["deliver_alert", "notify_change", "run_schedule"])
+    if {"alerts.system_quiet_hours", "alerts.timezone"} & body.settings.keys():
+        wake_types.append("provider_notice")
+    if wake_types:
+        await db.execute(
+            update(Job)
+            .where(
+                Job.status == "queued",
+                Job.type.in_(wake_types),
+                Job.last_error == "Waiting for quiet hours",
+            )
+            .values(run_after=datetime.now(UTC).replace(tzinfo=None))
+        )
     if any(key.startswith("alerts.") for key in body.settings):
         await bind_recipient_users(db)
         await db.commit()

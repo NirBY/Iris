@@ -81,9 +81,9 @@ def train(directory: Path, output: Path, *, allow_download: bool = False) -> Non
         for line in (directory / name).read_text(encoding="utf-8").splitlines():
             messages = json.loads(line)["messages"]
             prompt = tokenizer.apply_chat_template(
-                messages[:2], tokenize=True, add_generation_prompt=True
+                messages[:2], tokenize=True, add_generation_prompt=True, return_dict=False
             )
-            ids = tokenizer.apply_chat_template(messages, tokenize=True)
+            ids = tokenizer.apply_chat_template(messages, tokenize=True, return_dict=False)
             if len(ids) > 2048 or ids[: len(prompt)] != prompt:
                 raise ValueError("Unsupported chat template or oversized training example")
             result.append(
@@ -120,11 +120,26 @@ def train(directory: Path, output: Path, *, allow_download: bool = False) -> Non
         processing_class=tokenizer,
         data_collator=DataCollatorForSeq2Seq(tokenizer, label_pad_token_id=-100),
     )
-    trainer.train()
+    result = trainer.train()
+    evaluation = trainer.evaluate()
     model.save_pretrained(output, safe_serialization=True)
     tokenizer.save_pretrained(output)
     # An adapter is not automatically safe to publish or superior to its base model.
-    manifest.update(weights_updated=True, publishable_weights=False, training_complete=True)
+    from importlib.metadata import version
+
+    manifest.update(
+        weights_updated=True,
+        publishable_weights=False,
+        training_complete=True,
+        dependencies={
+            name: version(name) for name in ("torch", "transformers", "peft", "accelerate")
+        },
+        training_metrics=result.metrics,
+        evaluation_metrics=evaluation,
+        adapter_sha256=hashlib.sha256(
+            (output / "adapter_model.safetensors").read_bytes()
+        ).hexdigest(),
+    )
     (output / "training-manifest.json").write_text(json.dumps(manifest, indent=2))
 
 

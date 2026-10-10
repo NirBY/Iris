@@ -2,12 +2,12 @@ import { t as translate, useLanguage } from './lib/i18n'
 import { useQuery } from '@tanstack/react-query'
 import {
   Check,
+  ChevronLeft,
+  ChevronRight,
   LogOut,
   Monitor,
   Moon,
   MoreHorizontal,
-  PanelLeftClose,
-  PanelLeftOpen,
   Sun,
 } from 'lucide-react'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
@@ -212,22 +212,20 @@ function Sidebar({ stats, version, live }: { stats?: Stats; version?: string; li
         <IrisMark />
         {wide && <span className="text-lg font-semibold tracking-tight text-foreground">Iris</span>}
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="w-full"
+      <button
+        type="button"
+        className="absolute -end-4 top-10 z-40 grid size-8 place-items-center rounded-full border bg-surface text-muted-foreground shadow-sm transition-colors hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         onClick={toggleSidebar}
         aria-label={translate(wide ? 'Collapse side menu' : 'Expand side menu')}
         title={translate(wide ? 'Collapse side menu' : 'Expand side menu')}
         aria-expanded={wide}
       >
         {wide ? (
-          <PanelLeftClose className="size-5 rtl:rotate-180" />
+          <ChevronLeft className="size-4 rtl:rotate-180" />
         ) : (
-          <PanelLeftOpen className="size-5 rtl:rotate-180" />
+          <ChevronRight className="size-4 rtl:rotate-180" />
         )}
-        {wide && translate('Collapse side menu')}
-      </Button>
+      </button>
       <nav aria-label={translate('Main')} className="flex flex-1 flex-col gap-5 overflow-y-auto">
         {groups
           .filter((g) => me?.role === 'admin' || g.key === 'watch')

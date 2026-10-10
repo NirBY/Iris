@@ -95,6 +95,18 @@ def _timezone(v: Any) -> str:
     return name
 
 
+def _quiet_hours(v: Any) -> dict[str, Any]:
+    if not isinstance(v, dict) or set(v) != {"enabled", "start", "end"}:
+        raise ValueError("Quiet hours require enabled, start and end")
+    enabled = _bool(v["enabled"])
+    for key in ("start", "end"):
+        if not isinstance(v[key], str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", v[key]):
+            raise ValueError("Quiet hours times must use HH:MM")
+    if v["start"] == v["end"]:
+        raise ValueError("Quiet hours must have different start and end times")
+    return {"enabled": enabled, "start": v["start"], "end": v["end"]}
+
+
 def _choice(*options: str) -> Callable[[Any], str]:
     def check(v: Any) -> str:
         if v not in options:
@@ -382,6 +394,12 @@ REGISTRY: dict[str, Spec] = {
     "alerts.alert_on_review": Spec(True, _bool),
     "alerts.notify_changes": Spec(True, _bool),
     "alerts.timezone": Spec("Asia/Jerusalem", _timezone),
+    "alerts.parent_quiet_hours": Spec(
+        {"enabled": False, "start": "22:00", "end": "07:00"}, _quiet_hours
+    ),
+    "alerts.system_quiet_hours": Spec(
+        {"enabled": False, "start": "22:00", "end": "07:00"}, _quiet_hours
+    ),
     "media.policy": Spec("off", _choice("off", "harmful", "harmful_review", "all")),
     "media.backend": Spec("local", _choice("local", "s3")),
     "media.s3_endpoint": Spec(None, _s3_endpoint),

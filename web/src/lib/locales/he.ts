@@ -1,5 +1,15 @@
 /** UI translations; message content, credentials, API values and URLs are never translated. */
 export const hebrew: Record<string, string> = {
+  'Quiet hours': 'שעות שקטות',
+  'Parent notifications': 'התראות להורים',
+  'Enable quiet hours': 'הפעלת שעות שקטות',
+  'Quiet hours start': 'תחילת שעות שקטות',
+  'Quiet hours end': 'סיום שעות שקטות',
+  'Save quiet hours': 'שמירת שעות שקטות',
+  'Quiet hours saved.': 'השעות השקטות נשמרו.',
+  'Quiet hours must have different start and end times.': 'יש לבחור שעות התחלה וסיום שונות.',
+  'Parent and system notifications have separate quiet hours. Notifications wait in the persistent queue and resume when quiet hours end. Sign-in codes and connection tests remain immediate.':
+    'להתראות הורים ולהתראות מערכת יש שעות שקטות נפרדות. ההתראות ממתינות בתור קבוע ונשלחות לאחר סיום השעות השקטות. קודי כניסה ובדיקות חיבור נשלחים מיד.',
   'source available': 'המקור זמין',
   'source changed or unavailable': 'המקור השתנה או אינו זמין',
   'Learning sharing consent': 'אישור שיתוף לצורכי למידה',

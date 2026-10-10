@@ -101,7 +101,7 @@ async def _run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler]) ->
             uncertain_delivery=job.type in ("deliver_alert", "notify_change", "test_alert"),
         )
     except queue.DeferredError as exc:
-        return await queue.defer(factory, job, exc.delay)
+        return await queue.defer(factory, job, exc.delay, reason=exc.reason)
     except TransientError as exc:
         status = await queue.fail(
             factory, job, str(exc), transient=True, retry_after=exc.retry_after

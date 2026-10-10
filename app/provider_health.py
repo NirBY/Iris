@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.channels import build_client
 from app.alerts.pacing import reserve
+from app.alerts.quiet_hours import defer_if_quiet
 from app.alerts.readiness import delivery_readiness
 from app.config import get_settings
 from app.db.models import Instance, Job, Setting
@@ -230,6 +231,7 @@ async def deliver_notice(job: ClaimedJob, deps: "Deps") -> None:
         value = dict(row.value)
         if value["status"] != job.payload["status"]:
             return  # An old outage must not be announced after recovery.
+        await defer_if_quiet(db, job, "system")
         now = datetime.now(UTC).timestamp()
         interval = max(60, int(await get_setting(db, "alerts.provider_notification_minutes"))) * 60
         if job.payload.get("attempt_reserved") is not True:
@@ -266,6 +268,7 @@ async def deliver_notice(job: ClaimedJob, deps: "Deps") -> None:
                 continue
             client = await build_client(db, sender, deps.key_bytes, transport, overrides)
             try:
+                await defer_if_quiet(db, job, "system")
                 await reserve(db, client.sender_key, recipient.target)
                 # Reserve before sending: an uncertain response or recovered worker must
                 # never resend the same operational notice within its hourly allowance.

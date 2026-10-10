@@ -73,6 +73,39 @@ async def test_evaluation_is_aggregate_only_and_never_promotes_synthetic():
     assert not any(e["content"] in json.dumps(report) for e in load_pack()["evaluation"])
 
 
+@respx.mock
+async def test_checkpoint_finishes_all_cases_without_repeating_completed_pairs():
+    route = respx.post("http://ollama/api/chat").mock(
+        return_value=httpx.Response(
+            200, json={"message": {"content": json.dumps(dict.fromkeys(DEFAULT_THRESHOLDS, 0))}}
+        )
+    )
+    checkpoint = {}
+    for completed in range(1, 13):
+        report = await evaluate_community("model", "http://ollama", checkpoint=checkpoint)
+        assert report["evaluated"] == completed
+        assert report["pending"] == 12 - completed
+    assert len(route.calls) == 24
+    assert report["failures"] == 0
+    assert not report["promotion"]["eligible"]
+    await evaluate_community("model", "http://ollama", checkpoint=checkpoint)
+    assert len(route.calls) == 24
+
+
+@respx.mock
+async def test_checkpoint_bounds_retries_and_reports_only_safe_error_types():
+    route = respx.post("http://ollama/api/chat").mock(
+        return_value=httpx.Response(503, text="private provider diagnostic")
+    )
+    checkpoint = {}
+    for _ in range(36):
+        report = await evaluate_community("model", "http://ollama", checkpoint=checkpoint)
+    assert report["pending"] == 0 and report["failures"] == 12
+    assert len(route.calls) == 36
+    assert "private provider diagnostic" not in json.dumps(report)
+    assert sum(report["request_errors"].values()) == 36
+
+
 async def test_evaluation_queue_validates_source_and_reuses_pending_job(app_client):
     first = await app_client.post("/api/learning/evaluation?source=held_out_human_reviews")
     assert first.status_code == 200

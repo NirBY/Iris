@@ -79,8 +79,14 @@ async def evaluate(limit: int, strategy: str | None = None, *, emit: bool = True
             fallbacks = 0
             matched = 0
             started = time.monotonic()
+            # Leave room for both final requests and committing the report before
+            # the worker's timeout (and its stale lease when heartbeat is disabled).
+            worker_budget = min(
+                cfg.job_timeout_seconds, 570 if not cfg.job_heartbeat_seconds else 3600
+            )
+            evaluation_budget = max(0, min(600, worker_budget - 75))
             for message, feedback, example in rows:
-                if time.monotonic() - started > 600:
+                if time.monotonic() - started >= evaluation_budget:
                     failures += 1
                     break
                 if (

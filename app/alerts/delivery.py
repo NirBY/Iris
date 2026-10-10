@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.alerts.channels import build_client, configured
 from app.alerts.format import AlertFacts, MediaFact, format_alert, format_change_notice
 from app.alerts.pacing import pause_sender, reserve
+from app.alerts.quiet_hours import defer_if_quiet
 from app.alerts.readiness import delivery_readiness
 from app.alerts.recipients import recipients
 from app.alerts.service import active_source
@@ -155,6 +156,8 @@ async def send_to_parents(
         for target in targets:
             if target in completed or target in rejected or target in uncertain:
                 continue
+            if job.type != "test_alert":
+                await defer_if_quiet(db, job, "parent")
             target_channel = channel_mapping.get(target, channel)
             if target_channel in blocked_channels:
                 continue
@@ -357,6 +360,8 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
             await db.commit()
             return
 
+        await defer_if_quiet(db, job, "parent")
+
         more = 0
         last_sent = (
             await db.scalars(
@@ -371,6 +376,7 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
             window_start = _naive_utc(datetime.now(UTC)) - timedelta(minutes=cooldown)
             if (
                 not force
+                and not job.payload.get("quiet_hours_deferred")
                 and not job.payload.get("delivered_recipients")
                 and _naive_utc(last_sent.notified_at) >= window_start
             ):

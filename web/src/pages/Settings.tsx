@@ -3,6 +3,7 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { ParentConnections } from '../components/PhoneConnections'
 import { AlertDeliveryHealth } from '../components/AlertDeliveryHealth'
 import { SystemNotifications } from '../components/SystemNotifications'
+import { QuietHoursSettings } from './QuietHoursSettings'
 import { OllamaModelPicker } from '../components/OllamaModelPicker'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -1382,6 +1383,7 @@ export function Settings() {
                 {num('alerts.send_hourly_limit', 'Maximum sends per sender per hour', 1, 1000)}
                 {num('alerts.send_daily_limit', 'Maximum sends per sender per 24 hours', 1, 10000)}
                 {num('alerts.cooldown_minutes', 'Cooldown per chat (minutes)', 0, 1440)}
+                <QuietHoursSettings settings={data as unknown as Record<string, unknown>} />
                 <Field label={translate('Time zone')}>
                   <Input
                     dir="ltr"
