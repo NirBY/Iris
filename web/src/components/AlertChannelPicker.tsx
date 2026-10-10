@@ -1,4 +1,4 @@
-import { Field, Select } from './ui/field'
+import { ChoiceCards } from './ChoiceCards'
 import { t } from '../lib/i18n'
 import type { AlertReadiness } from '../lib/types'
 
@@ -41,25 +41,28 @@ export function AlertChannelPicker({
       return !recipient || recipient.eligible
     }) ?? []
   return (
-    <Field label={t(label)}>
-      <Select
-        aria-label={t(label)}
+    <div className="flex min-w-0 flex-col gap-2">
+      <ChoiceCards
+        label={t(label)}
         value={value}
         disabled={disabled || !available.length}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        <option value="">{t('Choose an alert channel…')}</option>
-        {value && !available.some((option) => option.channel === value) && (
-          <option value={value} disabled>
-            {t(ALERT_CHANNEL_LABELS[value] ?? value)} · {t('Unavailable')}
-          </option>
-        )}
-        {available.map((option) => (
-          <option key={option.channel} value={option.channel}>
-            {t(ALERT_CHANNEL_LABELS[option.channel])}
-          </option>
-        ))}
-      </Select>
+        onChange={onChange}
+        options={[
+          ...(value && !available.some((option) => option.channel === value)
+            ? [
+                {
+                  value,
+                  label: `${t(ALERT_CHANNEL_LABELS[value] ?? value)} · ${t('Unavailable')}`,
+                  disabled: true,
+                },
+              ]
+            : []),
+          ...available.map((option) => ({
+            value: option.channel,
+            label: t(ALERT_CHANNEL_LABELS[option.channel]),
+          })),
+        ]}
+      />
       {!available.length && (
         <span role="alert" className="text-warning">
           {t(
@@ -67,6 +70,6 @@ export function AlertChannelPicker({
           )}
         </span>
       )}
-    </Field>
+    </div>
   )
 }

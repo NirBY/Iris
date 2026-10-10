@@ -1,6 +1,15 @@
 import { t as translate, useLanguage } from './lib/i18n'
 import { useQuery } from '@tanstack/react-query'
-import { Check, LogOut, Monitor, Moon, MoreHorizontal, Sun } from 'lucide-react'
+import {
+  Check,
+  LogOut,
+  Monitor,
+  Moon,
+  MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Sun,
+} from 'lucide-react'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { toast } from './lib/notify'
@@ -163,7 +172,24 @@ function AccountMenu({ wide, version }: { wide: boolean; version?: string }) {
 
 function Sidebar({ stats, version, live }: { stats?: Stats; version?: string; live: Status }) {
   const { data: me } = useMe()
-  const wide = useIsWide()
+  const automaticWide = useIsWide()
+  const [expanded, setExpanded] = useState<boolean | null>(() => {
+    try {
+      const saved = localStorage.getItem('iris.sidebar-expanded')
+      return saved === null ? null : saved === '1'
+    } catch {
+      return null
+    }
+  })
+  const wide = expanded ?? automaticWide
+  function toggleSidebar() {
+    setExpanded(!wide)
+    try {
+      localStorage.setItem('iris.sidebar-expanded', wide ? '0' : '1')
+    } catch {
+      /* Storage can be unavailable. */
+    }
+  }
   const groups = [
     { key: 'watch', title: 'Watch' },
     { key: 'manage', title: 'Manage' },
@@ -184,6 +210,22 @@ function Sidebar({ stats, version, live }: { stats?: Stats; version?: string; li
         <IrisMark />
         {wide && <span className="text-lg font-semibold tracking-tight text-foreground">Iris</span>}
       </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full"
+        onClick={toggleSidebar}
+        aria-label={translate(wide ? 'Collapse side menu' : 'Expand side menu')}
+        title={translate(wide ? 'Collapse side menu' : 'Expand side menu')}
+        aria-expanded={wide}
+      >
+        {wide ? (
+          <PanelLeftClose className="size-5 rtl:rotate-180" />
+        ) : (
+          <PanelLeftOpen className="size-5 rtl:rotate-180" />
+        )}
+        {wide && translate('Collapse side menu')}
+      </Button>
       <nav aria-label={translate('Main')} className="flex flex-1 flex-col gap-5 overflow-y-auto">
         {groups
           .filter((g) => me?.role === 'admin' || g.key === 'watch')

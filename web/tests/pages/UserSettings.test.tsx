@@ -228,6 +228,14 @@ test.each([
     '/api/users/security/config': { ...config, green_api_token_set: true },
     [endpoint]: { ok: false, detail: 'Provider test failed' },
   })
-  await userEvent.click(await screen.findByRole('button', { name: button }))
+  await userEvent.click(
+    await screen.findByRole('button', {
+      name:
+        button === 'Test saved SMTP'
+          ? 'SMTP server'
+          : 'GreenAPI — WhatsApp alerts and sign-in codes',
+    }),
+  )
+  await userEvent.click(screen.getByRole('button', { name: button }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Provider test failed')
 })

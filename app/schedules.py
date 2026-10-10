@@ -19,6 +19,15 @@ if TYPE_CHECKING:
     from app.jobs.handlers import Deps
 
 CATALOG: dict[str, dict[str, Any]] = {
+    "provider_health": {
+        "name": "Provider health checks",
+        "interval": 60,
+        "enabled": True,
+        "description": (
+            "Check configured AI and notification providers. Down and recovery alerts are "
+            "limited to once per provider per hour or the interval set in Providers."
+        ),
+    },
     "openwa_recovery": {
         "name": "OpenWA message catch-up",
         "interval": 60,
@@ -576,6 +585,10 @@ async def run_schedule(job: ClaimedJob, deps: "Deps") -> None:
             )
         if key == "connections":
             return await check_connections(deps)
+        if key == "provider_health":
+            from app.provider_health import monitor
+
+            return await monitor(deps)
         if key in ("daily_summary", "connection_notifications"):
             return await notification(job, deps, key == "daily_summary")
         if key == "retention":

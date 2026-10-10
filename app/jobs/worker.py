@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.jobs import queue
 from app.jobs.handlers import Deps, prepare_alert, process_message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
+from app.provider_health import deliver_notice
 from app.schedules import due_schedules, run_schedule
 
 Handler = Callable[[ClaimedJob, Deps], Awaitable[None]]
@@ -23,6 +24,7 @@ HANDLERS: dict[str, Handler] = {
     "notify_change": notify_change,
     "test_alert": deliver_test,
     "run_schedule": run_schedule,
+    "provider_notice": deliver_notice,
 }
 
 
@@ -221,7 +223,7 @@ class WorkerPool:
     ) -> None:
         while generation == self._generation:
             try:
-                delivery_types = ("deliver_alert", "notify_change", "test_alert")
+                delivery_types = ("deliver_alert", "notify_change", "test_alert", "provider_notice")
                 job = await queue.claim(
                     self._deps.session_factory,
                     types=("run_schedule",)

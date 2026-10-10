@@ -117,7 +117,7 @@ test('local providers show dedicated tests and keep cloud controls hidden', asyn
   expect(screen.getByLabelText('Provider')).toBeInTheDocument()
 })
 
-test('parent channel and recipients share one panel and testing requires saving the channel', async () => {
+test('parent delivery uses channel cards and provider connections live in Providers', async () => {
   renderPage({
     ...settings,
     'alerts.channel': 'smtp',
@@ -128,21 +128,28 @@ test('parent channel and recipients share one panel and testing requires saving 
   expect(
     within(panel).getByRole('heading', { name: 'Parent alert recipients' }),
   ).toBeInTheDocument()
-  expect(within(panel).getByLabelText('Default alert channel')).toHaveValue('smtp')
-  expect(within(panel).getByLabelText('OpenWA sender phone')).toBeInTheDocument()
-  await userEvent.selectOptions(within(panel).getByLabelText('Default alert channel'), 'greenapi')
+  const channels = within(panel).getByRole('group', { name: 'Default alert channel' })
+  expect(within(channels).getByRole('radio', { name: 'Email via SMTP' })).toBeChecked()
+  expect(screen.queryByLabelText('OpenWA sender phone')).not.toBeInTheDocument()
+  await userEvent.click(within(channels).getByRole('radio', { name: 'WhatsApp via GreenAPI' }))
   expect(within(panel).getByRole('button', { name: 'Test parent alert delivery' })).toBeDisabled()
   expect(within(panel).getByText(/Save changes to apply this channel/)).toBeInTheDocument()
-  expect(within(panel).queryByLabelText(/Telegram chat ID for/)).not.toBeInTheDocument()
-  await userEvent.selectOptions(within(panel).getByLabelText('Default alert channel'), 'telegram')
-  expect(within(panel).getByLabelText(/Telegram bot token/)).toBeInTheDocument()
-  expect(within(panel).queryByLabelText('Telegram chat ID')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('link', { name: 'Configure alert providers' }))
+  expect(screen.getByRole('tab', { name: 'Notification providers' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  expect(screen.getByLabelText(/Telegram bot token/)).toBeVisible()
+  await userEvent.click(screen.getByRole('button', { name: 'OpenWA — alert sender' }))
+  expect(screen.getByLabelText('OpenWA sender phone')).toBeVisible()
+  expect(screen.getByLabelText(/Telegram bot token/)).not.toBeVisible()
 })
 
 test('OpenWA retry and catch-up settings save typed values and offer manual recovery', async () => {
   const user = userEvent.setup()
   const calls = renderPage()
   await user.click(await screen.findByRole('tab', { name: 'Notifications' }))
+  await user.click(screen.getByRole('button', { name: 'OpenWA webhooks' }))
   const attempts = screen.getByLabelText('Webhook delivery attempts (1–5 total)')
   await user.clear(attempts)
   await user.type(attempts, '5')
@@ -204,6 +211,7 @@ test('test button reports the result', async () => {
 test.each([false, true])('review buttons save a boolean when initially %s', async (enabled) => {
   const calls = renderPage({ ...settings, 'alerts.review_buttons': enabled })
   await userEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Review from your phone' }))
   await userEvent.click(screen.getByRole('switch', { name: 'Add review buttons to alerts' }))
   await userEvent.click(screen.getByRole('button', { name: 'Save' }))
   const put = calls.find((c) => c.url === '/api/settings' && c.body)
@@ -270,6 +278,7 @@ test('Retention shows separate provider archive status and saves bounded recover
 test('alert settings are sent with the right types', async () => {
   const calls = renderPage()
   await userEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Frequency and timing' }))
   const cooldown = await screen.findByLabelText(/Cooldown per chat/)
   await userEvent.clear(cooldown)
   await userEvent.type(cooldown, '30')
@@ -390,6 +399,7 @@ test('clearing a saved key asks first and sends nothing when cancelled', async (
 test('the follow-up setting is on by default and can be switched off', async () => {
   const calls = renderPage()
   await userEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Frequency and timing' }))
   await userEvent.click(await screen.findByLabelText(/Tell me when an alerted message is edited/))
   await userEvent.click(screen.getByRole('button', { name: 'Save' }))
   const put = calls.find((c) => c.url === '/api/settings' && c.body)
@@ -518,6 +528,8 @@ test('Users combines roles, 2FA and account settings; Notifications contains SMT
   expect(screen.queryByRole('tab', { name: 'Account' })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'SMTP server' })).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('tab', { name: 'Notifications' }))
+  expect(screen.queryByRole('heading', { name: 'SMTP server' })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('link', { name: 'Configure alert providers' }))
   expect(await screen.findByRole('heading', { name: 'SMTP server' })).toBeInTheDocument()
   expect(
     screen.queryByRole('heading', { name: 'Two-factor authentication' }),
@@ -531,5 +543,61 @@ test('an in-app link changes the tab while Settings remains mounted', async () =
   expect(screen.getByRole('tab', { name: 'Notifications' })).toHaveAttribute(
     'aria-selected',
     'true',
+  )
+})
+
+test('notification panels start with recipients open and can close automatically or stay open', async () => {
+  renderPage()
+  await userEvent.click(await screen.findByRole('tab', { name: 'Notifications' }))
+  const parents = screen.getByRole('button', { name: 'Parent alert delivery' })
+  const timing = screen.getByRole('button', { name: 'Frequency and timing' })
+  expect(parents).toHaveAttribute('aria-expanded', 'true')
+  expect(timing).toHaveAttribute('aria-expanded', 'false')
+  await userEvent.click(timing)
+  expect(timing).toHaveAttribute('aria-expanded', 'true')
+  expect(parents).toHaveAttribute('aria-expanded', 'false')
+  await userEvent.click(
+    screen.getByRole('checkbox', { name: 'Close other sections automatically' }),
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Iris links' }))
+  expect(timing).toHaveAttribute('aria-expanded', 'true')
+  expect(screen.getByRole('button', { name: 'Iris links' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+})
+
+test('provider groups switch between AI and delivery without mixing their credentials', async () => {
+  renderPage()
+  expect(await screen.findByRole('tab', { name: 'AI providers' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  expect(screen.queryByLabelText('Telegram bot token')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('tab', { name: 'Notification providers' }))
+  expect(screen.getByLabelText(/Telegram bot token/)).toBeVisible()
+  expect(screen.queryByLabelText('Classification provider')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('tab', { name: 'AI providers' }))
+  expect(screen.getByLabelText('Classification provider')).toBeVisible()
+})
+
+test('provider notification frequency saves a number and check frequency opens schedules', async () => {
+  const calls = renderPage({ ...settings, 'alerts.provider_notification_minutes': 60 })
+  await userEvent.click(await screen.findByRole('button', { name: 'Provider monitoring' }))
+  const interval = screen.getByLabelText('Provider alert interval (minutes)')
+  expect(interval).toHaveAttribute('min', '60')
+  await userEvent.clear(interval)
+  await userEvent.type(interval, '180')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(
+    calls.some(
+      (call) =>
+        call.body &&
+        JSON.parse(call.body).settings?.['alerts.provider_notification_minutes'] === 180,
+    ),
+  ).toBe(true)
+  expect(screen.getByRole('link', { name: 'Configure check frequency' })).toHaveAttribute(
+    'href',
+    '/settings?tab=Schedules',
   )
 })

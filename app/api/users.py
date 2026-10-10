@@ -513,20 +513,24 @@ async def request_contact_approval(
             raise HTTPException(
                 422,
                 "Select this user as a parent recipient and save their Telegram chat ID "
-                "in Notifications first.",
+                "in Providers > Notification providers first.",
             )
     link = await contact_link(db, cfg, user, body.channel, destination)
     try:
         if body.channel == "email":
             config = await smtp_config(db, cfg)
             if not config.get("verified"):
-                raise HTTPException(422, "Test SMTP first in Settings > Notifications")
+                raise HTTPException(
+                    422, "Test SMTP first in Settings > Providers > Notification providers"
+                )
             assert user.email
             await asyncio.to_thread(send_smtp, config, user.email, "123456", link)
         elif body.channel == "telegram":
             token = await get_secret(db, "alerts.telegram_bot_token", cfg.key_bytes)
             if not token:
-                raise HTTPException(422, "Save the Telegram bot token in Notifications first.")
+                raise HTTPException(
+                    422, "Save the Telegram bot token in Providers > Notification providers first."
+                )
             async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
                 result = await client.post(
                     f"https://api.telegram.org/bot{token}/sendMessage",
@@ -551,7 +555,7 @@ async def request_contact_approval(
                     raise HTTPException(
                         422,
                         "Test GreenAPI or configure a connected OpenWA sender "
-                        "in Notifications first.",
+                        "in Providers > Notification providers first.",
                     )
                 assert user.whatsapp_number
                 if phone.phone_number and phone.phone_number.lstrip(
@@ -566,7 +570,9 @@ async def request_contact_approval(
                 try:
                     if not await openwa_client.session_ready(phone.openwa_instance_id):
                         raise HTTPException(
-                            422, "OpenWA sender is not connected. Pair it in Notifications first."
+                            422,
+                            "OpenWA sender is not connected. "
+                            "Pair it in Providers > Notification providers first.",
                         )
                     from app.alerts.pacing import reserve
                     from app.jobs.queue import DeferredError

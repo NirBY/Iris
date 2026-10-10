@@ -80,6 +80,7 @@ class Stats(BaseModel):
     invalid_alert_recipients: int = 0
     monitoring_issues: list[dict[str, object]] = []
     schedule_failures: list[dict[str, str]] = []
+    provider_health: list[dict[str, object]] = []
 
 
 async def _count(db: AsyncSession, stmt) -> int:  # type: ignore[no-untyped-def]
@@ -205,7 +206,10 @@ async def stats(db: DB, user: Annotated[User | None, Depends(current_user)] = No
             )
         )
     )
+    from app.provider_health import health_rows
+
     return Stats(
+        provider_health=await health_rows(db) if user and user.role == "admin" else [],
         messages_today=await _count(
             db, select(func.count()).select_from(Message).where(Message.sent_at >= day)
         ),

@@ -287,8 +287,8 @@ export function PhoneCard({
           {t(
             "Used for alert delivery. This phone's messages are not monitored. Choose the alert sender in",
           )}{' '}
-          <Link to="/settings?tab=Notifications">
-            {t('Settings')} · {t('Notifications')}
+          <Link to="/settings?tab=Providers&provider=notifications">
+            {t('Settings')} · {t('Notification providers')}
           </Link>
           .
         </p>
@@ -1138,9 +1138,11 @@ function ParentRecipients({ channel }: { channel?: string }) {
 
 export function ParentConnections({
   showSender = true,
+  showRecipients = true,
   channel,
 }: {
   showSender?: boolean
+  showRecipients?: boolean
   channel?: string
 }) {
   const { data, isLoading, isError, refetch } = useQuery({
@@ -1157,7 +1159,7 @@ export function ParentConnections({
   if (!showSender) return <ParentRecipients channel={channel} />
   return (
     <div className="flex flex-col gap-4">
-      <ParentRecipients channel={channel} />
+      {showRecipients && <ParentRecipients channel={channel} />}
       <h2 className="text-lg font-semibold">{t('Alert sender connections')}</h2>
       <p className="text-sm text-muted-foreground">
         {t(

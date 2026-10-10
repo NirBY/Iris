@@ -1,4 +1,4 @@
-import { lazy, useLayoutEffect } from 'react'
+import { lazy, Suspense, useLayoutEffect } from 'react'
 import { RequestProgress } from './components/RequestProgress'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Layout } from './Layout'
@@ -27,12 +27,14 @@ const OriginalMediaViewer = page(() => import('./pages/OriginalMediaViewer'), 'O
 const TryIt = page(() => import('./pages/TryIt'), 'TryIt')
 const Settings = page(() => import('./pages/Settings'), 'Settings')
 const Setup = page(() => import('./pages/Setup'), 'Setup')
+const QRFrame = page(() => import('./pages/QRFrame'), 'QRFrame')
 
 export function App() {
   useLanguage()
+  const location = useLocation()
   return (
     <>
-      <RequestProgress />
+      {!location.pathname.startsWith('/pairing/qr/') && <RequestProgress />}
       <AppContent />
     </>
   )
@@ -62,6 +64,14 @@ function AppContent() {
     me.role !== 'admin' ? <Navigate to="/" replace /> : element
   return (
     <Routes>
+      <Route
+        path="pairing/qr/:id"
+        element={manage(
+          <Suspense fallback={<PageLoading />}>
+            <QRFrame />
+          </Suspense>,
+        )}
+      />
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="setup" element={manage(<Setup />)} />

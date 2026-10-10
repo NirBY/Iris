@@ -199,6 +199,7 @@ export interface Stats {
   alert_media_warning_latest_id?: number
   alert_channel?: string
   media_bytes?: number
+  provider_health?: { provider: string; name: string; status: string; error: string | null }[]
 }
 
 export interface AlertReadiness {

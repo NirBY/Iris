@@ -124,3 +124,26 @@ test('reset returns to the saved values', async () => {
 test('the page is in the navigation', () => {
   expect(NAV.some((n) => n.to === '/try' && n.label === 'Try it')).toBe(true)
 })
+
+test.each(['ollama', 'openai'])(
+  'privacy explanation uses the configured %s provider',
+  async (provider) => {
+    renderWithApp(<TryIt />, { '/api/settings': { 'runtime.classification_provider': provider } })
+    const copy =
+      provider === 'ollama'
+        ? 'The text is sent to your configured Ollama server for classification and is not stored by Iris.'
+        : 'The text is sent to OpenAI for moderation and is not stored by Iris.'
+    expect(await screen.findByText(copy)).toBeInTheDocument()
+    if (provider === 'ollama') expect(screen.queryByText(/sent to OpenAI/)).not.toBeInTheDocument()
+  },
+)
+
+test('unknown provider does not claim text is sent to OpenAI', async () => {
+  renderWithApp(<TryIt />, { '/api/settings': {} })
+  expect(
+    await screen.findByText(
+      'The text is checked by your configured classification provider and is not stored by Iris.',
+    ),
+  ).toBeInTheDocument()
+  expect(screen.queryByText(/sent to OpenAI/)).not.toBeInTheDocument()
+})

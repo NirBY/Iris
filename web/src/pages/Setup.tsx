@@ -32,7 +32,10 @@ export type SetupStatus = {
 const links: Record<string, { label: string; to: string }[]> = {
   openwa: [{ label: 'Configure OpenWA and connect a phone', to: '/instances' }],
   notifiers: [
-    { label: 'Configure notification providers', to: '/settings?tab=Notifications' },
+    {
+      label: 'Configure notification providers',
+      to: '/settings?tab=Providers&provider=notifications#alert-providers',
+    },
     { label: 'Set your test email or personal number', to: '/settings?tab=Users' },
   ],
   parents: [
@@ -43,14 +46,14 @@ const links: Record<string, { label: string; to: string }[]> = {
     },
   ],
   children: [{ label: 'Add and connect a child phone', to: '/instances' }],
-  ai: [{ label: 'Configure AI providers and models', to: '/settings?tab=Providers' }],
+  ai: [{ label: 'Configure AI providers and models', to: '/settings?tab=Providers&provider=ai' }],
   defaults: [
-    { label: 'AI providers', to: '/settings?tab=Providers' },
+    { label: 'AI providers', to: '/settings?tab=Providers&provider=ai' },
     { label: 'Monitoring scope', to: '/settings?tab=Scope' },
     { label: 'Media storage', to: '/settings?tab=Media' },
     { label: 'Retention', to: '/settings?tab=Retention' },
-    { label: 'Notification timing', to: '/settings?tab=Notifications' },
-    { label: 'Public URL and webhook recovery', to: '/settings?tab=Notifications' },
+    { label: 'Notification timing', to: '/settings?tab=Notifications&section=timing' },
+    { label: 'Public URL and webhook recovery', to: '/settings?tab=Notifications&section=links' },
     { label: 'Admin security and sign-in codes', to: '/settings?tab=Users' },
   ],
 }

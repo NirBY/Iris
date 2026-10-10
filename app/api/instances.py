@@ -7,11 +7,13 @@ import hmac
 import ipaddress
 import re
 import secrets
+import time
 from datetime import datetime
 from typing import Annotated, Literal
 from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +30,119 @@ router = APIRouter(prefix="/api/instances", tags=["instances"], dependencies=[De
 
 DB = Annotated[AsyncSession, Depends(get_db)]
 Cfg = Annotated[Settings, Depends(get_settings)]
+
+# Remember only a QR fingerprint, never the image or WhatsApp credentials.
+_qr_seen: dict[tuple[int, str], tuple[str, float]] = {}
+QR_VALID_SECONDS = 120
+
+
+def _validated_qr(value: object) -> str | None:
+    if value is None:
+        return None
+    try:
+        if (
+            not isinstance(value, str)
+            or len(value) > 1_000_000
+            or not re.fullmatch(r"data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+", value)
+        ):
+            raise ValueError
+        image = base64.b64decode(value.split(",", 1)[1], validate=True)
+        if not image.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")):
+            raise ValueError
+    except (ValueError, binascii.Error):
+        raise HTTPException(502, "OpenWA returned an invalid QR. Request a new code.") from None
+    return value
+
+
+def _repair_error(instance_id: int, exc: OpenWAError) -> HTTPException:
+    cause = type(exc.__cause__).__name__ if exc.__cause__ else "HTTPError"
+    logger.warning(
+        "OpenWA repair failed: instance={} status={} cause={}", instance_id, exc.status, cause
+    )
+    if cause in ("ReadTimeout", "ConnectTimeout", "PoolTimeout", "WriteTimeout"):
+        return HTTPException(
+            502,
+            "OpenWA did not respond in time. Check the OpenWA service and retry. "
+            "The existing phone has not been removed.",
+        )
+    if exc.status in (401, 403):
+        return HTTPException(
+            502,
+            "OpenWA rejected the API key. Check the saved sender credentials. "
+            "The existing phone has not been removed.",
+        )
+    return HTTPException(502, "OpenWA is unavailable. The existing phone has not been removed.")
+
+
+@router.get("/{instance_id}/qr")
+async def qr_code(instance_id: int, db: DB, settings: Cfg, response: Response) -> dict[str, object]:
+    """Read the provider QR directly for the authenticated, embedded Iris viewer."""
+    response.headers["Cache-Control"] = "no-store"
+    inst = await _get(db, instance_id)
+    if not inst.openwa_api_key_enc:
+        raise HTTPException(422, "OpenWA API key is not set")
+    client = OpenWAClient(
+        inst.openwa_base_url, decrypt(settings.key_bytes, inst.openwa_api_key_enc)
+    )
+    try:
+        value = await client._request(
+            "GET", f"/api/sessions/{quote(inst.openwa_instance_id, safe='')}/qr"
+        )
+        body = value.get("data", value) if isinstance(value, dict) else {}
+        qr = _validated_qr(body.get("qrCode") if isinstance(body, dict) else None)
+        if not qr:
+            return {"status": "waiting", "qr": None}
+        now = time.monotonic()
+        key = (instance_id, inst.openwa_instance_id)
+        digest = hashlib.sha256(qr.encode()).hexdigest()
+        previous = _qr_seen.get(key)
+        if previous is None or previous[0] != digest:
+            _qr_seen[key] = (digest, now)
+        elif now - previous[1] >= QR_VALID_SECONDS:
+            return {"status": "expired", "qr": None}
+        return {"status": "qr_ready", "qr": qr}
+    except OpenWAError as exc:
+        if exc.status == 400:
+            return {"status": "waiting", "qr": None}
+        if exc.status == 404:
+            raise HTTPException(
+                409, "The OpenWA session no longer exists. Add a new phone connection."
+            ) from None
+        raise _repair_error(instance_id, exc) from None
+    finally:
+        await client.aclose()
+
+
+@router.post("/{instance_id}/qr/refresh")
+async def refresh_qr(
+    instance_id: int, db: DB, settings: Cfg, response: Response
+) -> dict[str, object]:
+    response.headers["Cache-Control"] = "no-store"
+    inst = await _get(db, instance_id)
+    if not inst.openwa_api_key_enc:
+        raise HTTPException(422, "OpenWA API key is not set")
+    client = OpenWAClient(
+        inst.openwa_base_url, decrypt(settings.key_bytes, inst.openwa_api_key_enc)
+    )
+    sid = quote(inst.openwa_instance_id, safe="")
+    try:
+        value = await client._request("GET", f"/api/sessions/{sid}")
+        body = value.get("data", value) if isinstance(value, dict) else {}
+        status = str(body.get("status", "unknown")) if isinstance(body, dict) else "unknown"
+        if status == "ready":
+            return {"status": "ready", "qr": None}
+        if status in ("authenticating", "initializing"):
+            return {"status": status, "qr": None}
+        key = (instance_id, inst.openwa_instance_id)
+        if key in _qr_seen:
+            _qr_seen[key] = (_qr_seen[key][0], time.monotonic() - QR_VALID_SECONDS)
+        await client._request("POST", f"/api/sessions/{sid}/stop")
+        await client._request("POST", f"/api/sessions/{sid}/start")
+        return {"status": "waiting", "qr": None}
+    except OpenWAError as exc:
+        raise _repair_error(instance_id, exc) from None
+    finally:
+        await client.aclose()
 
 
 def webhook_secret(settings: Settings, token: str) -> str:
@@ -464,9 +579,7 @@ async def re_pair(instance_id: int, db: DB, settings: Cfg, response: Response) -
             raise HTTPException(
                 409, "The OpenWA session no longer exists. Add a new phone connection."
             ) from None
-        raise HTTPException(
-            502, "OpenWA is unavailable. The existing phone has not been removed."
-        ) from None
+        raise _repair_error(instance_id, exc) from None
     finally:
         await client.aclose()
 

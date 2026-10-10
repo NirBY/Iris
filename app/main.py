@@ -157,7 +157,14 @@ class SecurityHeaders:
                     headers["Content-Security-Policy"] = _DOCS_CSP if path == "/api/docs" else _CSP
                 headers["X-Content-Type-Options"] = "nosniff"
                 headers["Referrer-Policy"] = "no-referrer"
-                headers["X-Frame-Options"] = "DENY"
+                # Only the authenticated QR viewer may be embedded by this Iris origin.
+                qr_frame = (
+                    path.startswith("/pairing/qr/") and path.removeprefix("/pairing/qr/").isdigit()
+                )
+                headers["X-Frame-Options"] = "SAMEORIGIN" if qr_frame else "DENY"
+                if qr_frame:
+                    headers["Content-Security-Policy"] = _CSP + "; frame-ancestors 'self'"
+                    headers["Cache-Control"] = "no-store"
             await send(message)
 
         await self.app(scope, receive, send_with_headers)

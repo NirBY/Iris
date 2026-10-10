@@ -23,7 +23,7 @@ services:
       IRIS_ADMIN_USERNAME: admin     # first run only
       IRIS_ADMIN_PASSWORD: ""        # first run only
       # OpenWA must be able to reach this URL, it is where kids' webhooks point.
-      # Public Iris domain; can also be overridden in Settings > Alerts > Iris base URL.
+      # Public Iris domain; can also be overridden in Settings > Notifications > Iris base URL.
       # Optional separate internal URL reachable from OpenWA and permitted by its allowlist.
       IRIS_TWO_FACTOR_RECOVERY_KEY: "${IRIS_TWO_FACTOR_RECOVERY_KEY:-}"
       IRIS_WEBHOOK_BASE_URL: "${IRIS_WEBHOOK_BASE_URL:-}"

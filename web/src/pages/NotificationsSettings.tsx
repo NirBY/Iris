@@ -5,6 +5,7 @@ import { toast } from '../lib/notify'
 import { api } from '../lib/api'
 import { Button } from '../components/ui/button'
 import { Field, Input, Select } from '../components/ui/field'
+import { Section } from '../components/Section'
 import { PageLoading } from '../components/PageLoading'
 import { QueryError } from '../components/QueryError'
 
@@ -72,6 +73,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
       await qc.invalidateQueries({ queryKey: ['users'] })
       await qc.invalidateQueries({ queryKey: ['me'] })
       await qc.invalidateQueries({ queryKey: ['alert-readiness'] })
+      await qc.invalidateQueries({ queryKey: ['recipient-channels'] })
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not save')
     } finally {
@@ -80,8 +82,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
   }
   return (
     <div className="flex flex-col gap-6">
-      <section className="rounded-lg border bg-surface p-5">
-        <h2 className="text-lg font-medium">{t('SMTP server')}</h2>
+      <Section collapsible title={t('SMTP server')}>
         <p className="mb-4 text-sm text-muted-foreground">
           {t(
             'This SMTP server delivers email alerts and sign-in codes. Enter its host, port, TLS mode and credentials. Configure your admin email in Settings → Users, then save and send a test. Open its approval link to approve the email for 2FA. Approval links use Iris base URL in Settings → Notifications.',
@@ -162,7 +163,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
               onChange={(e) => setSMTP({ ...smtp, sender: e.target.value })}
             />
           </Field>
-          <Button type="submit" disabled={busy || security.data?.enabled}>
+          <Button type="submit" variant="primary" disabled={busy || security.data?.enabled}>
             {t('Save SMTP')}
           </Button>
           <Button
@@ -198,9 +199,8 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
               ? t('SMTP test passed.')
               : t('SMTP has not passed its test.'))}
         </p>
-      </section>
-      <section className="rounded-lg border bg-surface p-5">
-        <h2 className="text-lg font-medium">{t('GreenAPI — WhatsApp alerts and sign-in codes')}</h2>
+      </Section>
+      <Section collapsible title={t('GreenAPI — WhatsApp alerts and sign-in codes')}>
         <p className="mb-4 text-sm text-muted-foreground">
           {t(
             'GreenAPI sends parent alerts and sign-in codes through WhatsApp. Save your credentials and check the account, then select GreenAPI for each parent in Alert delivery. Parent alerts support individual numbers and group IDs. To use GreenAPI for two-factor authentication, test delivery to your personal number configured in Settings → Users and open the approval link. Sign-in codes are sent only to personal numbers.',
@@ -267,7 +267,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
             />
           </Field>
           <div className="flex flex-wrap items-end gap-2">
-            <Button type="submit" disabled={busy || security.data?.enabled}>
+            <Button type="submit" variant="primary" disabled={busy || security.data?.enabled}>
               {t('Save GreenAPI')}
             </Button>
             <Button
@@ -313,7 +313,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
               ? t('GreenAPI test passed.')
               : t('GreenAPI has not passed its test.'))}
         </p>
-      </section>
+      </Section>
     </div>
   )
 }

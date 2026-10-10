@@ -67,3 +67,12 @@ async def test_spa_fallback(
 
 async def test_nul_byte_path_is_404(client: httpx.AsyncClient) -> None:
     assert (await client.get("/a%00b")).status_code in (200, 404)
+
+
+async def test_only_qr_viewer_can_be_framed_by_iris(client: httpx.AsyncClient) -> None:
+    frame = await client.get("/pairing/qr/6")
+    assert frame.headers["x-frame-options"] == "SAMEORIGIN"
+    assert "frame-ancestors 'self'" in frame.headers["content-security-policy"]
+    assert frame.headers["cache-control"] == "no-store"
+    normal = await client.get("/settings")
+    assert normal.headers["x-frame-options"] == "DENY"

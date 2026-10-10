@@ -9,6 +9,11 @@ import {
   ServerCrash,
   Settings,
   Smartphone,
+  MessagesSquare,
+  CalendarDays,
+  Users,
+  Baby,
+  Images,
   type LucideIcon,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
@@ -76,11 +81,23 @@ interface Item {
 
 function attentionItems(s: Stats): Item[] {
   const items: Item[] = []
+  for (const provider of s.provider_health ?? []) {
+    if (provider.status === 'down')
+      items.push({
+        icon: ServerCrash,
+        to: `/settings?tab=Providers&provider=${['ollama', 'whisper', 'openai', 'cloudflare'].includes(provider.provider) ? 'ai' : 'notifications'}&section=monitor#provider-health`,
+        action: t('Check provider'),
+        tone: 'danger',
+        text: t('{provider} is unavailable. Open Providers to check its connection.', {
+          provider: provider.name,
+        }),
+      })
+  }
   for (const incident of s.monitoring_issues ?? [])
     items.push({
       icon: ServerCrash,
       to: '/instances',
-      action: 'Repair monitoring',
+      action: t('Repair monitoring'),
       tone: 'danger',
       text: `${incident.kid_name}: ${incident.issues.join('; ')}${incident.notify_after ? ` · Auto refresh ${incident.refresh_attempts ?? 0}/${incident.refresh_limit ?? 1}; parent alert after ${new Date(incident.notify_after).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}${incident.refresh_error ? ` · ${incident.refresh_error}` : ''}`,
     })
@@ -88,7 +105,7 @@ function attentionItems(s: Stats): Item[] {
     items.push({
       icon: Activity,
       to: '/settings?tab=Schedules',
-      action: 'View failed run',
+      action: t('View failed run'),
       tone: 'warning',
       text: `${failure.key}: ${failure.error}`,
     })
@@ -96,7 +113,7 @@ function attentionItems(s: Stats): Item[] {
     items.push({
       icon: Settings,
       to: '/settings?tab=Notifications',
-      action: 'Fix alert delivery',
+      action: t('Fix alert delivery'),
       tone: 'warning',
       text: issue,
     })
@@ -104,100 +121,126 @@ function attentionItems(s: Stats): Item[] {
     items.push({
       icon: Smartphone,
       to: '/instances',
-      action: 'Add a child',
+      action: t('Add a child'),
       tone: 'warning',
-      text: 'No child phone is configured. Iris cannot monitor children yet.',
+      text: t('No child phone is configured. Iris cannot monitor children yet.'),
     })
   if (s.parent_recipients === 0)
     items.push({
       icon: Settings,
       to: '/settings?tab=Notifications',
-      action: 'Add parents',
+      action: t('Add parents'),
       tone: 'warning',
-      text: 'No parent recipients are configured. Select parents and add destinations for your alert channel.',
+      text: t(
+        'No parent recipients are configured. Select parents and add destinations for your alert channel.',
+      ),
     })
   if (s.alert_sender_configured === false && (!s.alert_channel || s.alert_channel === 'openwa'))
     items.push({
       icon: Smartphone,
-      to: '/settings?tab=Notifications',
-      action: 'Set alert phone',
+      to: '/settings?tab=Providers&provider=notifications',
+      action: t('Set alert phone'),
       tone: 'warning',
-      text: 'No alert phone is set. Connect a sender phone and select it to send alerts to parents.',
+      text: t(
+        'No alert phone is set. Connect a sender phone and select it to send alerts to parents.',
+      ),
     })
   const alerts = s.alerts_by_status['new'] ?? 0
-  const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
   if (alerts > 0)
     items.push({
       icon: BellRing,
       to: '/alerts?status=new',
-      action: 'Open alerts',
+      action: t('Open alerts'),
       tone: 'danger',
-      text: `${alerts} new ${plural(alerts, 'alert', 'alerts')} to read`,
+      text: t(alerts === 1 ? '{count} new alert to read' : '{count} new alerts to read', {
+        count: alerts,
+      }),
     })
   if (s.review_queue > 0)
     items.push({
       icon: ListChecks,
       to: '/review',
-      action: 'Review',
+      action: t('Review'),
       tone: 'warning',
-      text: `${s.review_queue} ${plural(s.review_queue, 'message', 'messages')} Iris could not decide`,
+      text: t(
+        s.review_queue === 1
+          ? '{count} message Iris could not decide'
+          : '{count} messages Iris could not decide',
+        { count: s.review_queue },
+      ),
     })
   if (!s.delivery_configured)
     items.push({
       icon: Settings,
       to: '/settings?tab=Notifications',
-      action: 'Set up delivery',
+      action: t('Set up delivery'),
       tone: 'warning',
-      text: 'Alert delivery is not configured, so alerts are recorded but not sent.',
+      text: t('Alert delivery is not configured, so alerts are recorded but not sent.'),
     })
   const undelivered = s.alerts_by_delivery['failed'] ?? 0
   if ((s.unavailable_instances ?? 0) > 0)
     items.push({
       icon: ServerCrash,
       to: '/instances',
-      action: 'Check sessions',
+      action: t('Check sessions'),
       tone: 'danger',
-      text: 'A monitored phone or the alert sender is disconnected or unreachable. Monitoring or delivery may have stopped.',
+      text: t(
+        'A monitored phone or the alert sender is disconnected or unreachable. Monitoring or delivery may have stopped.',
+      ),
     })
   if (s.sender_is_recipient)
     items.push({
       icon: Smartphone,
       to: '/settings?tab=Notifications',
-      action: 'Check recipients',
+      action: t('Check recipients'),
       tone: 'warning',
-      text: 'The sender is also a parent recipient. Messages to yourself may not notify you; use a separate sender phone for reliable parent notifications.',
+      text: t(
+        'The sender is also a parent recipient. Messages to yourself may not notify you; use a separate sender phone for reliable parent notifications.',
+      ),
     })
   if ((s.alerts_by_delivery['partial'] ?? 0) > 0)
     items.push({
       icon: BellRing,
       to: '/alerts',
-      action: 'Check delivery',
+      action: t('Check delivery'),
       tone: 'warning',
-      text: 'Some alerts reached only part of the parent recipient list.',
+      text: t('Some alerts reached only part of the parent recipient list.'),
     })
   if (s.delivery_configured && undelivered > 0)
     items.push({
       icon: ServerCrash,
       to: '/alerts',
-      action: 'See alerts',
+      action: t('See alerts'),
       tone: 'danger',
-      text: `${undelivered} ${plural(undelivered, 'alert was', 'alerts were')} not delivered through the selected alert channel`,
+      text: t(
+        undelivered === 1
+          ? '{count} alert was not delivered through the selected alert channel'
+          : '{count} alerts were not delivered through the selected alert channel',
+        { count: undelivered },
+      ),
     })
   if (s.failed_jobs > 0)
     items.push({
       icon: Activity,
       to: '/jobs',
-      action: 'See why',
+      action: t('See why'),
       tone: 'warning',
-      text: `${s.failed_jobs} ${plural(s.failed_jobs, 'job', 'jobs')} failed`,
+      text: t(s.failed_jobs === 1 ? '{count} job failed' : '{count} jobs failed', {
+        count: s.failed_jobs,
+      }),
     })
   if (s.silent_instances > 0)
     items.push({
       icon: Smartphone,
       to: '/instances',
-      action: 'Check setup',
+      action: t('Check setup'),
       tone: 'warning',
-      text: `${s.silent_instances} ${plural(s.silent_instances, 'phone has', 'phones have')} never received a webhook. This may be normal until a message arrives.`,
+      text: t(
+        s.silent_instances === 1
+          ? '{count} phone has never received a webhook. This may be normal until a message arrives.'
+          : '{count} phones have never received a webhook. This may be normal until a message arrives.',
+        { count: s.silent_instances },
+      ),
     })
   return items
 }
@@ -206,26 +249,32 @@ function headline(s: Stats, items: Item[]) {
   const alerts = s.alerts_by_status['new'] ?? 0
   const review = s.review_queue
   if (alerts + review > 0) {
-    const parts = [
-      alerts > 0 && `${alerts} ${alerts === 1 ? 'alert' : 'alerts'}`,
-      review > 0 && `${review} to review`,
-    ].filter(Boolean)
     return {
-      title: `${parts.join(' and ')} ${alerts + review === 1 ? 'needs' : 'need'} you`,
-      sub: 'Start with the newest alert.',
+      title:
+        alerts > 0 && review > 0
+          ? t('{alerts} alerts and {reviews} to review need you', { alerts, reviews: review })
+          : review > 0
+            ? t('{count} to review need you', { count: review })
+            : alerts === 1
+              ? t('1 alert needs you')
+              : t('{count} alerts need you', { count: alerts }),
+      sub:
+        alerts > 0 ? t('Start with the newest alert.') : t('Start with the newest item to review.'),
     }
   }
   if (items.length > 0)
     return {
-      title: 'Needs attention',
-      sub: 'Monitoring or alert delivery needs setting up or fixing, below.',
+      title: t('Needs attention'),
+      sub: t('Monitoring or alert delivery needs setting up or fixing, below.'),
     }
   return {
-    title: 'All quiet',
+    title: t('All quiet'),
     sub:
       s.messages_today > 0
-        ? `Iris checked ${s.messages_today} ${s.messages_today === 1 ? 'message' : 'messages'} today and found nothing to worry about.`
-        : 'Iris is watching. Nothing has come in today yet.',
+        ? t('Iris checked {count} messages today and found nothing to worry about.', {
+            count: s.messages_today,
+          })
+        : t('Iris is watching. Nothing has come in today yet.'),
   }
 }
 
@@ -234,18 +283,27 @@ function Stat({
   value,
   to,
   note,
+  icon: Icon,
 }: {
   label: string
   value: number
   to?: string
   note?: string
+  icon?: LucideIcon
 }) {
   // <dl> may only hold <dt>/<dd> groups, so a linked stat puts its (stretched) link inside the <dd>.
   return (
-    <div className="relative flex flex-col-reverse gap-1.5 px-4 py-3 hover:bg-surface-2/60 sm:px-5">
-      <dt className="text-sm text-muted-foreground">
+    <div className="relative isolate flex min-h-24 flex-col-reverse gap-1.5 overflow-hidden px-4 py-3 hover:bg-surface-2/60 sm:px-5">
+      {Icon && (
+        <Icon
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-2 end-3 -z-10 size-20 text-primary opacity-[0.08]"
+          strokeWidth={1.5}
+        />
+      )}
+      <dt className="relative text-sm text-muted-foreground">
         {t(label)}
-        {note && <span className="block text-xs">{note}</span>}
+        {note && <span className="block text-xs">{t(note)}</span>}
       </dt>
       <dd className="tabular text-2xl font-semibold leading-none">
         {to ? (
@@ -377,28 +435,42 @@ export function Dashboard() {
             <p className="max-w-prose text-muted-foreground">{sub}</p>
           </div>
           <dl className="grid grid-cols-2 divide-x divide-y rounded-md border sm:grid-cols-3 rtl:divide-x-reverse">
-            <Stat label={t('Messages today')} value={s.messages_today} to="/messages" />
-            <Stat label={t('Last 7 days')} value={s.messages_7d} to="/messages" />
-            <Stat label={t('In the queue')} value={s.queue_depth} />
             <Stat
+              icon={MessagesSquare}
+              label={t('Messages today')}
+              value={s.messages_today}
+              to="/messages"
+            />
+            <Stat
+              icon={CalendarDays}
+              label={t('Last 7 days')}
+              value={s.messages_7d}
+              to="/messages"
+            />
+            <Stat icon={Activity} label={t('In the queue')} value={s.queue_depth} />
+            <Stat
+              icon={Baby}
               label={t('Children')}
               value={s.children ?? s.instances}
               to={watch ? undefined : '/instances'}
             />
             <Stat
+              icon={Users}
               label={t('Parents')}
               value={s.parent_recipients ?? 0}
               to={watch ? undefined : '/settings?tab=Notifications'}
               note="Alert recipients"
             />
             <Stat
+              icon={Smartphone}
               label={t('Alert phones')}
               value={s.alert_phones ?? 0}
-              to={watch ? undefined : '/settings?tab=Notifications'}
+              to={watch ? undefined : '/settings?tab=Providers&provider=notifications'}
               note="Sender connections"
             />
             {((s.media_policy && s.media_policy !== 'off') || (s.media_files ?? 0) > 0) && (
               <Stat
+                icon={Images}
                 label={t('Media kept')}
                 value={s.media_files ?? 0}
                 note={fileSize(s.media_bytes ?? 0)}

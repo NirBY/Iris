@@ -290,3 +290,12 @@ test('Hebrew admin can see the translated system resources section', async () =>
     setLanguage('system')
   }
 })
+
+test('Hebrew dashboard translates review-only attention headline and next action', async () => {
+  setLanguage('he')
+  renderPage({ alerts_by_status: {}, review_queue: 17 })
+  expect(await screen.findByText('17 הודעות ממתינות לבדיקה')).toBeInTheDocument()
+  expect(screen.getByText('התחילו בהודעה האחרונה שממתינה לבדיקה.')).toBeInTheDocument()
+  expect(screen.queryByText(/to review need you/)).not.toBeInTheDocument()
+  setLanguage('system')
+})

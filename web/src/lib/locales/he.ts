@@ -1,5 +1,129 @@
 /** UI translations; message content, credentials, API values and URLs are never translated. */
 export const hebrew: Record<string, string> = {
+  'Check setup': 'בדיקת ההגדרות',
+  'See why': 'בירור התקלה',
+  'See alerts': 'הצגת ההתראות',
+  'Check delivery': 'בדיקת השליחה',
+  'Check recipients': 'בדיקת נמענים',
+  'Check sessions': 'בדיקת חיבורים',
+  'Open alerts': 'פתיחת ההתראות',
+  'Set alert phone': 'הגדרת טלפון שליחה',
+  'Add parents': 'הוספת הורים',
+  'Add a child': 'הוספת ילד',
+  'Fix alert delivery': 'תיקון שליחת ההתראות',
+  'View failed run': 'הצגת הריצה שנכשלה',
+  'Repair monitoring': 'תיקון המעקב',
+  'Some alerts reached only part of the parent recipient list.':
+    'חלק מההתראות הגיעו רק לחלק מההורים שנבחרו.',
+  'The sender is also a parent recipient. Messages to yourself may not notify you; use a separate sender phone for reliable parent notifications.':
+    'טלפון השליחה מוגדר גם כנמען. הודעות לעצמכם עשויות שלא להציג התראה. השתמשו בטלפון שליחה נפרד להתראות אמינות.',
+  'A monitored phone or the alert sender is disconnected or unreachable. Monitoring or delivery may have stopped.':
+    'טלפון במעקב או טלפון השליחה מנותק או אינו נגיש. ייתכן שהמעקב או השליחה נעצרו.',
+  'Alert delivery is not configured, so alerts are recorded but not sent.':
+    'שליחת ההתראות אינה מוגדרת. ההתראות נשמרות אך אינן נשלחות.',
+  'No alert phone is set. Connect a sender phone and select it to send alerts to parents.':
+    'לא נבחר טלפון לשליחת התראות. חברו טלפון ובחרו בו כשולח התראות להורים.',
+  'No parent recipients are configured. Select parents and add destinations for your alert channel.':
+    'לא נבחרו הורים לקבלת התראות. בחרו הורים והגדירו את יעדי ההתראות שלהם.',
+  'No child phone is configured. Iris cannot monitor children yet.':
+    'לא הוגדר טלפון ילד. Iris עדיין אינה יכולה לבצע מעקב.',
+  '{count} phones have never received a webhook. This may be normal until a message arrives.':
+    '{count} טלפונים עדיין לא שלחו webhook. ייתכן שזה תקין עד שתתקבל הודעה.',
+  '{count} phone has never received a webhook. This may be normal until a message arrives.':
+    '{count} טלפון עדיין לא שלח webhook. ייתכן שזה תקין עד שתתקבל הודעה.',
+  '{count} alerts were not delivered through the selected alert channel':
+    '{count} התראות לא נשלחו בערוץ שנבחר',
+  '{count} alert was not delivered through the selected alert channel':
+    '{count} התראה לא נשלחה בערוץ שנבחר',
+  '{count} jobs failed': '{count} משימות נכשלו',
+  '{count} job failed': '{count} משימה נכשלה',
+  '{count} new alerts to read': '{count} התראות חדשות לקריאה',
+  '{count} new alert to read': '{count} התראה חדשה לקריאה',
+  '{count} messages Iris could not decide': '{count} הודעות ש־Iris לא הצליחה לסווג',
+  '{count} message Iris could not decide': '{count} הודעה ש־Iris לא הצליחה לסווג',
+  'OpenWA API key is not set': 'מפתח API של OpenWA לא הוגדר',
+  'Alert sender is not connected': 'טלפון שליחת ההתראות אינו מחובר',
+  'Provider is not ready': 'הספק אינו מוכן לשימוש',
+  Available: 'זמין',
+  'No healthy eligible alert channel': 'אין ערוץ התראות תקין עם נמען מתאים',
+  'Check configured AI and notification providers. Down and recovery alerts are limited to once per provider per hour or the interval set in Providers.':
+    'בדיקת ספקי AI ושליחת התראות שהוגדרו. התראות על נפילה וחזרה לפעילות מוגבלות לפעם בשעה לכל ספק, או למרווח שנבחר בדף הספקים.',
+  'Provider health checks': 'בדיקת מצב ספקים',
+  'Provider checks have not run yet. Run Provider health checks in Schedules to check now.':
+    'בדיקת הספקים עדיין לא בוצעה. הפעילו בדיקת מצב ספקים בתזמונים לבדיקה כעת.',
+  'Could not load provider status.': 'לא ניתן לטעון את מצב הספקים.',
+  'Configure check frequency': 'הגדרת תדירות הבדיקה',
+  'Choose an independent alert channel to receive notices when your main sender is down. Only selected parents with an eligible destination receive these alerts.':
+    'בחרו ערוץ התראות עצמאי כדי לקבל עדכונים כשהשולח הראשי אינו פעיל. רק הורים שנבחרו ויש להם יעד תקין יקבלו התראות אלה.',
+  'Each parent’s selected channel': 'הערוץ שנבחר לכל הורה',
+  'Provider alert channel': 'ערוץ להתראות על ספקים',
+  'Down and recovery alerts are limited to one per provider per interval, with a minimum of one hour. Check frequency is configured in Schedules.':
+    'התראות על נפילה וחזרה לפעילות מוגבלות לפעם אחת לכל ספק במרווח שנבחר, ולכל הפחות שעה. את תדירות הבדיקה מגדירים בתזמונים.',
+  'Provider alert interval (minutes)': 'מרווח בין התראות על ספקים (בדקות)',
+  'Provider monitoring': 'ניטור ספקים',
+  '{provider} is unavailable. Open Providers to check its connection.':
+    '{provider} אינו זמין. פתחו את דף הספקים לבדיקת החיבור.',
+  'Check provider': 'בדיקת הספק',
+  'Sender connections': 'חיבורי שליחה',
+  'Alert recipients': 'נמעני התראות',
+  '{alerts} alerts and {reviews} to review need you':
+    '{alerts} התראות ו־{reviews} הודעות ממתינות לבדיקה',
+  '{count} to review need you': '{count} הודעות ממתינות לבדיקה',
+  '1 alert needs you': 'התראה אחת ממתינה לבדיקה',
+  '{count} alerts need you': '{count} התראות ממתינות לבדיקה',
+  'Start with the newest alert.': 'התחילו בהתראה האחרונה.',
+  'Start with the newest item to review.': 'התחילו בהודעה האחרונה שממתינה לבדיקה.',
+  'Monitoring or alert delivery needs setting up or fixing, below.':
+    'יש להשלים או לתקן את הגדרות המעקב או שליחת ההתראות, כמפורט בהמשך.',
+  'All quiet': 'הכול שקט',
+  'Iris checked {count} messages today and found nothing to worry about.':
+    'Iris בדקה היום {count} הודעות ולא מצאה תוכן מדאיג.',
+  'Iris is watching. Nothing has come in today yet.': 'Iris עוקבת. עדיין לא התקבלו הודעות היום.',
+  'WhatsApp QR code': 'קוד QR לחיבור WhatsApp',
+  'This QR code is no longer valid. Request a new code.': 'קוד ה־QR אינו תקף עוד. בקשו קוד חדש.',
+  'No QR code is available yet. You can request a new code.':
+    'עדיין אין קוד QR זמין. אפשר לבקש קוד חדש.',
+  'Scan with WhatsApp → Linked devices. The QR updates automatically.':
+    'סרקו ב־WhatsApp ← מכשירים מקושרים. קוד ה־QR מתעדכן אוטומטית.',
+  'Request a new QR code': 'בקשת קוד QR חדש',
+  'Requesting a new QR…': 'מבקש קוד QR חדש…',
+  'OpenWA returned an invalid QR. Request a new code.':
+    'OpenWA החזיר קוד QR לא תקין. בקשו קוד חדש.',
+  'OpenWA did not respond in time. Check the OpenWA service and retry. The existing phone has not been removed.':
+    'OpenWA לא השיב בזמן. בדקו את שירות OpenWA ונסו שוב. הטלפון הקיים לא הוסר.',
+  'OpenWA rejected the API key. Check the saved sender credentials. The existing phone has not been removed.':
+    'OpenWA דחה את מפתח ה־API. בדקו את פרטי חיבור השולח השמורים. הטלפון הקיים לא הוסר.',
+
+  'Collapse side menu': 'צמצום תפריט הצד',
+  'Expand side menu': 'הרחבת תפריט הצד',
+  'The text is sent to your configured Ollama server for classification and is not stored by Iris.':
+    'הטקסט נשלח לשרת Ollama שהגדרתם לבדיקת תוכן ואינו נשמר ב־Iris.',
+  'The text is checked by your configured classification provider and is not stored by Iris.':
+    'הטקסט נבדק באמצעות ספק בדיקת התוכן שהגדרתם ואינו נשמר ב־Iris.',
+  'Provider groups': 'קבוצות ספקים',
+  'Notification providers': 'ספקי שליחת התראות',
+  'Close other sections automatically': 'סגירה אוטומטית של חלקים אחרים',
+  'Alert providers': 'ספקי שליחת התראות',
+  'OpenWA — alert sender': 'OpenWA — שליחת התראות',
+  'Connect your sending services here. Choose recipients and their channels in Notifications.':
+    'כאן מחברים את שירותי השליחה. נמענים וערוצי התראות לכל הורה מגדירים בלשונית התראות ושליחה.',
+  'Manage parent alerts': 'ניהול התראות להורים',
+  'Sending connections are configured in Providers: SMTP, Telegram, OpenWA and GreenAPI.':
+    'חיבורי השליחה מוגדרים בספקים: SMTP, Telegram, OpenWA ו־GreenAPI.',
+  'Configure alert providers': 'הגדרת ספקי שליחה',
+  'Choose who receives alerts and select a channel for each parent. The default channel is used only for parents without their own selection.':
+    'בחרו מי יקבל התראות ובאיזה ערוץ לכל הורה. ערוץ ברירת המחדל משמש רק הורים שטרם נבחר עבורם ערוץ.',
+  'Create a bot through BotFather, start a conversation with it, and enter each parent’s chat ID in Notifications.':
+    'צרו בוט באמצעות BotFather, התחילו איתו שיחה והזינו את מזהה הצ׳אט של כל הורה בלשונית התראות ושליחה.',
+
+  'Telegram connection': 'חיבור Telegram',
+  'Connect a bot, then choose Telegram and a chat ID for each parent.':
+    'חברו בוט, ואז בחרו Telegram ומזהה צ׳אט לכל הורה.',
+  'Save Telegram connection': 'שמירת חיבור Telegram',
+  'Choose the connected phone that sends parent alerts.':
+    'בחרו את הטלפון המחובר שישלח התראות להורים.',
+  'Save sender': 'שמירת השולח',
+
   Language: 'שפה',
   'Browser default': 'ברירת המחדל של הדפדפן',
   Home: 'בית',

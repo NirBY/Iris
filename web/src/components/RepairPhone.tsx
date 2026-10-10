@@ -106,12 +106,12 @@ export function RepairPhone({
           'Reconnect the existing WhatsApp session. Closing this window never deletes your phone or session.',
         )}
       >
-        {check.data?.qr && !check.isError && (
-          <img
-            alt="WhatsApp re-pairing QR code"
-            src={check.data.qr}
-            className="mx-auto aspect-square w-full max-w-64 rounded-md bg-white p-2"
-            onError={() => void check.refetch()}
+        {open && check.data?.status !== 'ready' && (
+          <iframe
+            title={t('WhatsApp QR code')}
+            src={`/pairing/qr/${phone.id}`}
+            className="h-[27rem] w-full rounded-lg border bg-surface"
+            referrerPolicy="no-referrer"
           />
         )}
         <p role="status" className="flex items-center gap-2">

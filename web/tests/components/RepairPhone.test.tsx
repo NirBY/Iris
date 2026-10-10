@@ -20,9 +20,7 @@ test('re-pair shows QR for the existing phone and closing never deletes it', asy
     '/api/instances/3/re-pair': { status: 'qr_ready', qr: 'data:image/png;base64,iVBORw0KGgo=' },
   })
   await userEvent.click(screen.getByRole('button', { name: 'Re-pair WhatsApp' }))
-  expect(
-    await screen.findByRole('img', { name: 'WhatsApp re-pairing QR code' }),
-  ).toBeInTheDocument()
+  expect(await screen.findByTitle('WhatsApp QR code')).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'Close' }))
   expect(calls.some((call) => call.method === 'DELETE')).toBe(false)
 })

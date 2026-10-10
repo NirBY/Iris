@@ -25,7 +25,8 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { toast } from '../lib/notify'
 import { PageHeader } from '../components/PageHeader'
 import { PageLoading } from '../components/PageLoading'
-import { Section } from '../components/Section'
+import { Section, SectionGroup } from '../components/Section'
+import { ChoiceCards } from '../components/ChoiceCards'
 import { QueryError } from '../components/QueryError'
 import { Button } from '../components/ui/button'
 import { ConfirmDialog } from '../components/ui/dialog'
@@ -38,6 +39,7 @@ import type { Instance, Stats, ThresholdRow } from '../lib/types'
 import { setShowContentByDefault, useShowContentByDefault } from '../lib/prefs'
 import { overridesFrom } from '../lib/thresholds'
 import { UserSettings } from './UserSettings'
+import { ProviderHealth, ProviderAlertChannel } from '../components/ProviderHealth'
 import { NotificationsSettings } from './NotificationsSettings'
 import { DatabaseTab } from './DatabaseTab'
 import { ScheduleSettings } from './ScheduleSettings'
@@ -110,6 +112,8 @@ interface Values {
   'alerts.send_interval_seconds': number
   'alerts.send_hourly_limit': number
   'alerts.send_daily_limit': number
+  'alerts.provider_notification_minutes': number
+  'alerts.provider_notification_channel': string
   'alerts.cooldown_minutes': number
   'alerts.alert_on_review': boolean
   'alerts.notify_changes': boolean
@@ -164,6 +168,7 @@ const NUMBERS = [
   'alerts.send_hourly_limit',
   'alerts.send_daily_limit',
   'alerts.cooldown_minutes',
+  'alerts.provider_notification_minutes',
   'classification.context_window_size',
   'classification.context_max_age_hours',
   'classification.learning_min_similarity',
@@ -518,9 +523,12 @@ export function Settings() {
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
   useEffect(() => {
-    if (location.hash !== '#parent-alert-recipients') return
+    if (
+      !['#parent-alert-recipients', '#alert-providers', '#provider-health'].includes(location.hash)
+    )
+      return
     const focus = () => {
-      const target = document.getElementById('parent-alert-recipients')
+      const target = document.getElementById(location.hash.slice(1))
       if (!target) return false
       target.scrollIntoView({ block: 'start' })
       target.focus({ preventScroll: true })
@@ -697,231 +705,386 @@ export function Settings() {
 
         <div className="flex min-w-0 flex-1 flex-col gap-5">
           <TabsContent value="Providers" className="flex flex-col gap-5">
-            <Section
-              title={translate('Classification provider')}
-              description={translate(
-                'Choose how Iris classifies messages. Saved choices override server environment defaults.',
-              )}
+            <Tabs
+              value={
+                searchParams.get('provider') === 'notifications' ||
+                (!searchParams.has('provider') && location.hash === '#alert-providers')
+                  ? 'notifications'
+                  : 'ai'
+              }
+              onValueChange={(value) =>
+                setSearchParams((current) => {
+                  const next = new URLSearchParams(current)
+                  next.set('tab', 'Providers')
+                  next.set('provider', value)
+                  return next
+                })
+              }
             >
-              <Field label={translate('Classification provider')}>
-                <Select
-                  value={classifier}
-                  onChange={(e) => set('runtime.classification_provider')(e.target.value)}
-                >
-                  <option value="openai">OpenAI</option>
-                  <option value="ollama">{translate('Ollama (local)')}</option>
-                </Select>
-              </Field>
-            </Section>
-            {classifier === 'ollama' ? (
-              <Section
-                title="Ollama"
-                description={translate(
-                  'Local text and image classifier. Detect installed models, test your choice, then save to use it for new jobs.',
-                )}
-              >
-                <Field label={translate('Ollama endpoint')}>
-                  <Input
-                    value={get('runtime.ollama_base_url')}
-                    onChange={(e) => set('runtime.ollama_base_url')(e.target.value)}
-                    placeholder="http://localhost:11434"
-                  />
-                </Field>
-                <OllamaModelPicker
-                  endpoint={get('runtime.ollama_base_url')}
-                  value={get('runtime.ollama_model') || data.local_providers?.ollama_model || ''}
-                  onChange={set('runtime.ollama_model')}
-                />
-                <p className="text-sm text-muted-foreground">
-                  {translate(
-                    'Local scores require calibration. Images and stickers are checked with their captions when the selected Ollama model supports vision. Missing media or failed checks still require review. Test Ollama checks text classification only.',
+              <TabsList aria-label={translate('Provider groups')} className="mb-5">
+                <TabsTrigger value="ai">{translate('AI providers')}</TabsTrigger>
+                <TabsTrigger value="notifications">
+                  {translate('Notification providers')}
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="ai" className="flex flex-col gap-5">
+                <Section
+                  title={translate('Classification provider')}
+                  description={translate(
+                    'Choose how Iris classifies messages. Saved choices override server environment defaults.',
                   )}
-                </p>
-                <TestButton
-                  target="ollama"
-                  body={{
-                    base_url: get('runtime.ollama_base_url'),
-                    model: get('runtime.ollama_model') || data.local_providers?.ollama_model,
-                  }}
-                  label={translate('Test Ollama')}
-                />
-                <TestButton
-                  target="ollama_image"
-                  body={{
-                    base_url: get('runtime.ollama_base_url'),
-                    model: get('runtime.ollama_model') || data.local_providers?.ollama_model,
-                  }}
-                  label={translate('Test Ollama image')}
-                />
-              </Section>
-            ) : (
-              <Section
-                title="OpenAI"
-                description={translate(
-                  'Checks every message for harm. The moderation endpoint is free.',
-                )}
-              >
-                <Field label={translate('API key')}>
-                  <SecretInput
-                    value={get('openai.api_key')}
-                    isSet={data['openai.api_key'].set}
-                    onChange={set('openai.api_key')}
-                    onClear={() => void save({ 'openai.api_key': null })}
-                  />
-                </Field>
-                <TestButton
-                  target="openai"
-                  body={{ api_key: edit['openai.api_key'] || undefined }}
-                />
-              </Section>
-            )}
-            <Section
-              title={translate('Transcription provider')}
-              description={translate(
-                'Choose local transcription, OpenAI, or Cloudflare. No automatic cloud fallback is used.',
-              )}
-            >
-              <Field label={translate('Provider')}>
-                <Select
-                  value={provider}
-                  onChange={(e) => {
-                    const value = e.target.value
-                    if ('runtime.transcription_provider' in data || value === 'local_whisper')
-                      set('runtime.transcription_provider')(value)
-                    if (value !== 'local_whisper') set('transcription.provider')(value)
-                  }}
                 >
-                  <option value="openai">OpenAI</option>
-                  <option value="cloudflare">Cloudflare Workers AI</option>
-                  <option value="local_whisper">
-                    {translate('Mila companion / local Whisper')}
-                  </option>
-                </Select>
-              </Field>
-            </Section>
-            {provider === 'local_whisper' ? (
-              <Section
-                title={translate('Mila companion / local Whisper')}
-                description={translate(
-                  'Active local transcription API. The Mila desktop app itself does not provide this API.',
-                )}
-              >
-                <Field label={translate('Transcription endpoint')}>
-                  <Input
-                    value={get('runtime.whisper_url')}
-                    onChange={(e) => set('runtime.whisper_url')(e.target.value)}
-                    placeholder="http://mac.example:8081/v1/audio/transcriptions"
-                  />
-                </Field>
-                <Field label={translate('Local transcription model')}>
-                  <Input
-                    list="whisper-models"
-                    value={
-                      get('runtime.whisper_model') ||
-                      data.local_providers?.transcription_model ||
-                      ''
-                    }
-                    onChange={(e) => set('runtime.whisper_model')(e.target.value)}
-                  />
-                </Field>
-                <datalist id="whisper-models">
-                  <option value="auto" />
-                  <option value="ivrit-large-v3" />
-                  <option value="large-v3-turbo" />
-                </datalist>
-                <Field label={translate('Local transcription API key')}>
-                  <SecretInput
-                    value={get('runtime.whisper_api_key')}
-                    isSet={data['runtime.whisper_api_key']?.set || false}
-                    onChange={set('runtime.whisper_api_key')}
-                    onClear={() =>
-                      void save({
-                        'runtime.whisper_api_key': null,
-                        'runtime.whisper_use_environment_key': false,
-                      })
-                    }
-                  />
-                </Field>
-                <Toggle
-                  label={translate('Use environment API key when no saved key exists')}
-                  checked={get('runtime.whisper_use_environment_key') !== 'false'}
-                  onChange={(value) => set('runtime.whisper_use_environment_key')(String(value))}
-                />
-                <Field label={translate('Fallback model (optional)')}>
-                  <Input
-                    value={get('runtime.whisper_fallback_model')}
-                    onChange={(e) => set('runtime.whisper_fallback_model')(e.target.value)}
-                  />
-                </Field>
-                <p className="text-sm text-muted-foreground">
-                  {translate(
-                    'Audio and video audio tracks are transcribed. Test the endpoint, model and key before saving. Changing the host requires re-entering the API key.',
-                  )}
-                </p>
-                <TestButton
-                  target="local_whisper"
-                  body={{
-                    endpoint: get('runtime.whisper_url'),
-                    model:
-                      get('runtime.whisper_model') || data.local_providers?.transcription_model,
-                    api_key: edit['runtime.whisper_api_key'] || undefined,
-                  }}
-                  label={translate('Test transcription connection')}
-                />
-              </Section>
-            ) : (
-              <Section
-                title={translate('Voice and video')}
-                description={translate(
-                  'Turns audio into text so it can be checked like any message.',
-                )}
-              >
-                {provider === 'openai' ? (
-                  <Field label={translate('OpenAI model')}>
+                  <Field label={translate('Classification provider')}>
                     <Select
-                      value={get('transcription.openai_model')}
-                      onChange={(e) => set('transcription.openai_model')(e.target.value)}
+                      value={classifier}
+                      onChange={(e) => set('runtime.classification_provider')(e.target.value)}
                     >
-                      <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
-                      <option value="whisper-1">whisper-1</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="ollama">{translate('Ollama (local)')}</option>
                     </Select>
                   </Field>
+                </Section>
+                {classifier === 'ollama' ? (
+                  <Section
+                    title="Ollama"
+                    description={translate(
+                      'Local text and image classifier. Detect installed models, test your choice, then save to use it for new jobs.',
+                    )}
+                  >
+                    <Field label={translate('Ollama endpoint')}>
+                      <Input
+                        value={get('runtime.ollama_base_url')}
+                        onChange={(e) => set('runtime.ollama_base_url')(e.target.value)}
+                        placeholder="http://localhost:11434"
+                      />
+                    </Field>
+                    <OllamaModelPicker
+                      endpoint={get('runtime.ollama_base_url')}
+                      value={
+                        get('runtime.ollama_model') || data.local_providers?.ollama_model || ''
+                      }
+                      onChange={set('runtime.ollama_model')}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      {translate(
+                        'Local scores require calibration. Images and stickers are checked with their captions when the selected Ollama model supports vision. Missing media or failed checks still require review. Test Ollama checks text classification only.',
+                      )}
+                    </p>
+                    <TestButton
+                      target="ollama"
+                      body={{
+                        base_url: get('runtime.ollama_base_url'),
+                        model: get('runtime.ollama_model') || data.local_providers?.ollama_model,
+                      }}
+                      label={translate('Test Ollama')}
+                    />
+                    <TestButton
+                      target="ollama_image"
+                      body={{
+                        base_url: get('runtime.ollama_base_url'),
+                        model: get('runtime.ollama_model') || data.local_providers?.ollama_model,
+                      }}
+                      label={translate('Test Ollama image')}
+                    />
+                  </Section>
                 ) : (
-                  <>
-                    <Field label={translate('Cloudflare account ID')}>
-                      <Input
-                        dir="ltr"
-                        value={get('transcription.cloudflare_account_id')}
-                        onChange={(e) => set('transcription.cloudflare_account_id')(e.target.value)}
-                      />
-                    </Field>
-                    <Field label={translate('Cloudflare API token')}>
+                  <Section
+                    title="OpenAI"
+                    description={translate(
+                      'Checks every message for harm. The moderation endpoint is free.',
+                    )}
+                  >
+                    <Field label={translate('API key')}>
                       <SecretInput
-                        value={get('transcription.cloudflare_api_token')}
-                        isSet={data['transcription.cloudflare_api_token'].set}
-                        onChange={set('transcription.cloudflare_api_token')}
-                        onClear={() => void save({ 'transcription.cloudflare_api_token': null })}
-                      />
-                    </Field>
-                    <Field label={translate('Model')}>
-                      <Input
-                        dir="ltr"
-                        value={get('transcription.cloudflare_model')}
-                        onChange={(e) => set('transcription.cloudflare_model')(e.target.value)}
+                        value={get('openai.api_key')}
+                        isSet={data['openai.api_key'].set}
+                        onChange={set('openai.api_key')}
+                        onClear={() => void save({ 'openai.api_key': null })}
                       />
                     </Field>
                     <TestButton
-                      target="cloudflare"
-                      body={{
-                        account_id: edit['transcription.cloudflare_account_id'] || undefined,
-                        api_token: edit['transcription.cloudflare_api_token'] || undefined,
-                        model: edit['transcription.cloudflare_model'] || undefined,
-                      }}
+                      target="openai"
+                      body={{ api_key: edit['openai.api_key'] || undefined }}
                     />
-                  </>
+                  </Section>
                 )}
+                <Section
+                  title={translate('Transcription provider')}
+                  description={translate(
+                    'Choose local transcription, OpenAI, or Cloudflare. No automatic cloud fallback is used.',
+                  )}
+                >
+                  <Field label={translate('Provider')}>
+                    <Select
+                      value={provider}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        if ('runtime.transcription_provider' in data || value === 'local_whisper')
+                          set('runtime.transcription_provider')(value)
+                        if (value !== 'local_whisper') set('transcription.provider')(value)
+                      }}
+                    >
+                      <option value="openai">OpenAI</option>
+                      <option value="cloudflare">Cloudflare Workers AI</option>
+                      <option value="local_whisper">
+                        {translate('Mila companion / local Whisper')}
+                      </option>
+                    </Select>
+                  </Field>
+                </Section>
+                {provider === 'local_whisper' ? (
+                  <Section
+                    title={translate('Mila companion / local Whisper')}
+                    description={translate(
+                      'Active local transcription API. The Mila desktop app itself does not provide this API.',
+                    )}
+                  >
+                    <Field label={translate('Transcription endpoint')}>
+                      <Input
+                        value={get('runtime.whisper_url')}
+                        onChange={(e) => set('runtime.whisper_url')(e.target.value)}
+                        placeholder="http://mac.example:8081/v1/audio/transcriptions"
+                      />
+                    </Field>
+                    <Field label={translate('Local transcription model')}>
+                      <Input
+                        list="whisper-models"
+                        value={
+                          get('runtime.whisper_model') ||
+                          data.local_providers?.transcription_model ||
+                          ''
+                        }
+                        onChange={(e) => set('runtime.whisper_model')(e.target.value)}
+                      />
+                    </Field>
+                    <datalist id="whisper-models">
+                      <option value="auto" />
+                      <option value="ivrit-large-v3" />
+                      <option value="large-v3-turbo" />
+                    </datalist>
+                    <Field label={translate('Local transcription API key')}>
+                      <SecretInput
+                        value={get('runtime.whisper_api_key')}
+                        isSet={data['runtime.whisper_api_key']?.set || false}
+                        onChange={set('runtime.whisper_api_key')}
+                        onClear={() =>
+                          void save({
+                            'runtime.whisper_api_key': null,
+                            'runtime.whisper_use_environment_key': false,
+                          })
+                        }
+                      />
+                    </Field>
+                    <Toggle
+                      label={translate('Use environment API key when no saved key exists')}
+                      checked={get('runtime.whisper_use_environment_key') !== 'false'}
+                      onChange={(value) =>
+                        set('runtime.whisper_use_environment_key')(String(value))
+                      }
+                    />
+                    <Field label={translate('Fallback model (optional)')}>
+                      <Input
+                        value={get('runtime.whisper_fallback_model')}
+                        onChange={(e) => set('runtime.whisper_fallback_model')(e.target.value)}
+                      />
+                    </Field>
+                    <p className="text-sm text-muted-foreground">
+                      {translate(
+                        'Audio and video audio tracks are transcribed. Test the endpoint, model and key before saving. Changing the host requires re-entering the API key.',
+                      )}
+                    </p>
+                    <TestButton
+                      target="local_whisper"
+                      body={{
+                        endpoint: get('runtime.whisper_url'),
+                        model:
+                          get('runtime.whisper_model') || data.local_providers?.transcription_model,
+                        api_key: edit['runtime.whisper_api_key'] || undefined,
+                      }}
+                      label={translate('Test transcription connection')}
+                    />
+                  </Section>
+                ) : (
+                  <Section
+                    title={translate('Voice and video')}
+                    description={translate(
+                      'Turns audio into text so it can be checked like any message.',
+                    )}
+                  >
+                    {provider === 'openai' ? (
+                      <Field label={translate('OpenAI model')}>
+                        <Select
+                          value={get('transcription.openai_model')}
+                          onChange={(e) => set('transcription.openai_model')(e.target.value)}
+                        >
+                          <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
+                          <option value="whisper-1">whisper-1</option>
+                        </Select>
+                      </Field>
+                    ) : (
+                      <>
+                        <Field label={translate('Cloudflare account ID')}>
+                          <Input
+                            dir="ltr"
+                            value={get('transcription.cloudflare_account_id')}
+                            onChange={(e) =>
+                              set('transcription.cloudflare_account_id')(e.target.value)
+                            }
+                          />
+                        </Field>
+                        <Field label={translate('Cloudflare API token')}>
+                          <SecretInput
+                            value={get('transcription.cloudflare_api_token')}
+                            isSet={data['transcription.cloudflare_api_token'].set}
+                            onChange={set('transcription.cloudflare_api_token')}
+                            onClear={() =>
+                              void save({ 'transcription.cloudflare_api_token': null })
+                            }
+                          />
+                        </Field>
+                        <Field label={translate('Model')}>
+                          <Input
+                            dir="ltr"
+                            value={get('transcription.cloudflare_model')}
+                            onChange={(e) => set('transcription.cloudflare_model')(e.target.value)}
+                          />
+                        </Field>
+                        <TestButton
+                          target="cloudflare"
+                          body={{
+                            account_id: edit['transcription.cloudflare_account_id'] || undefined,
+                            api_token: edit['transcription.cloudflare_api_token'] || undefined,
+                            model: edit['transcription.cloudflare_model'] || undefined,
+                          }}
+                        />
+                      </>
+                    )}
+                  </Section>
+                )}
+              </TabsContent>
+              <TabsContent value="notifications">
+                <SectionGroup>
+                  <div id="alert-providers" tabIndex={-1} className="scroll-mt-6 border-t pt-5">
+                    <h2 className="text-xl font-semibold">{translate('Alert providers')}</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {translate(
+                        'Connect your sending services here. Choose recipients and their channels in Notifications.',
+                      )}
+                    </p>
+                    <Button asChild variant="outline" className="mt-3">
+                      <Link to="/settings?tab=Notifications">
+                        {translate('Manage parent alerts')}
+                      </Link>
+                    </Button>
+                  </div>
+                  <Section
+                    collapsible
+                    defaultOpen
+                    title={translate('Telegram connection')}
+                    description={translate(
+                      'Connect a bot, then choose Telegram and a chat ID for each parent.',
+                    )}
+                  >
+                    {
+                      <Field
+                        label={translate('Telegram bot token')}
+                        hint={translate(
+                          'Create a bot through BotFather, start a conversation with it, and enter each parent’s chat ID in Notifications.',
+                        )}
+                      >
+                        <SecretInput
+                          value={get('alerts.telegram_bot_token')}
+                          isSet={data['alerts.telegram_bot_token']?.set ?? false}
+                          onChange={set('alerts.telegram_bot_token')}
+                          onClear={() => void save({ 'alerts.telegram_bot_token': null })}
+                        />
+                      </Field>
+                    }
+                    <Button
+                      variant="primary"
+                      onClick={() =>
+                        void save({ 'alerts.telegram_bot_token': get('alerts.telegram_bot_token') })
+                      }
+                      disabled={
+                        saving ||
+                        edit['alerts.telegram_bot_token'] === undefined ||
+                        !get('alerts.telegram_bot_token').trim()
+                      }
+                    >
+                      {translate('Save Telegram connection')}
+                    </Button>
+                  </Section>
+                  <Section
+                    collapsible
+                    title={translate('OpenWA — alert sender')}
+                    description={translate('Choose the connected phone that sends parent alerts.')}
+                  >
+                    {
+                      <Field label={translate('OpenWA sender phone')}>
+                        <Select
+                          value={get('alerts.sender_instance_id')}
+                          onChange={(e) => set('alerts.sender_instance_id')(e.target.value)}
+                        >
+                          <option value="">{translate('Not set')}</option>
+                          {instances?.map((i) => (
+                            <option key={i.id} value={i.id}>
+                              {i.kid_name}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                    }
+                    <Button
+                      variant="primary"
+                      onClick={() =>
+                        void save({
+                          'alerts.sender_instance_id': get('alerts.sender_instance_id')
+                            ? Number(get('alerts.sender_instance_id'))
+                            : null,
+                        })
+                      }
+                      disabled={saving || edit['alerts.sender_instance_id'] === undefined}
+                    >
+                      {translate('Save sender')}
+                    </Button>
+                    <ParentConnections showRecipients={false} />
+                  </Section>
+                  <NotificationsSettings />
+                </SectionGroup>
+              </TabsContent>
+            </Tabs>
+            <div id="provider-health" tabIndex={-1} className="scroll-mt-6">
+              <Section
+                collapsible
+                defaultOpen={searchParams.get('section') === 'monitor'}
+                title={translate('Provider monitoring')}
+              >
+                <ProviderHealth />
+                {num(
+                  'alerts.provider_notification_minutes',
+                  'Provider alert interval (minutes)',
+                  60,
+                  10080,
+                )}
+                <p className="text-sm text-muted-foreground">
+                  {translate(
+                    'Down and recovery alerts are limited to one per provider per interval, with a minimum of one hour. Check frequency is configured in Schedules.',
+                  )}
+                </p>
+                <ProviderAlertChannel
+                  value={get('alerts.provider_notification_channel') || 'mixed'}
+                  onChange={set('alerts.provider_notification_channel')}
+                />
+                <p className="text-sm text-muted-foreground">
+                  {translate(
+                    'Choose an independent alert channel to receive notices when your main sender is down. Only selected parents with an eligible destination receive these alerts.',
+                  )}
+                </p>
+                <Button asChild variant="outline">
+                  <Link to="/settings?tab=Schedules">{translate('Configure check frequency')}</Link>
+                </Button>
               </Section>
-            )}
+            </div>
           </TabsContent>
 
           <TabsContent value="Classification" className="flex flex-col gap-5">
@@ -1059,251 +1222,246 @@ export function Settings() {
           </TabsContent>
 
           <TabsContent value="Notifications" className="flex flex-col gap-5">
-            <Section
-              title={translate('Parent alert delivery')}
-              description={translate(
-                'Choose an alert channel for each parent in Parent alert recipients. The default below applies to existing parents without an explicit channel. Sign-in codes are configured separately.',
-              )}
-            >
-              <Field label={translate('Default alert channel')}>
-                <Select
-                  value={get('alerts.channel') || 'openwa'}
-                  onChange={(e) => set('alerts.channel')(e.target.value)}
-                >
-                  <option value="openwa">{translate('WhatsApp via OpenWA (default)')}</option>
-                  <option value="telegram">{translate('Telegram bot')}</option>
-                  <option value="smtp">{translate('Email via SMTP')}</option>
-                  <option value="greenapi">{translate('WhatsApp via GreenAPI')}</option>
-                </Select>
-              </Field>
-              <p className="text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-surface p-4">
+              <p className="max-w-prose text-sm text-muted-foreground">
                 {translate(
-                  'WhatsApp sends can lead to account restrictions. Choose email or Telegram to keep parent alerts off your WhatsApp number.',
+                  'Sending connections are configured in Providers: SMTP, Telegram, OpenWA and GreenAPI.',
                 )}
               </p>
-              <AlertDeliveryHealth />
-              {
-                <Field
-                  label={translate('Telegram bot token')}
-                  hint={translate(
-                    'Create a bot through BotFather, start a conversation with it, and enter each parent’s chat ID below.',
+              <Button asChild variant="outline">
+                <Link to="/settings?tab=Providers&provider=notifications#alert-providers">
+                  {translate('Configure alert providers')}
+                </Link>
+              </Button>
+            </div>
+            <SectionGroup key={searchParams.get('section') ?? 'parents'}>
+              <Section
+                collapsible
+                defaultOpen={!searchParams.has('section')}
+                title={translate('Parent alert delivery')}
+                description={translate(
+                  'Choose who receives alerts and select a channel for each parent. The default channel is used only for parents without their own selection.',
+                )}
+              >
+                <ParentConnections showSender={false} />
+                <ChoiceCards
+                  label={translate('Default alert channel')}
+                  value={get('alerts.channel') || 'openwa'}
+                  onChange={set('alerts.channel')}
+                  options={[
+                    { value: 'openwa', label: translate('WhatsApp via OpenWA') },
+                    { value: 'greenapi', label: translate('WhatsApp via GreenAPI') },
+                    { value: 'smtp', label: translate('Email via SMTP') },
+                    { value: 'telegram', label: translate('Telegram bot') },
+                  ]}
+                />
+                <p className="text-sm text-muted-foreground">
+                  {translate(
+                    'WhatsApp sends can lead to account restrictions. Choose email or Telegram to keep parent alerts off your WhatsApp number.',
                   )}
+                </p>
+                <AlertDeliveryHealth />
+                <TestButton
+                  target="alert"
+                  label={translate('Test parent alert delivery')}
+                  disabled={edit['alerts.channel'] !== undefined}
+                  body={{
+                    sender_instance_id: get('alerts.sender_instance_id') || undefined,
+                    recipient: get('alerts.recipient') || undefined,
+                  }}
+                />
+                {edit['alerts.channel'] !== undefined && (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    {translate('Save changes to apply this channel before testing alert delivery.')}
+                  </p>
+                )}
+              </Section>
+              <Section
+                collapsible
+                defaultOpen={searchParams.get('section') === 'timing'}
+                title={translate('Frequency and timing')}
+              >
+                <ChoiceCards
+                  label={translate('Parent notification design')}
+                  value={get('alerts.notification_style') || 'summary'}
+                  onChange={set('alerts.notification_style')}
+                  options={[
+                    { value: 'summary', label: translate('Private summary (recommended)') },
+                    { value: 'detailed', label: translate('Message preview') },
+                  ]}
+                />
+                <div
+                  className="max-w-sm rounded-3xl border bg-surface-2/50 p-4"
+                  aria-label={translate('Notification preview')}
                 >
-                  <SecretInput
-                    value={get('alerts.telegram_bot_token')}
-                    isSet={data['alerts.telegram_bot_token']?.set ?? false}
-                    onChange={set('alerts.telegram_bot_token')}
-                    onClear={() => void save({ 'alerts.telegram_bot_token': null })}
+                  <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                    <Mail className="size-4" />
+                    {translate('Iris · Family update')}
+                  </div>
+                  <div className="rounded-2xl rounded-ss-sm bg-success-soft/60 p-4 text-sm font-normal leading-relaxed">
+                    <p className="mb-3 font-medium">{translate('A message to check together')}</p>
+                    <p>
+                      {translate('Child: Alex')}
+                      <br />
+                      {translate('Chat: School friends')}
+                      <br />
+                      {translate('Time: 16:30')}
+                    </p>
+                    <p className="my-3">
+                      {get('alerts.notification_style') === 'detailed'
+                        ? translate('💬 “Example message shown here.”')
+                        : translate(
+                            'Iris flagged a possible concern. Open Iris to see the conversation.',
+                          )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {translate('Sent by Iris · Server: your Iris address')}
+                    </p>
+                  </div>
+                  {get('alerts.review_buttons') === 'true' && (
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs text-primary">
+                      <span className="rounded-lg border bg-surface p-2">{translate('SAFE')}</span>
+                      <span className="rounded-lg border bg-surface p-2">
+                        {translate('Harmful')}
+                      </span>
+                      <span className="rounded-lg border bg-surface p-2">
+                        {translate('Ignore')}
+                      </span>
+                    </div>
+                  )}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {translate(
+                      'Example preview. Your phone app controls its fonts and appearance.',
+                    )}
+                  </p>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {translate(
+                    'A persistent queue spaces sends across all chats and recipients. Resends and follow-ups share these limits. Excess messages wait; these limits do not guarantee protection from WhatsApp account restrictions.',
+                  )}
+                </p>
+                {num(
+                  'alerts.send_interval_seconds',
+                  'Minimum interval between sends (seconds)',
+                  5,
+                  3600,
+                )}
+                {num('alerts.send_hourly_limit', 'Maximum sends per sender per hour', 1, 1000)}
+                {num('alerts.send_daily_limit', 'Maximum sends per sender per 24 hours', 1, 10000)}
+                {num('alerts.cooldown_minutes', 'Cooldown per chat (minutes)', 0, 1440)}
+                <Field label={translate('Time zone')}>
+                  <Input
+                    dir="ltr"
+                    value={get('alerts.timezone')}
+                    onChange={(e) => set('alerts.timezone')(e.target.value)}
                   />
                 </Field>
-              }
-              <ParentConnections showSender />
-              {
-                <Field label={translate('OpenWA sender phone')}>
-                  <Select
-                    value={get('alerts.sender_instance_id')}
-                    onChange={(e) => set('alerts.sender_instance_id')(e.target.value)}
-                  >
-                    <option value="">{translate('Not set')}</option>
-                    {instances?.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.kid_name}
-                      </option>
-                    ))}
-                  </Select>
+                {bool(
+                  'alerts.alert_on_review',
+                  'Also alert on items needing review',
+                  'When enabled, new review items can notify parents. Existing backlog stays in Review; send individual items explicitly.',
+                )}
+                {bool(
+                  'alerts.notify_changes',
+                  'Tell me when an alerted message is edited or deleted',
+                  'Sends a short follow-up using the selected alert channel. It never repeats the message.',
+                )}
+              </Section>
+              <Section
+                collapsible
+                defaultOpen={searchParams.get('section') === 'review'}
+                title={translate('Review from your phone')}
+                description={translate(
+                  'GreenAPI and Telegram can include SAFE, Harmful and Ignore buttons in message alerts.',
+                )}
+              >
+                {bool(
+                  'alerts.review_buttons',
+                  'Add review buttons to alerts',
+                  'The first valid parent response wins. Later choices are saved in notes. Personal chats only; buttons expire after four days.',
+                )}
+                <p className="text-sm text-muted-foreground">
+                  {translate(
+                    'Use a dedicated Telegram bot or GreenAPI notification instance with no webhook or other polling consumer. For GreenAPI, enable incoming message notifications. Iris checks responses in Settings → Schedules → Parent alert responses. GreenAPI buttons are a beta provider feature.',
+                  )}
+                </p>
+              </Section>
+              <Section
+                collapsible
+                defaultOpen={searchParams.get('section') === 'links'}
+                title={translate('Iris links')}
+                description={translate(
+                  'Use the public domain parents can open. This URL prefixes alert and media links. The saved value overrides IRIS_PUBLIC_BASE_URL from .env / Docker Compose.',
+                )}
+              >
+                <Field label={translate('Iris base URL')}>
+                  <Input
+                    type="url"
+                    dir="ltr"
+                    placeholder="https://iris.example.com"
+                    value={get('runtime.public_base_url')}
+                    onChange={(e) => set('runtime.public_base_url')(e.target.value)}
+                  />
                 </Field>
-              }
-              <TestButton
-                target="alert"
-                label={translate('Test parent alert delivery')}
-                disabled={edit['alerts.channel'] !== undefined}
-                body={{
-                  sender_instance_id: get('alerts.sender_instance_id') || undefined,
-                  recipient: get('alerts.recipient') || undefined,
-                }}
-              />
-              {edit['alerts.channel'] !== undefined && (
-                <p role="status" className="text-sm text-muted-foreground">
-                  {translate('Save changes to apply this channel before testing alert delivery.')}
+              </Section>
+              <Section
+                collapsible
+                defaultOpen={searchParams.get('section') === 'webhooks'}
+                title={translate('OpenWA webhooks')}
+                description={translate(
+                  'Address OpenWA uses to deliver messages to Iris. For a private deployment, use the reachable NAS URL permitted by OpenWA’s SSRF_ALLOWED_HOSTS. Leave blank to use the server default, or the public Iris URL if no server default is configured.',
+                )}
+              >
+                <Field label={translate('OpenWA webhook base URL')}>
+                  <Input
+                    type="url"
+                    dir="ltr"
+                    placeholder="http://192.0.2.10:8182"
+                    value={get('runtime.webhook_base_url')}
+                    onChange={(e) => set('runtime.webhook_base_url')(e.target.value)}
+                  />
+                </Field>
+                <Field label={translate('Webhook delivery attempts (1–5 total)')}>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={5}
+                    value={get('openwa.webhook_attempts')}
+                    onChange={(e) => set('openwa.webhook_attempts')(e.target.value)}
+                  />
+                </Field>
+                <Toggle
+                  label={translate('Recover missed OpenWA messages automatically')}
+                  checked={get('openwa.recovery_enabled') !== 'false'}
+                  onChange={(value) => set('openwa.recovery_enabled')(String(value))}
+                />
+                <Field label={translate('Catch-up lookback (hours, 1–720)')}>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={720}
+                    value={get('openwa.recovery_hours')}
+                    onChange={(e) => set('openwa.recovery_hours')(e.target.value)}
+                  />
+                </Field>
+                <p className="text-sm text-muted-foreground">
+                  {translate(
+                    'Saved retry settings apply to existing Iris webhooks within a minute. Catch-up uses retained OpenWA messages, respects monitoring scope and retention, and avoids duplicates. Use Schedules → OpenWA message catch-up → Run now for manual recovery.',
+                  )}
                 </p>
-              )}
-            </Section>
-            <Section
-              title={translate('Iris links')}
-              description={translate(
-                'Use the public domain parents can open. This URL prefixes alert and media links. The saved value overrides IRIS_PUBLIC_BASE_URL from .env / Docker Compose.',
-              )}
-            >
-              <Field label={translate('Iris base URL')}>
-                <Input
-                  type="url"
-                  dir="ltr"
-                  placeholder="https://iris.example.com"
-                  value={get('runtime.public_base_url')}
-                  onChange={(e) => set('runtime.public_base_url')(e.target.value)}
-                />
-              </Field>
-            </Section>
-            <Section
-              title={translate('OpenWA webhooks')}
-              description={translate(
-                'Address OpenWA uses to deliver messages to Iris. For a private deployment, use the reachable NAS URL permitted by OpenWA’s SSRF_ALLOWED_HOSTS. Leave blank to use the server default, or the public Iris URL if no server default is configured.',
-              )}
-            >
-              <Field label={translate('OpenWA webhook base URL')}>
-                <Input
-                  type="url"
-                  dir="ltr"
-                  placeholder="http://192.0.2.10:8182"
-                  value={get('runtime.webhook_base_url')}
-                  onChange={(e) => set('runtime.webhook_base_url')(e.target.value)}
-                />
-              </Field>
-              <Field label={translate('Webhook delivery attempts (1–5 total)')}>
-                <Input
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={get('openwa.webhook_attempts')}
-                  onChange={(e) => set('openwa.webhook_attempts')(e.target.value)}
-                />
-              </Field>
-              <Toggle
-                label={translate('Recover missed OpenWA messages automatically')}
-                checked={get('openwa.recovery_enabled') !== 'false'}
-                onChange={(value) => set('openwa.recovery_enabled')(String(value))}
-              />
-              <Field label={translate('Catch-up lookback (hours, 1–720)')}>
-                <Input
-                  type="number"
-                  min={1}
-                  max={720}
-                  value={get('openwa.recovery_hours')}
-                  onChange={(e) => set('openwa.recovery_hours')(e.target.value)}
-                />
-              </Field>
-              <p className="text-sm text-muted-foreground">
-                {translate(
-                  'Saved retry settings apply to existing Iris webhooks within a minute. Catch-up uses retained OpenWA messages, respects monitoring scope and retention, and avoids duplicates. Use Schedules → OpenWA message catch-up → Run now for manual recovery.',
-                )}
-              </p>
-              <Button
-                variant="outline"
-                disabled={
-                  recoverOpenWA.isPending ||
-                  saving ||
-                  Object.keys(edit).some((key) => key.startsWith('openwa.'))
-                }
-                onClick={() => recoverOpenWA.mutate()}
-              >
-                {translate('Recover missed messages now')}
-              </Button>
-            </Section>
-            <Section title={translate('Frequency and timing')}>
-              <Field
-                label={translate('Parent notification design')}
-                hint={translate(
-                  'Short summaries keep message content private. Parents open Iris to review the context.',
-                )}
-              >
-                <select
-                  className="rounded border bg-surface p-2"
-                  value={get('alerts.notification_style') || 'summary'}
-                  onChange={(e) => set('alerts.notification_style')(e.target.value)}
+                <Button
+                  variant="outline"
+                  disabled={
+                    recoverOpenWA.isPending ||
+                    saving ||
+                    Object.keys(edit).some((key) => key.startsWith('openwa.'))
+                  }
+                  onClick={() => recoverOpenWA.mutate()}
                 >
-                  <option value="summary">{translate('Private summary (recommended)')}</option>
-                  <option value="detailed">{translate('Message preview')}</option>
-                </select>
-              </Field>
-              <div
-                className="max-w-sm rounded-3xl border bg-surface-2/50 p-4"
-                aria-label={translate('Notification preview')}
-              >
-                <div className="mb-3 flex items-center gap-2 text-sm font-medium">
-                  <Mail className="size-4" />
-                  {translate('Iris · Family update')}
-                </div>
-                <div className="rounded-2xl rounded-ss-sm bg-success-soft/60 p-4 text-sm font-normal leading-relaxed">
-                  <p className="mb-3 font-medium">{translate('A message to check together')}</p>
-                  <p>
-                    {translate('Child: Alex')}
-                    <br />
-                    {translate('Chat: School friends')}
-                    <br />
-                    {translate('Time: 16:30')}
-                  </p>
-                  <p className="my-3">
-                    {get('alerts.notification_style') === 'detailed'
-                      ? translate('💬 “Example message shown here.”')
-                      : translate(
-                          'Iris flagged a possible concern. Open Iris to see the conversation.',
-                        )}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {translate('Sent by Iris · Server: your Iris address')}
-                  </p>
-                </div>
-                {get('alerts.review_buttons') === 'true' && (
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs text-primary">
-                    <span className="rounded-lg border bg-surface p-2">{translate('SAFE')}</span>
-                    <span className="rounded-lg border bg-surface p-2">{translate('Harmful')}</span>
-                    <span className="rounded-lg border bg-surface p-2">{translate('Ignore')}</span>
-                  </div>
-                )}
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {translate('Example preview. Your phone app controls its fonts and appearance.')}
-                </p>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {translate(
-                  'A persistent queue spaces sends across all chats and recipients. Resends and follow-ups share these limits. Excess messages wait; these limits do not guarantee protection from WhatsApp account restrictions.',
-                )}
-              </p>
-              {num(
-                'alerts.send_interval_seconds',
-                'Minimum interval between sends (seconds)',
-                5,
-                3600,
-              )}
-              {num('alerts.send_hourly_limit', 'Maximum sends per sender per hour', 1, 1000)}
-              {num('alerts.send_daily_limit', 'Maximum sends per sender per 24 hours', 1, 10000)}
-              {num('alerts.cooldown_minutes', 'Cooldown per chat (minutes)', 0, 1440)}
-              <Field label={translate('Time zone')}>
-                <Input
-                  dir="ltr"
-                  value={get('alerts.timezone')}
-                  onChange={(e) => set('alerts.timezone')(e.target.value)}
-                />
-              </Field>
-              {bool(
-                'alerts.alert_on_review',
-                'Also alert on items needing review',
-                'When enabled, new review items can notify parents. Existing backlog stays in Review; send individual items explicitly.',
-              )}
-              {bool(
-                'alerts.notify_changes',
-                'Tell me when an alerted message is edited or deleted',
-                'Sends a short follow-up using the selected alert channel. It never repeats the message.',
-              )}
-            </Section>
-            <Section
-              title={translate('Review from your phone')}
-              description={translate(
-                'GreenAPI and Telegram can include SAFE, Harmful and Ignore buttons in message alerts.',
-              )}
-            >
-              {bool(
-                'alerts.review_buttons',
-                'Add review buttons to alerts',
-                'The first valid parent response wins. Later choices are saved in notes. Personal chats only; buttons expire after four days.',
-              )}
-              <p className="text-sm text-muted-foreground">
-                {translate(
-                  'Use a dedicated Telegram bot or GreenAPI notification instance with no webhook or other polling consumer. For GreenAPI, enable incoming message notifications. Iris checks responses in Settings → Schedules → Parent alert responses. GreenAPI buttons are a beta provider feature.',
-                )}
-              </p>
-            </Section>
-            <NotificationsSettings />
+                  {translate('Recover missed messages now')}
+                </Button>
+              </Section>
+            </SectionGroup>
           </TabsContent>
 
           <TabsContent value="Scope" className="flex flex-col gap-5">

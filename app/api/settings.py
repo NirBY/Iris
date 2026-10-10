@@ -163,6 +163,13 @@ async def update_settings(
             errors["alerts.recipient_children"] = "Select existing child phones"
     if errors:
         raise HTTPException(status_code=422, detail=errors)
+    provider_channel = body.settings.get("alerts.provider_notification_channel")
+    if provider_channel and provider_channel != "mixed":
+        provider_ready = await delivery_readiness(db, provider_channel)
+        if not provider_ready.provider_ready:
+            raise HTTPException(
+                422, {"alerts.provider_notification_channel": provider_ready.provider_error}
+            )
     if body.settings.get("alerts.sender_instance_id"):
         sender = await db.get(Instance, body.settings["alerts.sender_instance_id"])
         if (
@@ -246,6 +253,13 @@ async def update_settings(
 
 
 SILENCE = Path(__file__).resolve().parent.parent / "assets" / "silence.wav"
+
+
+@router.get("/provider-health")
+async def provider_health(db: Annotated[AsyncSession, Depends(get_db)]) -> list[dict[str, Any]]:
+    from app.provider_health import health_rows
+
+    return await health_rows(db)
 
 
 class TestRequest(BaseModel):

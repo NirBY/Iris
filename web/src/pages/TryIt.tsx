@@ -1,5 +1,5 @@
 import { t } from '../lib/i18n'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FlaskConical, RotateCcw, Save } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -49,6 +49,17 @@ const VERDICT: Record<Verdict, { title: string; text: string; tone: string }> = 
 
 export function TryIt() {
   const qc = useQueryClient()
+  const providers = useQuery({
+    queryKey: ['settings'],
+    queryFn: () =>
+      api<{
+        'runtime.classification_provider'?: string
+        local_providers?: { classification: string }
+      }>('/api/settings'),
+  })
+  const classifier =
+    providers.data?.['runtime.classification_provider'] ??
+    providers.data?.local_providers?.classification
   const [text, setText] = useState('')
   const [context, setContext] = useState('')
   const [draft, setDraft] = useState<Draft>({})
@@ -181,7 +192,15 @@ export function TryIt() {
             <FlaskConical /> {check.isPending ? t('Checking…') : t('Check')}
           </Button>
           <p className="text-xs text-muted-foreground">
-            {t('The text is sent to OpenAI for moderation and is not stored by Iris.')}
+            {classifier === 'ollama'
+              ? t(
+                  'The text is sent to your configured Ollama server for classification and is not stored by Iris.',
+                )
+              : classifier === 'openai'
+                ? t('The text is sent to OpenAI for moderation and is not stored by Iris.')
+                : t(
+                    'The text is checked by your configured classification provider and is not stored by Iris.',
+                  )}
           </p>
         </div>
       </form>

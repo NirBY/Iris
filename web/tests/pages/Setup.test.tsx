@@ -91,3 +91,22 @@ test('connection checks are explicit and providers are tested separately', async
   await userEvent.click(screen.getByRole('button', { name: 'Test active alert channel (openwa)' }))
   await waitFor(() => expect(calls.some((c) => c.url === '/api/settings/test/alert')).toBe(true))
 })
+
+test('setup routes notifier credentials, parent recipients and AI to their separate settings groups', async () => {
+  renderWithApp(<Setup />, { '/api/setup': state }, '/setup')
+  await userEvent.click(await screen.findByRole('button', { name: '2. notifiers' }))
+  expect(screen.getByRole('link', { name: 'Configure notification providers' })).toHaveAttribute(
+    'href',
+    '/settings?tab=Providers&provider=notifications#alert-providers',
+  )
+  await userEvent.click(screen.getByRole('button', { name: '3. parents' }))
+  expect(screen.getByRole('link', { name: 'Select parent alert recipients' })).toHaveAttribute(
+    'href',
+    '/settings?tab=Notifications#parent-alert-recipients',
+  )
+  await userEvent.click(screen.getByRole('button', { name: '5. ai' }))
+  expect(screen.getByRole('link', { name: 'Configure AI providers and models' })).toHaveAttribute(
+    'href',
+    '/settings?tab=Providers&provider=ai',
+  )
+})

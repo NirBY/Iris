@@ -171,3 +171,18 @@ test('Hebrew standalone desktop retains navigation and language selection in the
   await userEvent.click(screen.getByTitle('חשבון ומראה'))
   expect(await screen.findByLabelText('שפה')).toHaveValue('he')
 })
+
+test('sidebar can collapse to icons and saves its preference', async () => {
+  localStorage.removeItem('iris.sidebar-expanded')
+  setViewport(true)
+  renderLayout()
+  await userEvent.click(await screen.findByRole('button', { name: 'Collapse side menu' }))
+  expect(localStorage.getItem('iris.sidebar-expanded')).toBe('0')
+  const nav = screen.getByRole('navigation', { name: 'Main' })
+  expect(within(nav).getByRole('link', { name: 'Home' })).toHaveAttribute('title', 'Home')
+  expect(within(nav).queryByText('Home')).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Expand side menu' }))
+  expect(localStorage.getItem('iris.sidebar-expanded')).toBe('1')
+  expect(within(nav).getByText('Home')).toBeVisible()
+  localStorage.removeItem('iris.sidebar-expanded')
+})

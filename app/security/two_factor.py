@@ -104,7 +104,8 @@ async def green_sender_number(config: dict[str, Any], *, refresh: bool = False) 
     except (httpx.HTTPError, ValueError, AttributeError):
         raise HTTPException(
             503,
-            "Could not verify the GreenAPI sender number. Check its connection in Notifications.",
+            "Could not verify the GreenAPI sender number. "
+            "Check its connection in Providers > Notification providers.",
         ) from None
     config["sender_number"] = number
     return number

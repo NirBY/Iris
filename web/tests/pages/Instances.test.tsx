@@ -41,7 +41,11 @@ test('adding a parent recipient only saves the alert number', async () => {
     },
   })
   await userEvent.type(await screen.findByLabelText('Parent phone number'), '15550100102')
-  await userEvent.selectOptions(screen.getByLabelText('Alert channel'), 'greenapi')
+  await userEvent.click(
+    within(screen.getByRole('group', { name: 'Alert channel' })).getByRole('radio', {
+      name: 'WhatsApp via GreenAPI',
+    }),
+  )
   await userEvent.click(screen.getByRole('button', { name: 'Add parent' }))
   expect(calls.find((call) => call.method === 'PUT')).toMatchObject({
     url: '/api/settings',
