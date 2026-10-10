@@ -1,5 +1,12 @@
 # Ollama learning architecture and implementation plan
 
+See [the Hebrew learning flow and training logic](LEARNING_FLOW.he.md) for the current
+two-track design, Mermaid diagrams, privacy boundary and optional local LoRA commands.
+The versioned synthetic pack is separate from private human reviews. It can be enabled in
+Settings for Shadow comparisons, including targets without a private retrieval match.
+The evaluation buttons queue aggregate-only synthetic or held-out conversation checks.
+Neither evaluation automatically enables Active or publishes weights.
+
 Ollama's weights stay unchanged. Iris improves the context supplied to Ollama using accepted
 human reviews. Retrieval defaults to bounded Unicode word matching for Hebrew and English.
 Optional semantic retrieval uses an installed embedding model through the configured Ollama server.

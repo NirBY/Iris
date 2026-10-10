@@ -344,6 +344,7 @@ REGISTRY: dict[str, Spec] = {
     "openai.api_key": Spec(None, _opt_secret, secret=True),
     "classification.model": Spec("omni-moderation-latest", _str),
     "classification.learning_mode": Spec("off", _choice("off", "shadow", "active")),
+    "classification.community_learning": Spec(False, _bool),
     "classification.learning_retrieval": Spec("lexical", _choice("lexical", "semantic")),
     "classification.learning_embedding_model": Spec(None, _opt_str),
     "classification.learning_min_similarity": Spec(0.7, _similarity),

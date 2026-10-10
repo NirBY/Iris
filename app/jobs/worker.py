@@ -9,6 +9,7 @@ from loguru import logger
 from sqlalchemy.exc import OperationalError
 
 from app.alerts.delivery import deliver_alert, deliver_test, notify_change
+from app.classify.evaluation import evaluate_job
 from app.config import get_settings
 from app.jobs import queue
 from app.jobs.handlers import Deps, prepare_alert, process_message
@@ -18,6 +19,7 @@ from app.schedules import due_schedules, run_schedule
 
 Handler = Callable[[ClaimedJob, Deps], Awaitable[None]]
 HANDLERS: dict[str, Handler] = {
+    "evaluate_learning": evaluate_job,
     "process_message": process_message,
     "prepare_alert": prepare_alert,
     "deliver_alert": deliver_alert,

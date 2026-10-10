@@ -4,6 +4,8 @@ import argparse
 import asyncio
 import hashlib
 import json
+import re
+import time
 from dataclasses import replace
 from datetime import timedelta
 from typing import Any
@@ -41,7 +43,7 @@ def summarize(rows: list[dict[str, Any]], field: str) -> dict[str, Any]:
     }
 
 
-async def evaluate(limit: int, strategy: str | None = None) -> None:
+async def evaluate(limit: int, strategy: str | None = None, *, emit: bool = True) -> dict[str, Any]:
     engine = make_engine()
     factory = make_session_factory(engine)
     client = None
@@ -76,11 +78,16 @@ async def evaluate(limit: int, strategy: str | None = None) -> None:
             skipped = failures = 0
             fallbacks = 0
             matched = 0
+            started = time.monotonic()
             for message, feedback, example in rows:
+                if time.monotonic() - started > 600:
+                    failures += 1
+                    break
                 if (
                     not eligible(message)
                     or content_hash(message) != example.content_hash
                     or feedback.verdict != example.verdict
+                    or (message.edited_at is not None and message.edited_at > feedback.reviewed_at)
                 ):
                     skipped += 1
                     continue
@@ -92,16 +99,21 @@ async def evaluate(limit: int, strategy: str | None = None) -> None:
                     strategy=strategy,
                 )
                 examples = selection.examples
+                if await get_setting(db, "classification.community_learning"):
+                    from app.classify.community import guidance
+                    from app.classify.stages import message_body
+
+                    examples = [*examples, *guidance(message_body(message))]
                 fallbacks += selection.metadata["fallback"] is not None
                 try:
-                    baseline = await run_pipeline(message, ctx)
+                    baseline = await asyncio.wait_for(run_pipeline(message, ctx), 30)
                     candidate = baseline
                     if examples:
                         matched += 1
-                        candidate = await run_pipeline(
-                            message, replace(ctx, learning_examples=examples)
+                        candidate = await asyncio.wait_for(
+                            run_pipeline(message, replace(ctx, learning_examples=examples)), 30
                         )
-                except (PermanentError, TransientError):
+                except (PermanentError, TransientError, TimeoutError):
                     failures += 1
                     continue
                 evaluated.append(
@@ -109,35 +121,63 @@ async def evaluate(limit: int, strategy: str | None = None) -> None:
                         "human": feedback.verdict,
                         "baseline": baseline.verdict,
                         "candidate": candidate.verdict,
+                        "language": "he"
+                        if re.search(r"[\u0590-\u05ff]", message.text or "")
+                        else "en",
                     }
                 )
-            print(
-                json.dumps(
-                    {
-                        "split": "sha256(chat ID) modulo 5: 0=test; all test chats excluded",
-                        "model": cfg.ollama_model,
-                        "evaluated": len(evaluated),
-                        "skipped": skipped,
-                        "failures": failures,
-                        "retrieval": strategy
-                        or await get_setting(db, "classification.learning_retrieval"),
-                        "embedding_model": await get_setting(
-                            db, "classification.learning_embedding_model"
-                        ),
-                        "embedding_fallbacks": fallbacks,
-                        "retrieval_matches": matched,
-                        "baseline": summarize(evaluated, "baseline"),
-                        "candidate": summarize(evaluated, "candidate"),
-                        "limitations": (
-                            "Reviewed text only; not population accuracy. "
-                            "Targets without retrieval matches use baseline for candidate. "
-                            "Human labels are overall verdicts, not category labels. "
-                            "No message content exported."
-                        ),
-                    },
-                    indent=2,
+            if emit:
+                print(
+                    json.dumps(
+                        {
+                            "split": "sha256(chat ID) modulo 5: 0=test; all test chats excluded",
+                            "model": cfg.ollama_model,
+                            "evaluated": len(evaluated),
+                            "skipped": skipped,
+                            "failures": failures,
+                            "retrieval": strategy
+                            or await get_setting(db, "classification.learning_retrieval"),
+                            "embedding_model": await get_setting(
+                                db, "classification.learning_embedding_model"
+                            ),
+                            "embedding_fallbacks": fallbacks,
+                            "retrieval_matches": matched,
+                            "baseline": summarize(evaluated, "baseline"),
+                            "candidate": summarize(evaluated, "candidate"),
+                            "limitations": (
+                                "Reviewed text only; not population accuracy. "
+                                "Targets without retrieval matches use baseline for candidate. "
+                                "Human labels are overall verdicts, not category labels. "
+                                "No message content exported."
+                            ),
+                        },
+                        indent=2,
+                    )
                 )
-            )
+            from app.classify.evaluation import metrics, promotion_gate
+
+            report = {
+                "source": "held_out_human_reviews",
+                "model": cfg.ollama_model,
+                "evaluated": len(evaluated),
+                "failures": failures,
+                "baseline": metrics(evaluated, "baseline"),
+                "candidate": metrics(evaluated, "candidate"),
+                "retrieval_matches": matched,
+                "embedding_fallbacks": fallbacks,
+                "split": "Whole conversations held out; no messages or identifiers exported",
+                "languages": {
+                    lang: {
+                        field: metrics([r for r in evaluated if r["language"] == lang], field)
+                        for field in ("baseline", "candidate")
+                    }
+                    for lang in ("he", "en")
+                },
+                "weights_updated": False,
+                "user_data_exported": False,
+            }
+            report["promotion"] = promotion_gate(report)
+            return report
     finally:
         if client is not None:
             await client.aclose()

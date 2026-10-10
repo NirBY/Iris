@@ -70,6 +70,46 @@ class LanguageBody(BaseModel):
         return language
 
 
+class LearningSharingBody(BaseModel):
+    enabled: bool
+    acknowledged_policy: Literal["synthetic-only-v1"] | None = None
+
+
+@router.get("/learning-sharing")
+async def learning_sharing(
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    row = await db.get(Setting, f"internal.learning_sharing.{user.id}")
+    enabled = bool(
+        row and row.value.get("enabled") is True and row.value.get("policy") == "synthetic-only-v1"
+    )
+    return {"enabled": enabled, "policy": "synthetic-only-v1", "automatic_upload": False}
+
+
+@router.patch("/learning-sharing")
+async def change_learning_sharing(
+    body: LearningSharingBody,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, Any]:
+    if body.enabled and body.acknowledged_policy != "synthetic-only-v1":
+        raise HTTPException(422, "Explicit approval of the sharing policy is required")
+    key = f"internal.learning_sharing.{user.id}"
+    value = {
+        "enabled": body.enabled,
+        "policy": "synthetic-only-v1",
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    row = await db.get(Setting, key)
+    if row is None:
+        db.add(Setting(key=key, value=value))
+    else:
+        row.value = value
+    await db.commit()
+    return {"enabled": body.enabled, "policy": "synthetic-only-v1", "automatic_upload": False}
+
+
 def _set_session_cookie(response: Response, settings: Settings, user: User) -> None:
     response.set_cookie(
         COOKIE_NAME,

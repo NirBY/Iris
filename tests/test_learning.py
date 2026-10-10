@@ -43,6 +43,28 @@ def test_hebrew_vowel_marks_do_not_split_tokens():
     assert tokens("אני here מָחָר") == tokens("אני here מחר")
 
 
+@respx.mock
+async def test_public_guidance_in_shadow_without_private_match(db):
+    _, target = await samples(db)
+    target.text = "Can we play a video game together?"
+    await db.commit()
+    await set_setting(db, "classification.learning_mode", "shadow")
+    await set_setting(db, "classification.community_learning", True)
+    respx.post("http://ollama/api/chat").mock(return_value=response(0))
+    client = OllamaModerator("http://ollama", "model")
+    ctx = StageContext(db, client, "model", dict(DEFAULT_THRESHOLDS), 8, timedelta(hours=6))
+    try:
+        baseline = await run_pipeline(target, ctx)
+        outcome = await compare(target, ctx, baseline)
+        assert outcome is baseline
+        run = await db.scalar(select(LearningRun))
+        assert run.example_ids == []
+        assert len(run.retrieval["community_example_ids"]) == 6
+        assert run.retrieval["community_pack"]["contains_user_data"] is False
+    finally:
+        await client.aclose()
+
+
 @pytest.fixture
 async def db(tmp_path: Path):
     url = f"sqlite+aiosqlite:///{tmp_path / 'learning.db'}"

@@ -268,6 +268,13 @@ async def compare(
         return baseline
     selection = await select_examples(ctx.db, message, embedder=ctx.moderator)
     examples = selection.examples
+    if eligible(message) and await get_setting(ctx.db, "classification.community_learning"):
+        from app.classify.community import guidance, public_manifest
+
+        shared = guidance(message_body(message))
+        examples = [*examples, *shared]
+        selection.metadata["community_pack"] = public_manifest()
+        selection.metadata["community_example_ids"] = [e["community_id"] for e in shared]
     if not examples and not selection.metadata["fallback"]:
         return baseline
     started = time.perf_counter()
@@ -291,7 +298,7 @@ async def compare(
             retrieval=selection.metadata,
             baseline_verdict=baseline.verdict,
             candidate_verdict=candidate.verdict if candidate else None,
-            example_ids=[e["message_id"] for e in examples],
+            example_ids=[e["message_id"] for e in examples if "message_id" in e],
             baseline_scores=baseline.results[-1].scores,
             candidate_scores=candidate.results[-1].scores if candidate else None,
             thresholds={k: list(v) for k, v in ctx.thresholds.items()},

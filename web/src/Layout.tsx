@@ -16,6 +16,7 @@ import { toast } from './lib/notify'
 import { IrisMark } from './components/IrisMark'
 import { InstallApp } from './components/InstallApp'
 import { LanguageSelect } from './components/LanguageSelect'
+import { LearningSharing } from './components/LearningSharing'
 import { BackButton } from './components/BackButton'
 import { LiveStatus } from './components/LiveStatus'
 import { PageLoading } from './components/PageLoading'
@@ -159,6 +160,7 @@ function AccountMenu({ wide, version }: { wide: boolean; version?: string }) {
         <DropdownMenuSeparator />
         <div className="px-3 py-2">
           <LanguageSelect />
+          <LearningSharing />
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void logout()}>
@@ -350,6 +352,7 @@ function MoreSheet({ stats, version }: { stats?: Stats; version?: string }) {
           ))}
         </div>
         <LanguageSelect />
+        <LearningSharing />
         <Button variant="outline" onClick={() => void logout()}>
           <LogOut />
           {translate('Sign out')}

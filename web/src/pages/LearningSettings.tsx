@@ -29,10 +29,34 @@ type Runs = {
   summary: { sampled_runs: number; reviewed_messages: number; baseline: Metric; candidate: Metric }
   items: Run[]
 }
+type Evaluation = {
+  running: boolean
+  community_pack?: { version: string; sha256: string }
+  result?: {
+    source?: string
+    evaluated?: number
+    failures?: number
+    baseline?: Metric
+    candidate?: Metric
+    promotion?: { eligible: boolean; reasons: string[] }
+    error?: string
+  } | null
+}
 
 export function LearningSettings() {
   const [importCursor, setImportCursor] = useState(0)
   const qc = useQueryClient()
+  const evaluation = useQuery({
+    queryKey: ['learning', 'evaluation'],
+    queryFn: () => api<Evaluation>('/api/learning/evaluation'),
+    refetchInterval: 5000,
+  })
+  const evaluate = useMutation({
+    mutationFn: (source: string) =>
+      api(`/api/learning/evaluation?source=${source}`, { method: 'POST' }),
+    onSuccess: () => void evaluation.refetch(),
+    onError: (error) => toast.error(error.message),
+  })
   const examples = useQuery({
     queryKey: ['learning', 'examples'],
     queryFn: () => api<{ items: Example[] }>('/api/learning/examples'),
@@ -73,6 +97,20 @@ export function LearningSettings() {
     >
       <div className="flex flex-wrap gap-2">
         <Button
+          variant="outline"
+          disabled={evaluation.data?.running || evaluate.isPending}
+          onClick={() => evaluate.mutate('synthetic')}
+        >
+          {t('Check public learning pack')}
+        </Button>
+        <Button
+          variant="outline"
+          disabled={evaluation.data?.running || evaluate.isPending}
+          onClick={() => evaluate.mutate('held_out_human_reviews')}
+        >
+          {t('Evaluate held-out local reviews')}
+        </Button>
+        <Button
           type="button"
           variant="outline"
           onClick={() => importReviews.mutate()}
@@ -90,6 +128,75 @@ export function LearningSettings() {
         >
           {t('Refresh learning evidence')}
         </Button>
+      </div>
+      <div className="rounded-lg border p-4 text-sm">
+        <h3 className="font-semibold">{t('Learning quality and privacy')}</h3>
+        <p className="mt-2 text-muted-foreground">
+          {t(
+            'The shared pack contains synthetic examples only. Model training is a separate local workflow; neither messages nor model weights are uploaded automatically.',
+          )}
+        </p>
+        {evaluation.data?.community_pack && (
+          <p>
+            {t('Community pack version')}: <bdi>{evaluation.data.community_pack.version}</bdi>
+          </p>
+        )}
+        {evaluation.data?.running && (
+          <p role="status">{t('Learning evaluation is running in the background.')}</p>
+        )}
+        {evaluation.isError && (
+          <QueryError what="learning evaluation" onRetry={() => void evaluation.refetch()} />
+        )}
+        {evaluation.data?.result && (
+          <div className="mt-3 flex flex-col gap-2">
+            <p>
+              {t(
+                evaluation.data.result.source === 'synthetic'
+                  ? 'Synthetic benchmark'
+                  : 'Held-out local reviews',
+              )}
+              : {evaluation.data.result.evaluated ?? 0} · {t('Failed checks')}:{' '}
+              {evaluation.data.result.failures ?? 0}
+            </p>
+            {evaluation.data.result.error && <p role="alert">{t(evaluation.data.result.error)}</p>}
+            {evaluation.data.result.promotion && (
+              <p className="text-warning">
+                {t('Automatic promotion is disabled. Review the evidence before enabling Active.')}
+              </p>
+            )}
+            {evaluation.data.result.promotion?.reasons.map((reason) => (
+              <p key={reason} className="text-muted-foreground">
+                {t(reason)}
+              </p>
+            ))}
+            {evaluation.data.result.baseline && evaluation.data.result.candidate && (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="text-start">{t('Result')}</th>
+                    <th>{t('False alerts')}</th>
+                    <th>{t('Missed harm')}</th>
+                    <th>{t('Review')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(['baseline', 'candidate'] as const).map((name) => (
+                    <tr key={name}>
+                      <td>{t(name === 'baseline' ? 'Current classifier' : 'With examples')}</td>
+                      <td className="text-center">
+                        {evaluation.data!.result![name]!.false_positive}
+                      </td>
+                      <td className="text-center">
+                        {evaluation.data!.result![name]!.false_negative}
+                      </td>
+                      <td className="text-center">{evaluation.data!.result![name]!.review}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
       </div>
       {examples.isError && (
         <QueryError what="learning examples" onRetry={() => void examples.refetch()} />
@@ -113,7 +220,7 @@ export function LearningSettings() {
                   {e.message_id}
                 </Link>{' '}
                 · {e.verdict} ·{' '}
-                {e.source_valid ? 'source available' : 'source changed or unavailable'}
+                {t(e.source_valid ? 'source available' : 'source changed or unavailable')}
               </span>
               <Button
                 type="button"

@@ -93,6 +93,7 @@ interface Values {
   'transcription.cloudflare_model': string
   'classification.model': string
   'classification.learning_mode'?: 'off' | 'shadow' | 'active'
+  'classification.community_learning'?: boolean
   'classification.learning_retrieval'?: 'lexical' | 'semantic'
   'classification.learning_embedding_model'?: string | null
   'classification.learning_min_similarity'?: number
@@ -1163,6 +1164,14 @@ export function Settings() {
                   'Start with Shadow. Active keeps stronger baseline decisions and may add alerts or reviews. Applies to Ollama text messages; it does not train model weights.',
                 )}
               </p>
+              <Toggle
+                label={translate('Use the public synthetic learning pack')}
+                hint={translate(
+                  'Versioned Hebrew and English guidance from GitHub. Private reviews remain local. Shadow compares results without changing alerts.',
+                )}
+                checked={get('classification.community_learning') === 'true'}
+                onChange={(value) => set('classification.community_learning')(String(value))}
+              />
               <Field label={translate('Find reviewed examples by')}>
                 <Select
                   value={get('classification.learning_retrieval') || 'lexical'}

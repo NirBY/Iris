@@ -620,6 +620,7 @@ async def delete_user(user_id: int, db: DB) -> Response:
         raise HTTPException(422, "Admin accounts cannot be deleted")
     await bind_recipient_users(db)
     await db.execute(delete(Setting).where(Setting.key == f"security.telegram_approved.{user_id}"))
+    await db.execute(delete(Setting).where(Setting.key == f"internal.learning_sharing.{user_id}"))
     await db.execute(delete(LoginChallenge).where(LoginChallenge.user_id == user_id))
     await db.execute(
         delete(Setting).where(

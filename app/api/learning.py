@@ -1,20 +1,55 @@
 """Inspect/revoke examples and inspect comparison evidence. Admin-only, no raw text exports."""
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.classify.community import public_manifest
+from app.classify.evaluation import RESULT_KEY
 from app.classify.learning import capture, content_hash, eligible
-from app.db.models import LearningExample, LearningRun, Message, ReviewFeedback
+from app.db.models import Job, LearningExample, LearningRun, Message, ReviewFeedback, Setting
 from app.deps import get_db
+from app.jobs.queue import enqueue
 from app.security.auth import admin_user
 from app.settings_store import get_setting
 
 router = APIRouter(prefix="/api/learning", tags=["learning"], dependencies=[Depends(admin_user)])
 DB = Annotated[AsyncSession, Depends(get_db)]
+
+
+@router.get("/evaluation")
+async def evaluation_status(db: DB) -> dict[str, Any]:
+    result = await db.get(Setting, RESULT_KEY)
+    running = await db.scalar(
+        select(Job.id)
+        .where(Job.type == "evaluate_learning", Job.status.in_(("queued", "running")))
+        .limit(1)
+    )
+    return {
+        "result": result.value if result else None,
+        "running": bool(running),
+        "community_pack": public_manifest(),
+        "community_enabled": await get_setting(db, "classification.community_learning"),
+    }
+
+
+@router.post("/evaluation")
+async def start_evaluation(
+    db: DB, source: Literal["synthetic", "held_out_human_reviews"] = "synthetic"
+) -> dict[str, Any]:
+    running = await db.scalar(
+        select(Job.id)
+        .where(Job.type == "evaluate_learning", Job.status.in_(("queued", "running")))
+        .limit(1)
+    )
+    if running:
+        return {"job_id": running}
+    job = await enqueue(db, "evaluate_learning", {"source": source}, max_attempts=1)
+    await db.commit()
+    return {"job_id": job}
 
 
 class ExampleUpdate(BaseModel):

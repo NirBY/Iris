@@ -1,5 +1,40 @@
 /** UI translations; message content, credentials, API values and URLs are never translated. */
 export const hebrew: Record<string, string> = {
+  'Learning sharing consent': 'אישור שיתוף לצורכי למידה',
+  'Sharing is off by default and requires your explicit approval. Only reviewed synthetic contributions may be shared. Messages, contacts and private reviews are excluded. This preference does not upload anything automatically.':
+    'השיתוף כבוי כברירת מחדל ודורש אישור מפורש שלך. ניתן לשתף רק תרומות סינתטיות שנבדקו. הודעות, אנשי קשר ומשוב פרטי אינם נכללים. הגדרה זו אינה מעלה דבר באופן אוטומטי.',
+  'I approve sharing reviewed synthetic learning contributions for my account. I can withdraw this approval at any time.':
+    'אני מאשר שיתוף תרומות למידה סינתטיות שנבדקו עבור החשבון שלי. ניתן לבטל את האישור בכל עת.',
+  'Could not load sharing consent.': 'לא ניתן לטעון את אישור השיתוף.',
+  'learning evaluation': 'בדיקת איכות הלמידה',
+  'The candidate must demonstrate improvement over the baseline.':
+    'נדרש שיפור מוכח ביחס למודל הבסיס.',
+  'Use the public synthetic learning pack': 'שימוש בחבילת הלמידה הסינתטית המשותפת',
+  'Versioned Hebrew and English guidance from GitHub. Private reviews remain local. Shadow compares results without changing alerts.':
+    'הנחיות בעברית ובאנגלית עם ניהול גרסאות ב־GitHub. המשוב הפרטי נשאר מקומי. מצב השוואה בודק תוצאות בלי לשנות התראות.',
+  'Check public learning pack': 'בדיקת חבילת הלמידה המשותפת',
+  'Evaluate held-out local reviews': 'הערכת משוב מקומי שלא שימש ללמידה',
+  'Learning quality and privacy': 'איכות הלמידה ופרטיות',
+  'The shared pack contains synthetic examples only. Model training is a separate local workflow; neither messages nor model weights are uploaded automatically.':
+    'החבילה המשותפת מכילה דוגמאות סינתטיות בלבד. אימון מודל הוא תהליך מקומי נפרד; הודעות ומשקולות מודל אינם מועלים אוטומטית.',
+  'Community pack version': 'גרסת החבילה המשותפת',
+  'Learning evaluation is running in the background.': 'הערכת הלמידה מתבצעת ברקע.',
+  'Synthetic benchmark': 'בדיקה סינתטית',
+  'Held-out local reviews': 'משוב מקומי שהופרד מהלמידה',
+  'Failed checks': 'בדיקות שנכשלו',
+  'Automatic promotion is disabled. Review the evidence before enabling Active.':
+    'מעבר אוטומטי למצב פעיל מושבת. יש לבדוק את התוצאות לפני הפעלת מצב פעיל.',
+  'Synthetic checks cannot justify production promotion.':
+    'בדיקות סינתטיות אינן מספיקות לאישור הפעלה במערכת.',
+  'At least 100 held-out labels, including 30 harmful and 30 safe, are required.':
+    'נדרשות לפחות 100 החלטות אנושיות שלא שימשו ללמידה, ובהן 30 מזיקות ו־30 בטוחות.',
+  'Evaluation has failed or incomplete model requests.':
+    'בהערכה קיימות בקשות מודל שנכשלו או לא הושלמו.',
+  'The candidate introduces additional missed harm or false alerts.':
+    'הגרסה המוצעת מוסיפה החמצות של תוכן מזיק או התראות שווא.',
+  'Candidate precision and harmful detection must both reach 95 percent.':
+    'הדיוק וזיהוי התוכן המזיק של הגרסה המוצעת צריכים להגיע שניהם ל־95 אחוזים.',
+  'Learning evaluation requires Ollama.': 'הערכת למידה דורשת חיבור Ollama.',
   OpenWA: 'OpenWA',
   GreenAPI: 'GreenAPI',
   'System notifications': 'התראות מערכת',
