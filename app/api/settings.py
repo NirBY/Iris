@@ -219,6 +219,33 @@ async def update_settings(
             )
             if not ready.ready:
                 raise HTTPException(422, {"alerts.recipient_channels": ready.error})
+    if {"alerts.system_recipient", "alerts.system_contacts"} & body.settings.keys():
+        clean = {key: REGISTRY[key].validate(value) for key, value in body.settings.items()}
+        targets = clean.get(
+            "alerts.system_recipient", await get_setting(db, "alerts.system_recipient")
+        )
+        if targets:
+            channel = clean.get(
+                "alerts.provider_notification_channel",
+                await get_setting(db, "alerts.provider_notification_channel"),
+            )
+            ready = await delivery_readiness(
+                db,
+                None if channel == "mixed" else channel,
+                {
+                    "alerts.recipient": targets,
+                    "alerts.recipient_channels": {},
+                    "alerts.recipient_children": {},
+                    "alerts.recipient_contacts": clean.get(
+                        "alerts.system_contacts", await get_setting(db, "alerts.system_contacts")
+                    ),
+                },
+            )
+            if not ready.ready or any(not recipient.eligible for recipient in ready.recipients):
+                raise HTTPException(
+                    422,
+                    {"alerts.system_recipient": ready.error or "Check system alert destinations."},
+                )
     # Changing a host must not send a saved credential to that new host unnoticed.
     if body.settings.get("runtime.whisper_url") and cfg.whisper_api_key:
         from urllib.parse import urlsplit

@@ -119,6 +119,7 @@ test('adding a parent requires an explicit configured channel and does not add o
     ...routes,
     '/api/settings': { 'alerts.recipient': null, 'alerts.channel': 'greenapi' },
   })
+  await userEvent.click(await screen.findByRole('button', { name: 'Add parent' }))
   await userEvent.selectOptions(
     await screen.findByLabelText('Choose a parent'),
     'parent@example.com',
@@ -157,6 +158,7 @@ test('incompatible and unconfigured channels are hidden and a missing setup is e
       })),
     },
   })
+  await userEvent.click(await screen.findByRole('button', { name: 'Add parent' }))
   await userEvent.selectOptions(
     await screen.findByLabelText('Choose a parent'),
     'parent@example.com',

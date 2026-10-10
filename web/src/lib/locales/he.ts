@@ -1,5 +1,24 @@
 /** UI translations; message content, credentials, API values and URLs are never translated. */
 export const hebrew: Record<string, string> = {
+  OpenWA: 'OpenWA',
+  GreenAPI: 'GreenAPI',
+  'System notifications': 'התראות מערכת',
+  'System notification channel': 'ערוץ התראות מערכת',
+  'Choose a channel for system notifications. A separate working provider can report failures of the main sender.':
+    'בחרו ערוץ להתראות מערכת. ספק תקין ונפרד יכול לדווח על תקלות בספק השליחה הראשי.',
+  'No system alert recipients selected.': 'לא נבחרו נמעני התראות מערכת.',
+  'System alert recipients': 'נמעני התראות מערכת',
+  'Configure system notifications': 'הגדרת התראות מערכת',
+  'Save system notifications': 'שמירת התראות מערכת',
+  'System notification settings saved.': 'הגדרות התראות המערכת נשמרו.',
+  'Default channel and delivery status': 'ערוץ ברירת מחדל ומצב השליחה',
+  'Choose who receives provider outage and recovery notices. These recipients are separate from parent alerts. Leave the list empty to disable system notification delivery.':
+    'בחרו מי יקבל התראות על תקלה בספק וחזרתו לפעילות. הנמענים נפרדים מנמעני התראות ההורים. רשימה ריקה מבטלת את שליחת התראות המערכת.',
+  'Add an email address or phone number in Users first.':
+    'יש להוסיף תחילה כתובת דוא״ל או מספר טלפון בניהול המשתמשים.',
+  'System notification delivery was deferred by the sending rate limit.':
+    'שליחת התראת המערכת נדחתה עקב מגבלת קצב השליחה.',
+  'Check system alert destinations.': 'יש לבדוק את פרטי הקשר של נמעני התראות המערכת.',
   'Email · SMTP': 'דוא״ל · SMTP',
   'Test Telegram connection': 'בדיקת חיבור Telegram',
   'Save the Telegram bot token before testing.': 'יש לשמור את אסימון הבוט של Telegram לפני הבדיקה.',

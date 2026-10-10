@@ -2,6 +2,7 @@ import { t as translate, useLanguage } from '../lib/i18n'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { ParentConnections } from '../components/PhoneConnections'
 import { AlertDeliveryHealth } from '../components/AlertDeliveryHealth'
+import { SystemNotifications } from '../components/SystemNotifications'
 import { OllamaModelPicker } from '../components/OllamaModelPicker'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -39,7 +40,7 @@ import type { Instance, Stats, ThresholdRow } from '../lib/types'
 import { setShowContentByDefault, useShowContentByDefault } from '../lib/prefs'
 import { overridesFrom } from '../lib/thresholds'
 import { UserSettings } from './UserSettings'
-import { ProviderHealth, ProviderAlertChannel } from '../components/ProviderHealth'
+import { ProviderHealth } from '../components/ProviderHealth'
 import { NotificationsSettings } from './NotificationsSettings'
 import { DatabaseTab } from './DatabaseTab'
 import { ScheduleSettings } from './ScheduleSettings'
@@ -1034,7 +1035,7 @@ export function Settings() {
                   </Section>
                   <Section
                     collapsible
-                    title={translate('OpenWA — alert sender')}
+                    title="OpenWA"
                     description={translate('Choose the connected phone that sends parent alerts.')}
                   >
                     {
@@ -1089,15 +1090,11 @@ export function Settings() {
                     'Down and recovery alerts are limited to one per provider per interval, with a minimum of one hour. Check frequency is configured in Schedules.',
                   )}
                 </p>
-                <ProviderAlertChannel
-                  value={get('alerts.provider_notification_channel') || 'mixed'}
-                  onChange={set('alerts.provider_notification_channel')}
-                />
-                <p className="text-sm text-muted-foreground">
-                  {translate(
-                    'Choose an independent alert channel to receive notices when your main sender is down. Only selected parents with an eligible destination receive these alerts.',
-                  )}
-                </p>
+                <Button asChild variant="outline">
+                  <Link to="/settings?tab=Notifications&section=system">
+                    {translate('Configure system notifications')}
+                  </Link>
+                </Button>
                 <Button asChild variant="outline">
                   <Link to="/settings?tab=Schedules">{translate('Configure check frequency')}</Link>
                 </Button>
@@ -1262,23 +1259,25 @@ export function Settings() {
                 )}
               >
                 <ParentConnections showSender={false} />
-                <ChoiceCards
-                  label={translate('Default alert channel')}
-                  value={get('alerts.channel') || 'openwa'}
-                  onChange={set('alerts.channel')}
-                  options={[
-                    { value: 'openwa', label: translate('WhatsApp via OpenWA') },
-                    { value: 'greenapi', label: translate('WhatsApp via GreenAPI') },
-                    { value: 'smtp', label: translate('Email via SMTP') },
-                    { value: 'telegram', label: translate('Telegram bot') },
-                  ]}
-                />
-                <p className="text-sm text-muted-foreground">
-                  {translate(
-                    'WhatsApp sends can lead to account restrictions. Choose email or Telegram to keep parent alerts off your WhatsApp number.',
-                  )}
-                </p>
-                <AlertDeliveryHealth />
+                <details className="rounded-lg border p-3">
+                  <summary className="cursor-pointer text-sm font-medium">
+                    {translate('Default channel and delivery status')}
+                  </summary>
+                  <div className="mt-4 flex flex-col gap-4">
+                    <ChoiceCards
+                      label={translate('Default alert channel')}
+                      value={get('alerts.channel') || 'openwa'}
+                      onChange={set('alerts.channel')}
+                      options={[
+                        { value: 'openwa', label: translate('WhatsApp via OpenWA') },
+                        { value: 'greenapi', label: translate('WhatsApp via GreenAPI') },
+                        { value: 'smtp', label: translate('Email via SMTP') },
+                        { value: 'telegram', label: translate('Telegram bot') },
+                      ]}
+                    />
+                    <AlertDeliveryHealth />
+                  </div>
+                </details>
                 <TestButton
                   target="alert"
                   label={translate('Test parent alert delivery')}
@@ -1293,6 +1292,13 @@ export function Settings() {
                     {translate('Save changes to apply this channel before testing alert delivery.')}
                   </p>
                 )}
+              </Section>
+              <Section
+                collapsible
+                defaultOpen={searchParams.get('section') === 'system'}
+                title={translate('System notifications')}
+              >
+                <SystemNotifications settings={data as unknown as Record<string, unknown>} />
               </Section>
               <Section
                 collapsible

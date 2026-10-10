@@ -44,7 +44,13 @@ export function ProviderHealth() {
             </span>
           )}
           {provider.delivery_error && (
-            <span className="w-full text-xs text-warning">{t(provider.delivery_error)}</span>
+            <span className="w-full text-xs text-warning">
+              {t(
+                provider.delivery_error === 'DeferredError'
+                  ? 'System notification delivery was deferred by the sending rate limit.'
+                  : provider.delivery_error,
+              )}
+            </span>
           )}
         </li>
       ))}
@@ -65,11 +71,10 @@ export function ProviderAlertChannel({
   })
   return (
     <ChoiceCards
-      label={t('Provider alert channel')}
+      label={t('System notification channel')}
       value={value}
       onChange={onChange}
       options={[
-        { value: 'mixed', label: t('Each parent’s selected channel') },
         ...(channels.data?.channels
           ?.filter((channel) => channel.configured)
           .map((channel) => ({

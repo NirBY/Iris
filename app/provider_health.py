@@ -5,6 +5,7 @@ import smtplib
 import ssl
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from sqlalchemy import select
@@ -15,7 +16,7 @@ from app.alerts.pacing import reserve
 from app.alerts.readiness import delivery_readiness
 from app.config import get_settings
 from app.db.models import Instance, Job, Setting
-from app.jobs.queue import ClaimedJob, enqueue
+from app.jobs.queue import ClaimedJob, DeferredError, enqueue
 from app.openwa.client import OpenWAClient, OpenWAError
 from app.security.crypto import decrypt
 from app.security.two_factor import green_api_config, smtp_config
@@ -120,8 +121,17 @@ async def probe_providers(db: AsyncSession) -> dict[str, tuple[str, bool, str | 
         headers = (
             {"Authorization": "Bearer " + cfg.whisper_api_key} if cfg.whisper_api_key else None
         )
-        whisper_base = cfg.whisper_url.rstrip("/").removesuffix("/v1/audio/transcriptions")
-        probes["whisper"] = ("Whisper", web(whisper_base + "/health", headers))
+        parts = urlsplit(cfg.whisper_url)
+        models_url = urlunsplit((parts.scheme, parts.netloc, "/v1/models", "", ""))
+
+        async def check_whisper() -> None:
+            async with httpx.AsyncClient(timeout=8, trust_env=False) as client:
+                response = await client.get(models_url, headers=headers)
+                response.raise_for_status()
+                if not isinstance(response.json().get("data"), list):
+                    raise ValueError("Invalid transcription capabilities")
+
+        probes["whisper"] = ("Whisper", check_whisper())
     openai_key = await get_secret(db, "openai.api_key", cfg.key_bytes)
     transcription = cfg.transcription_provider or await get_setting(db, "transcription.provider")
     if openai_key and (cfg.classification_provider == "openai" or transcription == "openai"):
@@ -180,6 +190,7 @@ async def record_health(
         value = dict(previous, name=label, status=status, error=error, checked_at=now.isoformat())
         if previous.get("status") != status:
             value["changed_at"] = now.isoformat()
+            value["delivery_error"] = None
         if row is None:
             row = Setting(key=PREFIX + name, value=value)
             db.add(row)
@@ -234,7 +245,15 @@ async def deliver_notice(job: ClaimedJob, deps: "Deps") -> None:
             await db.commit()
         channel = str(await get_setting(db, "alerts.provider_notification_channel"))
         default_channel = str(await get_setting(db, "alerts.channel"))
-        readiness = await delivery_readiness(db, None if channel == "mixed" else channel)
+        overrides = {
+            "alerts.recipient": await get_setting(db, "alerts.system_recipient"),
+            "alerts.recipient_contacts": await get_setting(db, "alerts.system_contacts"),
+            "alerts.recipient_children": {},
+            "alerts.recipient_channels": {},
+        }
+        readiness = await delivery_readiness(
+            db, default_channel if channel == "mixed" else channel, overrides
+        )
         sender_id = await get_setting(db, "alerts.sender_instance_id")
         sender = await db.get(Instance, sender_id) if sender_id else None
         down = {r["provider"] for r in await health_rows(db) if r["status"] == "down"}
@@ -242,10 +261,10 @@ async def deliver_notice(job: ClaimedJob, deps: "Deps") -> None:
         attempted = list(job.payload.get("attempted_recipients", []))
         errors = []
         for recipient in readiness.recipients:
-            transport = (recipient.channel or default_channel) if channel == "mixed" else channel
+            transport = default_channel if channel == "mixed" else channel
             if not recipient.eligible or transport in down or recipient.target in attempted:
                 continue
-            client = await build_client(db, sender, deps.key_bytes, transport)
+            client = await build_client(db, sender, deps.key_bytes, transport, overrides)
             try:
                 await reserve(db, client.sender_key, recipient.target)
                 # Reserve before sending: an uncertain response or recovered worker must
@@ -268,6 +287,13 @@ async def deliver_notice(job: ClaimedJob, deps: "Deps") -> None:
                 if stored:
                     stored.payload = dict(job.payload)
                 await db.commit()
+            except DeferredError:
+                await db.refresh(row)
+                row.value = dict(
+                    row.value, delivered_count=len(done), delivery_error="DeferredError"
+                )
+                await db.commit()
+                raise  # Keep the unsent recipient queued until pacing permits delivery.
             except Exception as exc:
                 errors.append(type(exc).__name__)
             finally:
@@ -276,7 +302,9 @@ async def deliver_notice(job: ClaimedJob, deps: "Deps") -> None:
         row.value = dict(
             row.value,
             delivered_count=len(done),
-            delivery_error=", ".join(errors)
+            delivery_error="No system alert recipients selected."
+            if not readiness.recipients
+            else ", ".join(errors)
             if errors
             else (
                 None

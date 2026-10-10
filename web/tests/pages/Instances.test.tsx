@@ -40,6 +40,7 @@ test('adding a parent recipient only saves the alert number', async () => {
       channels: [{ channel: 'greenapi', configured: true, error: null, recipients: [] }],
     },
   })
+  await userEvent.click(await screen.findByRole('button', { name: 'Add parent' }))
   await userEvent.type(await screen.findByLabelText('Parent phone number'), '15550100102')
   await userEvent.click(
     within(screen.getByRole('group', { name: 'Alert channel' })).getByRole('radio', {

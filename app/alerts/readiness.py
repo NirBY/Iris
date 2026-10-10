@@ -33,10 +33,20 @@ async def bind_recipient_users(db: AsyncSession) -> None:
     keep working, but an account-linked number cannot silently turn into a
     standalone destination when that account changes its number.
     """
-    targets = recipients(await get_setting(db, "alerts.recipient"))
+    targets = list(
+        dict.fromkeys(
+            [
+                *recipients(await get_setting(db, "alerts.recipient")),
+                *recipients(await get_setting(db, "alerts.system_recipient")),
+            ]
+        )
+    )
     old = await load(db, BINDINGS_KEY, {})
     users = list(await db.scalars(select(User)))
-    contacts = await get_setting(db, "alerts.recipient_contacts")
+    contacts = {
+        **await get_setting(db, "alerts.recipient_contacts"),
+        **await get_setting(db, "alerts.system_contacts"),
+    }
     bindings = {target: old[target] for target in targets if target in old}
     for target in targets:
         if target in bindings:

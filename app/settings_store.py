@@ -359,6 +359,8 @@ REGISTRY: dict[str, Spec] = {
     "retention.alert_days": Spec(365, _int_range(1, 3650)),
     "alerts.sender_instance_id": Spec(None, _opt_int),
     "alerts.recipient": Spec(None, lambda v: validate_recipients(_opt_str(v))),
+    "alerts.system_recipient": Spec(None, lambda v: validate_recipients(_opt_str(v))),
+    "alerts.system_contacts": Spec({}, _recipient_contacts),
     "auth.default_channel": Spec("email", _choice("email", "whatsapp")),
     "alerts.channel": Spec("openwa", _choice("openwa", "telegram", "smtp", "greenapi")),
     "alerts.provider_notification_minutes": Spec(60, _int_range(60, 10080)),

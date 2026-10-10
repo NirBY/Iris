@@ -128,6 +128,7 @@ test('parent delivery uses channel cards and provider connections live in Provid
   expect(
     within(panel).getByRole('heading', { name: 'Parent alert recipients' }),
   ).toBeInTheDocument()
+  await userEvent.click(screen.getByText('Default channel and delivery status'))
   const channels = within(panel).getByRole('group', { name: 'Default alert channel' })
   expect(within(channels).getByRole('radio', { name: 'Email via SMTP' })).toBeChecked()
   expect(screen.queryByLabelText('OpenWA sender phone')).not.toBeInTheDocument()
@@ -140,7 +141,7 @@ test('parent delivery uses channel cards and provider connections live in Provid
     'true',
   )
   expect(screen.getByLabelText(/Telegram bot token/)).toBeVisible()
-  await userEvent.click(screen.getByRole('button', { name: 'OpenWA — alert sender' }))
+  await userEvent.click(screen.getByRole('button', { name: 'OpenWA' }))
   expect(screen.getByLabelText('OpenWA sender phone')).toBeVisible()
   expect(screen.getByLabelText(/Telegram bot token/)).not.toBeVisible()
 })

@@ -768,6 +768,7 @@ function ParentRecipients({ channel }: { channel?: string }) {
   const channelMapping = (data?.['alerts.recipient_channels'] ?? {}) as Record<string, string>
   const [channelDrafts, setChannelDrafts] = useState<Record<string, string>>({})
   const [parentChoice, setParentChoice] = useState('')
+  const [adding, setAdding] = useState(false)
   const [newChannel, setNewChannel] = useState('')
   const [newTelegram, setNewTelegram] = useState('')
   const [recipientError, setRecipientError] = useState('')
@@ -840,6 +841,7 @@ function ParentRecipients({ channel }: { channel?: string }) {
     onSuccess: () => {
       setPhone('')
       setParentChoice('')
+      setAdding(false)
       setNewChannel('')
       setNewTelegram('')
       setChannelDrafts({})
@@ -1035,103 +1037,110 @@ function ParentRecipients({ channel }: { channel?: string }) {
         ))}
       </ul>
       {!targets.length && <p>{t('No parent recipients yet.')}</p>}
-      {registeredParents.length > 0 && (
-        <Field
-          label={t('Choose a parent')}
-          hint={t(
-            'Select their Iris account, then choose a channel and click Add parent. WhatsApp alerts use their number saved in Users.',
+      <Button variant="outline" onClick={() => setAdding(!adding)} aria-expanded={adding}>
+        {t(adding ? 'Cancel' : 'Add parent')}
+      </Button>
+      {adding && (
+        <div className="flex flex-col gap-3 rounded-lg border bg-surface-2 p-4">
+          {registeredParents.length > 0 && (
+            <Field
+              label={t('Choose a parent')}
+              hint={t(
+                'Select their Iris account, then choose a channel and click Add parent. WhatsApp alerts use their number saved in Users.',
+              )}
+            >
+              <Select
+                aria-label={t('Choose a parent')}
+                value={parentChoice}
+                disabled={change.isPending}
+                onChange={(event) => {
+                  setParentChoice(event.target.value)
+                  setPhone('')
+                  setNewChannel('')
+                }}
+              >
+                <option value="">{t('Choose a parent…')}</option>
+                {registeredParents.map((user) => (
+                  <option
+                    key={user.id}
+                    value={user.email || user.whatsapp_number!}
+                    disabled={targets.some((target) =>
+                      [user.email, user.whatsapp_number].some(
+                        (contact) => contact && canonical(target) === canonical(contact),
+                      ),
+                    )}
+                  >
+                    {user.username}
+                  </option>
+                ))}
+              </Select>
+            </Field>
           )}
-        >
-          <Select
-            aria-label={t('Choose a parent')}
-            value={parentChoice}
-            disabled={change.isPending}
-            onChange={(event) => {
-              setParentChoice(event.target.value)
-              setPhone('')
-              setNewChannel('')
+          <form
+            className="flex flex-col items-start gap-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              addParent()
             }}
           >
-            <option value="">{t('Choose a parent…')}</option>
-            {registeredParents.map((user) => (
-              <option
-                key={user.id}
-                value={user.email || user.whatsapp_number!}
-                disabled={targets.some((target) =>
-                  [user.email, user.whatsapp_number].some(
-                    (contact) => contact && canonical(target) === canonical(contact),
-                  ),
-                )}
-              >
-                {user.username}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      )}
-      <form
-        className="flex flex-col items-start gap-3"
-        onSubmit={(event) => {
-          event.preventDefault()
-          addParent()
-        }}
-      >
-        <Field
-          label={t('Parent number, email or WhatsApp group ID')}
-          className="w-full max-w-sm"
-          hint={t(
-            'Select a parent by email or phone number, or enter a WhatsApp group ID ending in @g.us. Choose the alert channel below.',
-          )}
-        >
-          <Input
-            aria-label={t('Parent phone number')}
-            type="text"
-            inputMode="text"
-            dir="ltr"
+            <Field
+              label={t('Parent number, email or WhatsApp group ID')}
+              className="w-full max-w-sm"
+              hint={t(
+                'Select a parent by email or phone number, or enter a WhatsApp group ID ending in @g.us. Choose the alert channel below.',
+              )}
+            >
+              <Input
+                aria-label={t('Parent phone number')}
+                type="text"
+                inputMode="text"
+                dir="ltr"
 
-            title={t(
-              'Enter a parent email address, an international phone number, or a WhatsApp group ID.',
-            )}
-            required={!parentChoice}
-            value={phone}
-            onChange={(event) => {
-              setPhone(event.target.value)
-              setParentChoice('')
-              setNewChannel('')
-            }}
-            placeholder={t('parent@example.com or +15550100101')}
-          />
-        </Field>
-        <AlertChannelPicker
-          options={channelOptions.data}
-          target={parentChoice || phone ? canonical(parentChoice || phone) : undefined}
-          value={newChannel}
-          onChange={setNewChannel}
-          disabled={change.isPending}
-        />
-        {newChannel === 'telegram' && (
-          <Field label={t('Telegram chat ID')}>
-            <Input
-              dir="ltr"
-              required
-              value={newTelegram}
-              onChange={(event) => setNewTelegram(event.target.value)}
+                title={t(
+                  'Enter a parent email address, an international phone number, or a WhatsApp group ID.',
+                )}
+                required={!parentChoice}
+                value={phone}
+                onChange={(event) => {
+                  setPhone(event.target.value)
+                  setParentChoice('')
+                  setNewChannel('')
+                }}
+                placeholder={t('parent@example.com or +15550100101')}
+              />
+            </Field>
+            <AlertChannelPicker
+              options={channelOptions.data}
+              target={parentChoice || phone ? canonical(parentChoice || phone) : undefined}
+              value={newChannel}
+              onChange={setNewChannel}
+              disabled={change.isPending}
             />
-          </Field>
-        )}
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={change.isPending || !newChannel || !(parentChoice || phone.trim())}
-        >
-          {t('Add parent')}
-        </Button>
-      </form>
-      <p className="text-xs text-muted-foreground">
-        {t(
-          'Number format is checked when saved. Ownership and WhatsApp registration are not verified.',
-        )}
-      </p>
+            {newChannel === 'telegram' && (
+              <Field label={t('Telegram chat ID')}>
+                <Input
+                  dir="ltr"
+                  required
+                  value={newTelegram}
+                  onChange={(event) => setNewTelegram(event.target.value)}
+                />
+              </Field>
+            )}
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={change.isPending || !newChannel || !(parentChoice || phone.trim())}
+            >
+              {t('Add parent')}
+            </Button>
+          </form>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'Number format is checked when saved. Ownership and WhatsApp registration are not verified.',
+            )}
+          </p>
+        </div>
+      )}
     </section>
   )
 }

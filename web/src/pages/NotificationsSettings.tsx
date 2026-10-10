@@ -200,7 +200,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
               : t('SMTP has not passed its test.'))}
         </p>
       </Section>
-      <Section collapsible title={t('GreenAPI — WhatsApp alerts and sign-in codes')}>
+      <Section collapsible title="GreenAPI">
         <p className="mb-4 text-sm text-muted-foreground">
           {t(
             'GreenAPI sends parent alerts and sign-in codes through WhatsApp. Save your credentials and check the account, then select GreenAPI for each parent in Alert delivery. Parent alerts support individual numbers and group IDs. To use GreenAPI for two-factor authentication, test delivery to your personal number configured in Settings → Users and open the approval link. Sign-in codes are sent only to personal numbers.',

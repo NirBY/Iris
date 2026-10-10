@@ -205,7 +205,11 @@ async def build_client(
 ) -> ChannelClient:
     channel = channel or str(await get_setting(db, "alerts.channel"))
     cfg = get_settings()
-    contacts = dict(await get_setting(db, "alerts.recipient_contacts"))
+    contacts = dict(
+        (overrides or {}).get(
+            "alerts.recipient_contacts", await get_setting(db, "alerts.recipient_contacts")
+        )
+    )
     readiness = await delivery_readiness(db, channel, overrides)
     if channel == "smtp":
         config = await smtp_config(db, cfg)

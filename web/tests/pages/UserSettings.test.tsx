@@ -230,10 +230,7 @@ test.each([
   })
   await userEvent.click(
     await screen.findByRole('button', {
-      name:
-        button === 'Test saved SMTP'
-          ? 'SMTP server'
-          : 'GreenAPI — WhatsApp alerts and sign-in codes',
+      name: button === 'Test saved SMTP' ? 'SMTP server' : 'GreenAPI',
     }),
   )
   await userEvent.click(screen.getByRole('button', { name: button }))
