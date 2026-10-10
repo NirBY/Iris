@@ -17,9 +17,11 @@ flowchart TD
     ENABLED -->|כן| REFERENCES[עד שש דוגמאות בשפת הטקסט]
     BASE --> MODE{מצב למידה}
     MODE -->|Off| ORIGINAL[החלטת הבסיס ומדיניות ההתראות]
-    MODE -->|Shadow או Active| CANDIDATE[סיווג נוסף עם דוגמאות]
-    RETRIEVE --> CANDIDATE
-    REFERENCES --> CANDIDATE
+    MODE -->|Shadow או Active| FOUND{נמצאו דוגמאות תקפות?}
+    RETRIEVE --> FOUND
+    REFERENCES --> FOUND
+    FOUND -->|כן| CANDIDATE[סיווג נוסף עם דוגמאות]
+    FOUND -->|לא| ORIGINAL
     CANDIDATE --> EVIDENCE[שמירת השוואה מקומית]
     EVIDENCE --> DECISION{מצב}
     DECISION -->|Shadow| ORIGINAL
