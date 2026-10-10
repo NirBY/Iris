@@ -373,6 +373,41 @@ async def test_greenapi_copy_button_and_token_redaction(caplog: pytest.LogCaptur
     assert "never-log-this-token" not in caplog.text
 
 
+@respx.mock
+async def test_greenapi_approval_has_only_link_and_no_login_code() -> None:
+    import json
+
+    from app.security.two_factor import send_green_code
+
+    config = {
+        "api_url": "https://api.green-api.com",
+        "instance_id": "123456",
+        "token": "synthetic-provider-token",
+    }
+    base = "https://api.green-api.com/waInstance123456"
+    respx.get(f"{base}/getStateInstance/synthetic-provider-token").mock(
+        return_value=httpx.Response(200, json={"stateInstance": "authorized"})
+    )
+    route = respx.post(f"{base}/sendInteractiveButtons/synthetic-provider-token").mock(
+        return_value=httpx.Response(200, json={"idMessage": "accepted"})
+    )
+    approval_url = "https://iris.example.com/verify-contact?token=synthetic-approval-token"
+    await send_green_code(config, "+12025550123", "123456", approval_url)
+    body = json.loads(route.calls.last.request.content)
+    assert body["header"] == "Approve your Iris WhatsApp number"
+    assert approval_url in body["body"]
+    assert "123456" not in json.dumps(body)
+    assert body["footer"] == "Approval link expires in 30 minutes."
+    assert body["buttons"] == [
+        {
+            "type": "url",
+            "buttonId": "approve-contact",
+            "buttonText": "Approve WhatsApp",
+            "url": approval_url,
+        }
+    ]
+
+
 async def test_greenapi_test_gates_enable_and_secret_stays_encrypted(
     app_client: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

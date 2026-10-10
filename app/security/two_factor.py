@@ -175,21 +175,26 @@ async def send_green_code(
             {"type": "copy", "buttonId": "copy-code", "buttonText": "Copy code", "copyCode": code}
         ]
         if approval_url:
-            buttons.append(
+            buttons = [
                 {
                     "type": "url",
                     "buttonId": "approve-contact",
                     "buttonText": "Approve WhatsApp",
                     "url": approval_url,
                 }
-            )
+            ]
         response = await client.post(
             f"{base}/sendInteractiveButtons/{token}",
             json={
                 "chatId": recipient.lstrip("+") + "@c.us",
-                "header": "Iris verification code",
+                "header": (
+                    "Approve your Iris WhatsApp number"
+                    if approval_url
+                    else "Iris verification code"
+                ),
                 "body": (
-                    f"Test code: {code}. Approve your contact using this link:\n{approval_url}"
+                    "Confirm this WhatsApp number for your Iris account by opening the link "
+                    f"below and selecting Approve contact:\n{approval_url}"
                     if approval_url
                     else f"Your Iris verification code is: {code}"
                 ),
