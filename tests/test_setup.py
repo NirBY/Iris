@@ -7,6 +7,30 @@ from app.monitoring import states
 from tests.test_instances import BODY
 
 
+async def test_only_admin_accounts_can_access_setup_reminders(app_client: Any) -> None:
+    from sqlalchemy import select
+
+    from app.db.models import User
+    from app.security.auth import COOKIE_NAME, make_session_token
+
+    async with app_client.app.state.session_factory() as db:
+        admin = await db.scalar(select(User).where(User.username == "admin"))
+        tokens = []
+        for role in ("parent", "watch"):
+            user = User(username=f"setup-{role}", role=role, password_hash=admin.password_hash)
+            db.add(user)
+            await db.flush()
+            tokens.append(make_session_token(get_settings(), user))
+        await db.commit()
+    for token in tokens:
+        app_client.cookies.clear()
+        app_client.cookies.set(COOKIE_NAME, token)
+        assert (await app_client.get("/api/setup")).status_code == 403
+        assert (await app_client.get("/api/setup/reminders")).status_code == 403
+        assert (await app_client.post("/api/setup/check")).status_code == 403
+        assert (await app_client.post("/api/setup/ai/test/ollama")).status_code == 403
+
+
 async def test_home_reminders_keep_essentials_and_dismiss_only_optional(app_client: Any) -> None:
     await app_client.post("/api/setup/progress", json={"skip": "openwa"})
     await app_client.post(

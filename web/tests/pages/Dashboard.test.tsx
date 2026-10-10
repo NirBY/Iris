@@ -18,7 +18,7 @@ const stats: Record<string, unknown> = {
   silent_instances: 1,
 }
 
-function renderPage(over: Record<string, unknown> = {}, alertsError = false) {
+function renderPage(over: Record<string, unknown> = {}, alertsError = false, role = 'admin') {
   vi.stubGlobal(
     'fetch',
     vi.fn(
@@ -40,7 +40,7 @@ function renderPage(over: Record<string, unknown> = {}, alertsError = false) {
                   : url === '/api/stats'
                     ? { ...stats, ...over }
                     : url.startsWith('/api/auth/me')
-                      ? { username: 'admin', role: 'admin', id: 1 }
+                      ? { username: 'account', role, id: 1 }
                       : { items: [] },
           ),
           { status: alertsError && url.startsWith('/api/alerts') ? 503 : 200 },
@@ -57,6 +57,16 @@ function renderPage(over: Record<string, unknown> = {}, alertsError = false) {
     </QueryClientProvider>,
   )
 }
+
+test.each(['parent', 'watch'])(
+  'setup reminders are never requested by %s accounts',
+  async (role) => {
+    renderPage({}, false, role)
+    await screen.findByText('Messages today')
+    expect(screen.queryByText('Finish setting up Iris')).not.toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalledWith('/api/setup/reminders', expect.anything())
+  },
+)
 
 test('shows the numbers and names everything that needs attention', async () => {
   renderPage()
