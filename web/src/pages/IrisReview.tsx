@@ -1,7 +1,8 @@
+import { t } from '../lib/i18n'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BrainCircuit, MessagesSquare, SkipForward } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { api } from '../lib/api'
 import { useMe } from '../lib/auth'
 import { relativeTime } from '../lib/format'
@@ -46,18 +47,22 @@ export function IrisReview() {
   return (
     <div className="flex max-w-3xl flex-col gap-5">
       <PageHeader
-        title="IrisReview"
-        description="Messages queued for AI or being checked. Safe and Harmful decisions belong in human Review."
-        actions={<BrainCircuit aria-label="AI review" className="size-7 text-primary" />}
+        title={t('IrisReview')}
+        description={t(
+          'Messages queued for AI or being checked. Safe and Harmful decisions belong in human Review.',
+        )}
+        actions={<BrainCircuit aria-label={t('AI review')} className="size-7 text-primary" />}
       />
       {data && (
         <p className="text-sm text-muted-foreground" role="status">
-          {data.total} messages in the AI queue
+          {data.total} {t('messages in the AI queue')}
         </p>
       )}
       {isLoading && <Skeleton className="h-40" />}
       {isError && <QueryError what="AI review queue" onRetry={() => void refetch()} />}
-      {data?.total === 0 && <p className="text-muted-foreground">No messages waiting for AI.</p>}
+      {data?.total === 0 && (
+        <p className="text-muted-foreground">{t('No messages waiting for AI.')}</p>
+      )}
       <ul className="flex flex-col gap-4">
         {data?.items.map(({ message: m }) => (
           <li key={m.id} className="flex flex-col gap-3 rounded-lg border bg-surface p-4">
@@ -70,15 +75,15 @@ export function IrisReview() {
             </div>
             <div role="status" className="flex items-center gap-2 text-sm text-primary">
               <BrainCircuit
-                aria-label="AI thinking"
+                aria-label={t('AI thinking')}
                 className="size-5 animate-pulse motion-reduce:animate-none"
               />
-              {m.status === 'processing' ? 'AI is thinking…' : 'Waiting for AI…'}
+              {m.status === 'processing' ? t('AI is thinking…') : t('Waiting for AI…')}
             </div>
             <RevealableMessage m={m} showMedia />
             {m.sender_name && (
               <p dir="auto" className="text-xs text-muted-foreground">
-                From {m.sender_name}
+                {t('From')} {m.sender_name}
               </p>
             )}
             <div className="flex flex-wrap gap-2">
@@ -89,21 +94,21 @@ export function IrisReview() {
                   disabled={skip.isPending}
                   onClick={() => skip.mutate(m.id)}
                 >
-                  <SkipForward /> Skip AI → Human review
+                  <SkipForward /> {t('Skip AI → Human review')}
                 </Button>
               )}
               <Link
                 to={`/messages/${m.id}`}
                 className="flex items-center gap-1 text-sm text-primary"
               >
-                <MessagesSquare className="size-4" /> Chat
+                <MessagesSquare className="size-4" /> {t('Chat')}
               </Link>
             </div>
           </li>
         ))}
       </ul>
       <Link to="/review" className="text-sm text-primary">
-        Open human Review
+        {t('Open human Review')}
       </Link>
       {data && (
         <Pagination

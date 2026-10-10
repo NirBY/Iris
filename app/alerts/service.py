@@ -296,7 +296,9 @@ async def notify_pending_reviews(db: AsyncSession) -> None:
     """Catch up harmful/review notifications and resume held deliveries when configured."""
     if not await delivery_configured(db):
         return
-    if await get_setting(db, "alerts.channel") == "openwa":
+    if await get_setting(db, "alerts.channel") == "openwa" and not await get_setting(
+        db, "alerts.recipient_channels"
+    ):
         sender = await db.get(Instance, await get_setting(db, "alerts.sender_instance_id"))
         if sender is None or not sender.openwa_api_key_enc:
             return

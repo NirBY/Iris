@@ -71,6 +71,7 @@ class RecipientReadiness:
     reason: str | None
     legacy: bool = False
     destination: str | None = None
+    channel: str = ""
 
 
 @dataclass
@@ -94,7 +95,9 @@ class DeliveryReadiness:
     def error(self) -> str:
         errors = [self.provider_error] if self.provider_error else []
         if not self.eligible_targets:
-            errors.append(f"No eligible recipients for {LABELS[self.channel]}.")
+            errors.append(
+                f"No eligible recipients for {LABELS.get(self.channel, 'selected channels')}."
+            )
             errors.extend(f"{r.name}: {r.reason}" for r in self.recipients)
             if not self.recipients:
                 errors.append("Add a parent recipient with a destination for this channel.")
@@ -114,7 +117,7 @@ def _phone(user: User) -> str | None:
     return user.whatsapp_number.lstrip("+") + "@c.us" if user.whatsapp_number else None
 
 
-async def delivery_readiness(
+async def _channel_readiness(
     db: AsyncSession, channel: str | None = None, overrides: dict[str, Any] | None = None
 ) -> DeliveryReadiness:
     overrides = overrides or {}
@@ -247,6 +250,7 @@ async def delivery_readiness(
                 reason,
                 user is None,
                 destination,
+                channel,
             )
         )
     for user in accounts:
@@ -298,3 +302,86 @@ async def delivery_readiness(
             f"{invalid} selected recipient(s) cannot receive {LABELS[channel]} alerts. " + checks
         )
     return result
+
+
+async def delivery_readiness(
+    db: AsyncSession, channel: str | None = None, overrides: dict[str, Any] | None = None
+) -> DeliveryReadiness:
+    overrides = overrides or {}
+    mapping = overrides.get(
+        "alerts.recipient_channels", await get_setting(db, "alerts.recipient_channels")
+    )
+    default = str(overrides.get("alerts.channel", await get_setting(db, "alerts.channel")))
+    if not mapping:
+        return await _channel_readiness(db, channel, overrides)
+    targets = recipients(
+        overrides.get("alerts.recipient", await get_setting(db, "alerts.recipient"))
+    )
+    channels = (
+        [channel]
+        if channel
+        else list(dict.fromkeys(mapping.get(target, default) for target in targets))
+    )
+    if not channels:
+        channels = [default]
+    groups = [await _channel_readiness(db, selected, overrides) for selected in channels]
+    result = DeliveryReadiness(channel or "mixed", any(g.provider_ready for g in groups), None)
+    for group in groups:
+        for recipient in group.recipients:
+            if mapping.get(recipient.target, default) != group.channel:
+                continue
+            if not group.provider_ready:
+                recipient.eligible = False
+                recipient.reason = group.provider_error
+            result.recipients.append(recipient)
+        if any(mapping.get(target, default) == group.channel for target in targets):
+            result.issues.extend(group.issues)
+    for user in groups[0].users:
+        selected = [r for r in result.recipients if r.user_id == user["id"]]
+        eligible = any(r.eligible for r in selected)
+        result.users.append(
+            {
+                **user,
+                "selected": bool(selected),
+                "eligible": eligible,
+                "reason": None
+                if eligible
+                else next((r.reason for r in selected if r.reason), user["reason"]),
+            }
+        )
+    if not result.provider_ready:
+        result.provider_error = " ".join(g.provider_error for g in groups if g.provider_error)
+    return result
+
+
+async def recipient_channel_options(db: AsyncSession) -> dict[str, Any]:
+    """Configured transports and destination eligibility for selected and new parents."""
+    accounts = list(await db.scalars(select(User).where(User.role != "watch").order_by(User.id)))
+    targets = recipients(await get_setting(db, "alerts.recipient"))
+    for user in accounts:
+        target = "email:" + user.email.lower() if user.email else _phone(user)
+        if target and target not in targets:
+            targets.append(target)
+    options = []
+    for channel in LABELS:
+        results = [
+            await _channel_readiness(
+                db,
+                channel,
+                {
+                    "alerts.recipient": ", ".join(targets[start : start + 10]),
+                    "alerts.recipient_children": {},
+                },
+            )
+            for start in range(0, max(1, len(targets)), 10)
+        ]
+        result = results[0]
+        options.append(
+            {
+                "channel": channel,
+                "configured": result.provider_ready,
+                "error": result.provider_error,
+                "recipients": [asdict(r) for group in results for r in group.recipients],
+            }
+        )
+    return {"channels": options}

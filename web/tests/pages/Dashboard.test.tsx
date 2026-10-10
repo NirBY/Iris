@@ -1,3 +1,4 @@
+import { setLanguage } from '../../src/lib/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -199,7 +200,7 @@ test('warns when no children, parents or alert sender are configured', async () 
   expect(screen.getByRole('link', { name: 'Children: 0' })).toHaveAttribute('href', '/instances')
   expect(screen.getByRole('link', { name: 'Parents: 0' })).toHaveAttribute(
     'href',
-    '/settings?tab=Alerts',
+    '/settings?tab=Notifications',
   )
   expect(screen.getByRole('link', { name: 'Alert phones: 0' })).toBeInTheDocument()
 })
@@ -277,4 +278,15 @@ test('dismisses the media warning and keeps affected alerts available', async ()
     expect(screen.queryByRole('button', { name: 'Dismiss warning' })).not.toBeInTheDocument(),
   )
   expect(data.alert_media_not_saved).toBe(56)
+})
+
+test('Hebrew admin can see the translated system resources section', async () => {
+  setLanguage('he')
+  try {
+    renderPage()
+    expect(await screen.findByRole('region', { name: 'משאבי מערכת' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'System resources' })).not.toBeInTheDocument()
+  } finally {
+    setLanguage('system')
+  }
 })

@@ -56,7 +56,10 @@ from app.security.auth import admin_user, bootstrap_admin
 from app.version import VERSION
 
 STATIC_DIR = Path(__file__).parent / "static"
-_CSP = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+_CSP = (
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; "
+    "img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+)
 _DOCS_CSP = (
     "default-src 'self'; img-src 'self' data: https://fastapi.tiangolo.com; "
     "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "

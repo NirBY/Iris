@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useState } from 'react'
 
 export const reviewCategories = [
@@ -33,11 +34,13 @@ export function ReviewDetails({
   return (
     <details className="rounded-md border p-3" onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary className="cursor-pointer text-sm font-medium">
-        Add review details (optional)
+        {t('Add review details (optional)')}
       </summary>
       {open && (
         <fieldset disabled={disabled} className="mt-3 flex flex-col gap-3">
-          <legend className="text-sm">Harm categories — included only when marking Harmful</legend>
+          <legend className="text-sm">
+            {t('Harm categories — included only when marking Harmful')}
+          </legend>
           <div className="grid gap-2 sm:grid-cols-2">
             {reviewCategories.map((category) => (
               <label key={category} className="flex items-center gap-2 text-sm">
@@ -53,12 +56,12 @@ export function ReviewDetails({
                     })
                   }
                 />
-                {category.replaceAll('/', ' / ')}
+                {t(category)}
               </label>
             ))}
           </div>
           <label htmlFor={`review-explanation-${id}`} className="text-sm">
-            Your explanation
+            {t('Your explanation')}
           </label>
           <textarea
             id={`review-explanation-${id}`}

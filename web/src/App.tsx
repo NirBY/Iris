@@ -1,4 +1,4 @@
-import { lazy } from 'react'
+import { lazy, useLayoutEffect } from 'react'
 import { RequestProgress } from './components/RequestProgress'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { Layout } from './Layout'
@@ -8,6 +8,7 @@ import { Login } from './pages/Login'
 import { ContactApproval } from './pages/ContactApproval'
 import { PageLoading } from './components/PageLoading'
 import { QueryError } from './components/QueryError'
+import { setAccountLanguage, useLanguage } from './lib/i18n'
 
 // Everything but the home screen loads on demand, so the first paint on a phone stays small.
 const page = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) =>
@@ -22,11 +23,13 @@ const Chats = page(() => import('./pages/Chats'), 'Chats')
 const Jobs = page(() => import('./pages/Jobs'), 'Jobs')
 const Instances = page(() => import('./pages/Instances'), 'Instances')
 const MediaViewer = page(() => import('./pages/MediaViewer'), 'MediaViewer')
+const OriginalMediaViewer = page(() => import('./pages/OriginalMediaViewer'), 'OriginalMediaViewer')
 const TryIt = page(() => import('./pages/TryIt'), 'TryIt')
 const Settings = page(() => import('./pages/Settings'), 'Settings')
 const Setup = page(() => import('./pages/Setup'), 'Setup')
 
 export function App() {
+  useLanguage()
   return (
     <>
       <RequestProgress />
@@ -37,6 +40,9 @@ export function App() {
 
 function AppContent() {
   const { data: me, isLoading, isError, refetch } = useMe()
+  useLayoutEffect(() => {
+    if (!isLoading && !isError) setAccountLanguage(me ?? null)
+  }, [me, isLoading, isError])
   const location = useLocation()
   if (location.pathname === '/verify-contact') return <ContactApproval />
   if (isLoading)
@@ -65,6 +71,7 @@ function AppContent() {
         <Route path="iris-review" element={<IrisReview />} />
         <Route path="messages" element={<Messages />} />
         <Route path="messages/:id" element={<MessageContext />} />
+        <Route path="messages/:id/original" element={<OriginalMediaViewer />} />
         <Route path="chats" element={<Chats />} />
         <Route path="jobs" element={manage(<Jobs />)} />
         <Route path="instances" element={manage(<Instances />)} />

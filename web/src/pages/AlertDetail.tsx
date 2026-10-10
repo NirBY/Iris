@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useMe } from '../lib/auth'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -10,7 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { OriginalMedia } from '../components/OriginalMedia'
 import { MediaPlayer } from '../components/MediaPlayer'
 import { Concealed, RevealButton } from '../components/Reveal'
@@ -114,10 +115,10 @@ export function AlertDetail() {
   if (isError || authError)
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Alert" />
+        <PageHeader title={t('Alert')} />
         {error instanceof ApiError && error.status === 404 ? (
           <p role="alert" className="rounded-md bg-danger-soft p-4 text-sm text-danger">
-            This alert no longer exists. It may have been removed by the retention window.
+            {t('This alert no longer exists. It may have been removed by the retention window.')}
           </p>
         ) : (
           <QueryError
@@ -143,23 +144,23 @@ export function AlertDetail() {
         to="/alerts"
         className="inline-flex min-h-10 w-fit items-center gap-1 text-sm font-medium text-primary"
       >
-        <ChevronLeft className="size-4 rtl:rotate-180" /> All alerts
+        <ChevronLeft className="size-4 rtl:rotate-180" /> {t('All alerts')}
       </Link>
       <PageHeader
-        title={`Alert for ${a.kid_names.join(' and ')}`}
-        description={`${dateTime(a.sent_at)}${a.chat_name ? `, in ${a.chat_name}` : ''}${a.sender_name ? `, from ${a.sender_name}` : ''}`}
+        title={t('Alert for {value0}', { value0: a.kid_names.join(' and ') })}
+        description={`${dateTime(a.sent_at)}${a.chat_name ? t(', in {value0}', { value0: a.chat_name }) : ''}${a.sender_name ? t(', from {value0}', { value0: a.sender_name }) : ''}`}
       />
 
       {a.verdict === 'review' && (
         <p className="rounded border p-3 text-sm">
-          Needs parent review; this is not a harmful verdict. {a.review_reason}
+          {t('Needs parent review; this is not a harmful verdict.')} {a.review_reason}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-3">
         <KidStack names={a.kid_names} />
         <CategoryChips categories={a.categories} score={a.max_score} />
         <Badge tone={a.status === 'new' ? 'danger' : 'success'}>
-          {STATUS[a.status as keyof typeof STATUS] ?? a.status}
+          {t(STATUS[a.status as keyof typeof STATUS] ?? a.status)}
         </Badge>
         <MessageFlags
           m={{ id: a.message_id, edited_at: a.edited_at, revoked_at: a.revoked_at }}
@@ -171,15 +172,17 @@ export function AlertDetail() {
         <div className="flex items-start gap-3 rounded-lg border bg-surface p-5">
           <ShieldOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
           <div className="flex flex-col gap-2">
-            <p className="font-medium">Withheld on purpose, so there is nothing to show</p>
+            <p className="font-medium">{t('Withheld on purpose, so there is nothing to show')}</p>
             <p>
-              Iris detected {a.categories.join(', ')} ({a.max_score.toFixed(2)}) in a message that
-              may involve a minor in a sexual context. It never stored the content, because keeping
-              it could be illegal, so it cannot be shown here.
+              {t('Iris detected')} {a.categories.join(', ')} ({a.max_score.toFixed(2)}
+              {t(
+                ') in a message that may involve a minor in a sexual context. It never stored the content, because keeping it could be illegal, so it cannot be shown here.',
+              )}
             </p>
             <p className="text-sm text-muted-foreground">
-              Only the details above are kept. To see what was sent, open the chat directly in
-              WhatsApp.
+              {t(
+                'Only the details above are kept. To see what was sent, open the chat directly in WhatsApp.',
+              )}
             </p>
           </div>
         </div>
@@ -187,14 +190,15 @@ export function AlertDetail() {
         <div className="flex items-start gap-3 rounded-lg border bg-surface p-5">
           <ShieldOff className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
           <div className="flex flex-col gap-2">
-            <p className="font-medium">Kept out of this alert</p>
+            <p className="font-medium">{t('Kept out of this alert')}</p>
             <p>
-              The text may involve a minor, so it was not copied into the alert or sent to your
-              WhatsApp. It is kept so you can read it and decide.
+              {t(
+                'The text may involve a minor, so it was not copied into the alert or sent to your WhatsApp. It is kept so you can read it and decide.',
+              )}
             </p>
             <Button asChild variant="outline" className="w-fit">
               <Link to={`/messages/${a.message_id}`}>
-                <MessagesSquare /> Read it in the conversation
+                <MessagesSquare /> {t('Read it in the conversation')}
               </Link>
             </Button>
           </div>
@@ -202,7 +206,7 @@ export function AlertDetail() {
       ) : (
         <>
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-medium">The message</h2>
+            <h2 className="text-lg font-medium">{t('The message')}</h2>
             <RevealButton revealed={revealed} onToggle={toggle} />
           </div>
           <div className="rounded-3xl border bg-surface-2/40 p-4 sm:p-6">
@@ -234,10 +238,15 @@ export function AlertDetail() {
 
       {!a.redacted &&
         !a.media &&
-        ['image', 'sticker', 'video', 'voice', 'audio'].includes(a.message_type) && (
+        ['image', 'sticker', 'video', 'voice', 'audio', 'document'].includes(a.message_type) && (
           <section className="flex flex-col gap-3">
             <h2 className="text-lg font-medium">
-              Original {a.message_type === 'sticker' ? 'sticker' : 'media'}
+              {t('Original')}{' '}
+              {a.message_type === 'sticker'
+                ? t('sticker')
+                : a.message_type === 'document'
+                  ? t('document')
+                  : t('media')}
             </h2>
             <OriginalMedia
               key={a.message_id}
@@ -249,14 +258,14 @@ export function AlertDetail() {
         )}
       {a.sending_server && (
         <p className="text-xs text-muted-foreground">
-          Sending server: <span dir="ltr">{a.sending_server}</span>
+          {t('Sending server:')} <span dir="ltr">{a.sending_server}</span>
         </p>
       )}
       {!!a.response_notes?.length && (
         <section className="rounded-lg border bg-surface p-5">
-          <h2 className="mb-3 text-lg font-medium">Parent response notes</h2>
+          <h2 className="mb-3 text-lg font-medium">{t('Parent response notes')}</h2>
           <p className="mb-3 text-sm text-muted-foreground">
-            The first accepted response is final.
+            {t('The first accepted response is final.')}
           </p>
           <ul className="flex flex-col gap-3">
             {a.response_notes.map((note, i) => (
@@ -271,14 +280,14 @@ export function AlertDetail() {
       {a.media && !a.redacted && (
         <section aria-labelledby="kept" className="flex flex-col gap-3">
           <h2 id="kept" className="text-lg font-medium">
-            Kept media
+            {t('Kept media')}
           </h2>
           <MediaPlayer media={a.media} revealed={revealed} />
           <Link
             to={`/media/${a.media.id}`}
             className="w-fit text-sm font-medium text-primary hover:underline"
           >
-            Open on its own page
+            {t('Open on its own page')}
           </Link>
         </section>
       )}
@@ -287,30 +296,30 @@ export function AlertDetail() {
         <Button
           variant="outline"
           size="sm"
-          title="Mark this alert unread for your account"
+          title={t('Mark this alert unread for your account')}
           onClick={() => seen.mutate(false)}
           disabled={seen.isPending || !me}
         >
-          <RotateCcw /> Mark unseen
+          <RotateCcw /> {t('Mark unseen')}
         </Button>
         {a.status !== 'dismissed' && (
           <Button
             variant="outline"
             size="sm"
-            title="Dismiss this alert"
+            title={t('Dismiss this alert')}
             onClick={() => setStatus.mutate('dismissed')}
             disabled={setStatus.isPending || !canAct}
           >
-            <X /> Dismiss
+            <X /> {t('Dismiss')}
           </Button>
         )}
         <Button asChild variant="ghost" size="sm">
           <Link
             to={`/messages/${a.message_id}`}
-            aria-label="See the conversation"
-            title="Open the full conversation"
+            aria-label={t('See the conversation')}
+            title={t('Open the full conversation')}
           >
-            <MessagesSquare /> Chat
+            <MessagesSquare /> {t('Chat')}
           </Link>
         </Button>
       </div>
@@ -320,7 +329,7 @@ export function AlertDetail() {
         className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-surface p-4"
       >
         <h2 id="delivery" className="sr-only">
-          Delivery
+          {t('Delivery')}
         </h2>
         <span className="flex items-center gap-2">
           {undelivered ? (
@@ -360,7 +369,7 @@ export function AlertDetail() {
           onClick={() => resend.mutate()}
           disabled={resend.isPending || !canAct}
         >
-          <Send /> Send again
+          <Send /> {t('Send again')}
         </Button>
         {(a.recipient_delivery?.length ?? 0) > 0 && (
           <ul className="w-full space-y-1 text-sm">
@@ -380,7 +389,7 @@ export function AlertDetail() {
 
       <section aria-labelledby="how" className="flex flex-col gap-3">
         <h2 id="how" className="text-lg font-medium">
-          How Iris decided
+          {t('How Iris decided')}
         </h2>
         <ClassificationCards
           items={a.classifications}

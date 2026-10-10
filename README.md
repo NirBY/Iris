@@ -217,7 +217,7 @@ IRIS_ADMIN_USERNAME=admin IRIS_ADMIN_PASSWORD=change-me IRIS_DATA_DIR=./data \
    destination is not allowed, your `IRIS_PUBLIC_BASE_URL` is a private address (see Requirements).
    You can also paste the shown URL (`https://…/webhooks/<token>`) into OpenWA by hand.
 3. Repeat for every number you monitor.
-4. Under **Settings → Alerts** choose the instance that **sends** alerts, enter the parent's number
+4. Under **Settings → Notifications** choose the instance that **sends** alerts, enter the parent's number
    (international format, digits only, e.g. `972501234567`) and press **Test**. A real WhatsApp message is
    sent using the values you typed, before you save.
 
@@ -685,7 +685,7 @@ to it.
 
 **No alert arrived.** Open the alert: **Delivery** says why (`not configured`, an OpenWA error, or
 `suppressed` by the per-chat cooldown). Check that the sender session is running, then **Resend**. The
-**Test** button under Settings → Alerts verifies the sender and recipient.
+**Test** button under Settings → Notifications verifies the sender and recipient.
 
 **A phone shows "Nothing received yet".** OpenWA cannot reach `IRIS_PUBLIC_BASE_URL`, or the webhook was
 not registered. Check the URL from the OpenWA host.
@@ -787,7 +787,7 @@ one working, approved channel is sufficient. Login codes expire after five minut
 and have a limited attempt budget. Provider acceptance confirms sending. Confirmation links use Iris base URL and expire
 after 30 minutes; opening a link alone does not approve it. Click Approve contact.
 
-Settings → Alerts → Iris base URL sets the public domain used for new alert/media
+Settings → Notifications → Iris base URL sets the public domain used for new alert/media
 links (for example `https://iris.example.com`). The saved value overrides
 `IRIS_PUBLIC_BASE_URL` in `.env` / Docker Compose and takes effect without restarting.
 Configure the domain/reverse proxy first. Existing delivered messages retain their original links.
@@ -800,7 +800,7 @@ removes messages exclusive to that phone and schedules their stored media for de
 messages also received through another phone remain.
 
 
-OpenWA's webhook destination can be configured independently in Settings → Alerts →
+OpenWA's webhook destination can be configured independently in Settings → Notifications →
 OpenWA webhook base URL (`IRIS_WEBHOOK_BASE_URL` in `.env` / Docker Compose).
 Use an address reachable and allowed by OpenWA, for example the private NAS URL;
 the public HTTPS Iris URL stays in parent alerts and browser links. Re-pairing
@@ -810,7 +810,7 @@ with a retry for monitoring setup. Existing matching webhooks are updated, not d
 
 ### Approving 2FA contacts
 
-1. Set **Settings → Alerts → Iris base URL** to your reachable HTTPS domain. This
+1. Set **Settings → Notifications → Iris base URL** to your reachable HTTPS domain. This
    domain is used for email and WhatsApp approval links, as well as alert links.
 2. Save each user's email or personal WhatsApp number in **Settings → Users**.
    Personal numbers use international format, such as `+972501234567`. Email addresses
@@ -966,7 +966,7 @@ before repeating a change. Login can retry session loading without resubmitting 
 accepted verification code.
 
 WhatsApp alert delivery uses persistent sending budgets shared by all chats, parents,
-follow-ups and manual resends. Settings → Alerts controls the default 30-second spacing,
+follow-ups and manual resends. Settings → Notifications controls the default 30-second spacing,
 60 sends per hour and 250 sends per 24-hour window per sender. Each recipient also has
 60-second spacing, 20 sends/hour and 100/day. Every provider call reserves capacity;
 failed or uncertain calls also count. Jobs exceeding a budget remain queued with the next

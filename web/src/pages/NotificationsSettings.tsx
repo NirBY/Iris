@@ -1,6 +1,7 @@
+import { t } from '../lib/i18n'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { api } from '../lib/api'
 import { Button } from '../components/ui/button'
 import { Field, Input, Select } from '../components/ui/field'
@@ -80,12 +81,11 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-lg border bg-surface p-5">
-        <h2 className="text-lg font-medium">SMTP server</h2>
+        <h2 className="text-lg font-medium">{t('SMTP server')}</h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          This SMTP server delivers email alerts and sign-in codes. Enter its host, port, TLS mode
-          and credentials. Configure your admin email in Settings → Users, then save and send a
-          test. Open its approval link to approve the email for 2FA. Approval links use Iris base
-          URL in Settings → Alerts.
+          {t(
+            'This SMTP server delivers email alerts and sign-in codes. Enter its host, port, TLS mode and credentials. Configure your admin email in Settings → Users, then save and send a test. Open its approval link to approve the email for 2FA. Approval links use Iris base URL in Settings → Notifications.',
+          )}
         </p>
         <form
           className="grid gap-3 sm:grid-cols-2"
@@ -98,7 +98,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
             })
           }}
         >
-          <Field label="SMTP provider">
+          <Field label={t('SMTP provider')}>
             <Select
               value={smtp.host === 'smtp.gmail.com' ? 'gmail' : 'custom'}
               onChange={(e) =>
@@ -111,18 +111,18 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
                 })
               }
             >
-              <option value="custom">Custom SMTP / other provider</option>
+              <option value="custom">{t('Custom SMTP / other provider')}</option>
               <option value="gmail">Gmail</option>
             </Select>
           </Field>
-          <Field label="SMTP host">
+          <Field label={t('SMTP host')}>
             <Input
               required
               value={smtp.host}
               onChange={(e) => setSMTP({ ...smtp, host: e.target.value })}
             />
           </Field>
-          <Field label="Port">
+          <Field label={t('Port')}>
             <Input
               type="number"
               required
@@ -132,29 +132,29 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
               onChange={(e) => setSMTP({ ...smtp, port: Number(e.target.value) })}
             />
           </Field>
-          <Field label="Security">
+          <Field label={t('Security')}>
             <Select value={smtp.tls} onChange={(e) => setSMTP({ ...smtp, tls: e.target.value })}>
               <option value="starttls">STARTTLS</option>
               <option value="ssl">SSL / TLS</option>
             </Select>
           </Field>
-          <Field label="SMTP username">
+          <Field label={t('SMTP username')}>
             <Input
               required
               value={smtp.username}
               onChange={(e) => setSMTP({ ...smtp, username: e.target.value })}
             />
           </Field>
-          <Field label="SMTP password">
+          <Field label={t('SMTP password')}>
             <Input
               type="password"
               value={smtp.password}
               autoComplete="new-password"
-              placeholder={security.data?.password_set ? 'Saved (leave blank to keep)' : ''}
+              placeholder={security.data?.password_set ? t('Saved (leave blank to keep)') : ''}
               onChange={(e) => setSMTP({ ...smtp, password: e.target.value })}
             />
           </Field>
-          <Field label="Sender email">
+          <Field label={t('Sender email')}>
             <Input
               type="email"
               required
@@ -163,7 +163,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
             />
           </Field>
           <Button type="submit" disabled={busy || security.data?.enabled}>
-            Save SMTP
+            {t('Save SMTP')}
           </Button>
           <Button
             type="button"
@@ -179,13 +179,14 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
               })
             }
           >
-            Test saved SMTP
+            {t('Test saved SMTP')}
           </Button>
         </form>
         {smtp.host === 'smtp.gmail.com' && (
           <p className="mt-3 text-sm text-muted-foreground">
-            Gmail uses your full email username and a Google app password. Choose STARTTLS port 587
-            or SSL / TLS port 465.
+            {t(
+              'Gmail uses your full email username and a Google app password. Choose STARTTLS port 587 or SSL / TLS port 465.',
+            )}
           </p>
         )}
         <p
@@ -193,17 +194,17 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
           className={`mt-3 text-sm ${smtpFailed ? 'text-danger' : ''}`}
         >
           {result ||
-            (security.data?.smtp.verified ? 'SMTP test passed.' : 'SMTP has not passed its test.')}
+            (security.data?.smtp.verified
+              ? t('SMTP test passed.')
+              : t('SMTP has not passed its test.'))}
         </p>
       </section>
       <section className="rounded-lg border bg-surface p-5">
-        <h2 className="text-lg font-medium">GreenAPI — WhatsApp 2FA</h2>
+        <h2 className="text-lg font-medium">{t('GreenAPI — WhatsApp 2FA')}</h2>
         <p className="mb-4 text-sm text-muted-foreground">
-          GreenAPI sends WhatsApp alerts to individual numbers or group IDs. Sign-in codes use
-          personal numbers with a Copy code button. Save your GreenAPI credentials, then send a test
-          to your personal WhatsApp number configured in Settings → Users. Open the approval link in
-          the test message. An approved email with tested SMTP or an approved WhatsApp number with
-          tested GreenAPI is enough to enable 2FA.
+          {t(
+            'GreenAPI sends WhatsApp alerts to individual numbers or group IDs. Sign-in codes use personal numbers with a Copy code button. Save your GreenAPI credentials, then send a test to your personal WhatsApp number configured in Settings → Users. Open the approval link in the test message. An approved email with tested SMTP or an approved WhatsApp number with tested GreenAPI is enough to enable 2FA.',
+          )}
         </p>
         <form
           className="grid gap-3 sm:grid-cols-2"
@@ -225,7 +226,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
             })
           }}
         >
-          <Field label="GreenAPI API URL">
+          <Field label={t('GreenAPI API URL')}>
             <Input
               required
               type="url"
@@ -234,8 +235,10 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
             />
           </Field>
           <Field
-            label="GreenAPI media URL"
-            hint="Optional media endpoint from your GreenAPI account. Text alerts use the API URL."
+            label={t('GreenAPI media URL')}
+            hint={t(
+              'Optional media endpoint from your GreenAPI account. Text alerts use the API URL.',
+            )}
           >
             <Input
               type="url"
@@ -243,7 +246,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
               onChange={(e) => setGreen({ ...green, media_url: e.target.value })}
             />
           </Field>
-          <Field label="GreenAPI instance ID">
+          <Field label={t('GreenAPI instance ID')}>
             <Input
               required
               inputMode="numeric"
@@ -251,19 +254,21 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
               onChange={(e) => setGreen({ ...green, instance_id: e.target.value })}
             />
           </Field>
-          <Field label="GreenAPI API token">
+          <Field label={t('GreenAPI API token')}>
             <Input
               type="password"
               autoComplete="new-password"
               required={!security.data?.green_api_token_set}
-              placeholder={security.data?.green_api_token_set ? 'Saved — leave blank to keep' : ''}
+              placeholder={
+                security.data?.green_api_token_set ? t('Saved — leave blank to keep') : ''
+              }
               value={green.token}
               onChange={(e) => setGreen({ ...green, token: e.target.value })}
             />
           </Field>
           <div className="flex flex-wrap items-end gap-2">
             <Button type="submit" disabled={busy || security.data?.enabled}>
-              Save GreenAPI
+              {t('Save GreenAPI')}
             </Button>
             <Button
               type="button"
@@ -279,7 +284,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
                 })
               }
             >
-              Check account for alerts
+              {t('Check account for alerts')}
             </Button>
             <Button
               type="button"
@@ -295,7 +300,7 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
                 })
               }
             >
-              Test saved GreenAPI
+              {t('Test saved GreenAPI')}
             </Button>
           </div>
         </form>
@@ -305,8 +310,8 @@ function NotificationForm({ initial }: { initial: SecurityConfig }) {
         >
           {greenResult ||
             (security.data?.green_api?.verified
-              ? 'GreenAPI test passed.'
-              : 'GreenAPI has not passed its test.')}
+              ? t('GreenAPI test passed.')
+              : t('GreenAPI has not passed its test.'))}
         </p>
       </section>
     </div>

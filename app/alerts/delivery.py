@@ -103,6 +103,10 @@ async def send_to_parents(
 ) -> None:
     """Persist each successful recipient so retries skip parents already notified."""
     channel = str(job.payload.get("channel") or await get_setting(db, "alerts.channel"))
+    channel_mapping = await get_setting(db, "alerts.recipient_channels")
+    if channel_mapping:
+        channel = str(await get_setting(db, "alerts.channel"))
+        job.payload.pop("channel", None)
     stored = await db.get(Job, job.id)
     payload = dict(stored.payload if stored is not None else job.payload)
     if "recipients" in job.payload:
@@ -119,7 +123,7 @@ async def send_to_parents(
         if job.type == "test_alert"
         else None
     )
-    readiness = await delivery_readiness(db, channel, overrides)
+    readiness = await delivery_readiness(db, None if channel_mapping else channel, overrides)
     if not readiness.ready:
         raise PermanentError("Alert delivery not configured: " + readiness.error)
     completed = list(payload.get("delivered_recipients", []))
@@ -127,9 +131,14 @@ async def send_to_parents(
     if stored is not None:
         stored.payload = dict(payload)
         await db.commit()
-    client = await build_client(db, sender, key_bytes, channel, overrides)
-    payload["channel"] = channel
-    sender_key = client.sender_key
+    clients = {}
+    blocked_channels: set[str] = set()
+    if not channel_mapping:
+        clients[channel] = await build_client(db, sender, key_bytes, channel, overrides)
+        payload["channel"] = channel
+    else:
+        # A mixed delivery keeps one shared checkpoint across all transports.
+        payload.pop("channel", None)
     rejected = dict(payload.get("rejected_recipients", {}))
     uncertain = list(payload.get("uncertain_recipients", []))
     errors = [
@@ -146,6 +155,29 @@ async def send_to_parents(
         for target in targets:
             if target in completed or target in rejected or target in uncertain:
                 continue
+            target_channel = channel_mapping.get(target, channel)
+            if target_channel in blocked_channels:
+                continue
+            if channel_mapping:
+                recipient_ready = next(
+                    (r for r in readiness.recipients if r.target == target), None
+                )
+                if recipient_ready is None or not recipient_ready.eligible:
+                    errors.append(
+                        OpenWAError(
+                            422,
+                            recipient_ready.reason or "Recipient is not eligible"
+                            if recipient_ready
+                            else "Recipient is no longer selected",
+                        )
+                    )
+                    continue
+                if target_channel not in clients:
+                    clients[target_channel] = await build_client(
+                        db, sender, key_bytes, target_channel, overrides
+                    )
+            client = clients[target_channel]
+            sender_key = client.sender_key
             if target not in client.eligibility_errors:
                 await reserve(db, sender_key, target)
             try:
@@ -156,17 +188,22 @@ async def send_to_parents(
                         db,
                         int(payload["alert_id"]),
                         target,
-                        channel,
+                        target_channel,
                         client.destinations.get(target, "") if client.destinations else target,
                         client.config,
                     )
-                    if payload.get("alert_id") and channel in ("telegram", "greenapi")
+                    if payload.get("alert_id") and target_channel in ("telegram", "greenapi")
                     else []
                 )
                 await client.send_text("", target, text)
             except OpenWAError as exc:
                 if exc.status in (401, 403, 429):
                     await pause_sender(db, sender_key, 300 if exc.status == 429 else 86400)
+                    if channel_mapping:
+                        # Pause this provider while still attempting independent channels.
+                        blocked_channels.add(target_channel)
+                        errors.append(exc)
+                        continue
                     # Stop the batch after a provider restriction.
                     if exc.status == 429:
                         raise TransientError(
@@ -207,7 +244,8 @@ async def send_to_parents(
                         alert.notified_at = alert.notified_at or datetime.now(UTC)
                 await db.commit()
     finally:
-        await client.aclose()
+        for client in clients.values():
+            await client.aclose()
     if errors:
         pending = sum(
             target not in completed and target not in rejected and target not in uncertain
@@ -283,8 +321,13 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
         sender_id = await get_setting(db, "alerts.sender_instance_id")
         recipient = await get_setting(db, "alerts.recipient")
         sender = await db.get(Instance, sender_id) if sender_id else None
-        if not recipient or not await configured(db, job.payload.get("channel")):
-            readiness = await delivery_readiness(db, job.payload.get("channel"))
+        selected_channel = (
+            None
+            if await get_setting(db, "alerts.recipient_channels")
+            else job.payload.get("channel")
+        )
+        if not recipient or not await configured(db, selected_channel):
+            readiness = await delivery_readiness(db, selected_channel)
             alert.delivery_status, alert.delivery_error = (
                 "failed",
                 "alert delivery not configured: " + readiness.error,
@@ -402,7 +445,12 @@ async def notify_change(job: ClaimedJob, deps: "Deps") -> None:
         sender_id = await get_setting(db, "alerts.sender_instance_id")
         recipient = await get_setting(db, "alerts.recipient")
         sender = await db.get(Instance, sender_id) if sender_id else None
-        if not recipient or not await configured(db, job.payload.get("channel")):
+        selected_channel = (
+            None
+            if await get_setting(db, "alerts.recipient_channels")
+            else job.payload.get("channel")
+        )
+        if not recipient or not await configured(db, selected_channel):
             raise PermanentError("alert delivery not configured")
         timezone = str(await get_setting(db, "alerts.timezone"))
         base_url = str(await get_setting(db, "runtime.public_base_url") or deps.public_base_url)
@@ -453,7 +501,8 @@ async def deliver_test(job: ClaimedJob, deps: "Deps") -> None:
     async with _DELIVERY_LOCK, deps.session_factory() as db:
         sender_id = job.payload.get("sender_id")
         sender = await db.get(Instance, sender_id) if sender_id else None
-        if sender is None and job.payload.get("channel", "openwa") == "openwa":
+        mapping = await get_setting(db, "alerts.recipient_channels")
+        if sender is None and job.payload.get("channel", "openwa") == "openwa" and not mapping:
             raise PermanentError("Test sender no longer exists")
         text = job.payload.get("text")
         if not isinstance(text, str):
@@ -461,5 +510,14 @@ async def deliver_test(job: ClaimedJob, deps: "Deps") -> None:
         await send_to_parents(db, job, sender, deps.key_bytes, text, "")
         from app.setup_checks import record_notifier_test
 
-        await record_notifier_test(db, job.payload.get("channel", "openwa"))
+        tested_channels = (
+            {
+                mapping.get(target, str(await get_setting(db, "alerts.channel")))
+                for target in job.payload.get("recipients", [])
+            }
+            if mapping
+            else {job.payload.get("channel", "openwa")}
+        )
+        for channel in tested_channels:
+            await record_notifier_test(db, channel)
         await db.commit()

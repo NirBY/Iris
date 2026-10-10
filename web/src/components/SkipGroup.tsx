@@ -1,6 +1,7 @@
+import { t } from '../lib/i18n'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { CircleSlash } from 'lucide-react'
 import { api } from '../lib/api'
 import { useMe } from '../lib/auth'
@@ -50,8 +51,10 @@ export function SkipGroup({
         removeHistory
           ? 'History deleted for this child.'
           : child.skipped
-            ? `${kind === 'group' ? 'Group' : 'Chat'} monitoring resumed.`
-            : `${kind === 'group' ? 'Group' : 'Chat'} skipped. You can now delete its history below.`,
+            ? t('{value0} monitoring resumed.', { value0: kind === 'group' ? 'Group' : 'Chat' })
+            : t('{value0} skipped. You can now delete its history below.', {
+                value0: kind === 'group' ? 'Group' : 'Chat',
+              }),
       )
       if (removeHistory) setOpen(false)
       await qc.invalidateQueries()
@@ -68,37 +71,52 @@ export function SkipGroup({
           variant="ghost"
           size="sm"
           disabled={disabled}
-          aria-label={`Skip ${message?.is_group === undefined && isGroup === undefined ? 'chat / group' : kind}`}
-          title="Choose which child should stop monitoring this chat or group"
+          aria-label={t('Skip {value0}', {
+            value0:
+              message?.is_group === undefined && isGroup === undefined ? 'chat / group' : kind,
+          })}
+          title={t('Choose which child should stop monitoring this chat or group')}
         >
-          <CircleSlash /> Skip
+          <CircleSlash /> {t('Skip')}{' '}
         </Button>
       </DialogTrigger>
       <DialogContent
-        title={`${kind === 'group' ? 'Group' : 'Chat'} monitoring per child`}
-        description={`Skip future messages from this WhatsApp ${kind} for a child. After skipping, you can delete that child's message history, alerts, and reviews. History shared with other children is retained for them.`}
+        title={t('{value0} monitoring per child', {
+          value0: kind === 'group' ? t('Group') : t('Chat'),
+        })}
+        description={t(
+          "Skip future messages from this WhatsApp {value0} for a child. After skipping, you can delete that child's message history, alerts, and reviews. History shared with other children is retained for them.",
+          { value0: kind },
+        )}
       >
-        {!message && <p>Loading group…</p>}
-        {isError && <p role="alert">Could not load children. Close and try again.</p>}
+        {!message && <p>{t('Loading group…')}</p>}
+        {isError && <p role="alert">{t('Could not load children. Close and try again.')}</p>}
         {children?.map((child) => (
           <div key={child.id} className="flex flex-wrap items-center gap-2 rounded-md border p-3">
             <span className="flex-1">
-              {child.kid_name} · {child.skipped ? 'Skipped' : 'Monitoring'}
+              {child.kid_name} · {child.skipped ? t('Skipped') : t('Monitoring')}
             </span>
             {child.skipped ? (
               <Button variant="outline" size="sm" disabled={busy} onClick={() => void act(child)}>
-                Resume monitoring
+                {t('Resume monitoring')}
               </Button>
             ) : (
               <ConfirmDialog
                 trigger={
                   <Button variant="outline" size="sm" disabled={busy}>
-                    Skip {kind}
+                    {' '}
+                    {t('Skip')} {kind}
                   </Button>
                 }
-                title={`Are you sure you want to skip this ${kind} for ${child.kid_name}?`}
-                description={`Iris will stop checking new messages from this ${kind} for ${child.kid_name}. Other children keep their own monitoring settings. You can resume later.`}
-                confirmLabel={`Skip ${kind}`}
+                title={t('Are you sure you want to skip this {value0} for {value1}?', {
+                  value0: kind,
+                  value1: child.kid_name,
+                })}
+                description={t(
+                  'Iris will stop checking new messages from this {value0} for {value1}. Other children keep their own monitoring settings. You can resume later.',
+                  { value0: kind, value1: child.kid_name },
+                )}
+                confirmLabel={t('Skip {value0}', { value0: kind })}
                 onConfirm={() => act(child)}
               />
             )}
@@ -106,12 +124,18 @@ export function SkipGroup({
               <ConfirmDialog
                 trigger={
                   <Button variant="danger" size="sm" disabled={busy}>
-                    Delete history
+                    {t('Delete history')}
                   </Button>
                 }
-                title={`Delete ${kind} history for ${child.kid_name}?`}
-                description={`Permanently delete this child's message history, alerts, and reviews for this ${kind}. Shared records remain for other children. Saved media from deleted messages will also be removed.`}
-                confirmLabel="Delete history"
+                title={t('Delete {value0} history for {value1}?', {
+                  value0: kind,
+                  value1: child.kid_name,
+                })}
+                description={t(
+                  "Permanently delete this child's message history, alerts, and reviews for this {value0}. Shared records remain for other children. Saved media from deleted messages will also be removed.",
+                  { value0: kind },
+                )}
+                confirmLabel={t('Delete history')}
                 onConfirm={() => act(child, true)}
               />
             )}

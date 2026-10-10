@@ -128,20 +128,15 @@ test('parent channel and recipients share one panel and testing requires saving 
   expect(
     within(panel).getByRole('heading', { name: 'Parent alert recipients' }),
   ).toBeInTheDocument()
-  expect(within(panel).getByLabelText('Send parent alerts using')).toHaveValue('smtp')
-  expect(within(panel).queryByLabelText('OpenWA sender phone')).not.toBeInTheDocument()
-  await userEvent.selectOptions(
-    within(panel).getByLabelText('Send parent alerts using'),
-    'greenapi',
-  )
+  expect(within(panel).getByLabelText('Default alert channel')).toHaveValue('smtp')
+  expect(within(panel).getByLabelText('OpenWA sender phone')).toBeInTheDocument()
+  await userEvent.selectOptions(within(panel).getByLabelText('Default alert channel'), 'greenapi')
   expect(within(panel).getByRole('button', { name: 'Test parent alert delivery' })).toBeDisabled()
   expect(within(panel).getByText(/Save changes to apply this channel/)).toBeInTheDocument()
   expect(within(panel).queryByLabelText(/Telegram chat ID for/)).not.toBeInTheDocument()
-  await userEvent.selectOptions(
-    within(panel).getByLabelText('Send parent alerts using'),
-    'telegram',
-  )
-  expect(within(panel).getByLabelText(/Telegram chat ID for/)).toBeInTheDocument()
+  await userEvent.selectOptions(within(panel).getByLabelText('Default alert channel'), 'telegram')
+  expect(within(panel).getByLabelText(/Telegram bot token/)).toBeInTheDocument()
+  expect(within(panel).queryByLabelText('Telegram chat ID')).not.toBeInTheDocument()
 })
 
 test('OpenWA retry and catch-up settings save typed values and offer manual recovery', async () => {

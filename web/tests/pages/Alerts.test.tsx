@@ -82,7 +82,7 @@ test('warns that delivery is not set up when alerts were saved but could not be 
   expect(await screen.findByText(/Alert delivery is not set up/)).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /Set up delivery/ })).toHaveAttribute(
     'href',
-    '/settings?tab=Alerts',
+    '/settings?tab=Notifications',
   )
 })
 

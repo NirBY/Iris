@@ -1,3 +1,5 @@
+import { t, takeLoginLanguageSelection, useLanguage } from '../lib/i18n'
+import { LanguageSelect } from '../components/LanguageSelect'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
@@ -5,6 +7,8 @@ import { IrisMark } from '../components/IrisMark'
 import { Button } from '../components/ui/button'
 import { Field, Input } from '../components/ui/field'
 import { api, ApiError } from '../lib/api'
+import type { Me } from '../lib/auth'
+import { toast } from '../lib/notify'
 
 function explain(err: unknown): string {
   if (err instanceof ApiError && err.status === 408) return err.message
@@ -23,6 +27,7 @@ function explain(err: unknown): string {
 }
 
 export function Login() {
+  const { language } = useLanguage()
   const qc = useQueryClient()
   const [challenge, setChallenge] = useState('')
   const [code, setCode] = useState('')
@@ -44,8 +49,8 @@ export function Login() {
   const [accepted, setAccepted] = useState(false)
   const needsHttps = window.location.protocol === 'http:' && !!options?.secure_login_url
   useEffect(() => {
-    document.title = 'Sign in · Iris'
-  }, [])
+    document.title = t('Sign in · Iris')
+  }, [language])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -80,7 +85,16 @@ export function Login() {
       }
       setAccepted(true)
       try {
-        const me = await api('/api/auth/me')
+        const me = await api<Me>('/api/auth/me')
+        const language = takeLoginLanguageSelection()
+        if (language !== undefined) {
+          try {
+            await api('/api/auth/language', { method: 'PATCH', body: JSON.stringify({ language }) })
+            me.language = language
+          } catch {
+            toast.error(t('Signed in, but language could not be saved. Change it in Settings.'))
+          }
+        }
         qc.removeQueries({ predicate: (query) => query.queryKey[0] !== 'me' })
         qc.setQueryData(['me'], me)
       } catch (err) {
@@ -121,22 +135,27 @@ export function Login() {
         <div className="flex flex-col gap-1 text-foreground">
           <h1 className="text-3xl font-semibold tracking-tight">Iris</h1>
           <p className="text-sm text-muted-foreground">
-            Sign in to see how your kids' chats are doing.
+            {t("Sign in to see how your kids' chats are doing.")}
           </p>
         </div>
+      </div>
+      <div className="absolute end-3 top-3 sm:end-5 sm:top-5">
+        <LanguageSelect compact />
       </div>
       <form onSubmit={submit} className="flex flex-col gap-4 rounded-xl border bg-surface p-6">
         {needsHttps && (
           <p role="alert">
-            Sign in using the HTTPS address so your browser can save the secure session cookie.{' '}
+            {t(
+              'Sign in using the HTTPS address so your browser can save the secure session cookie.',
+            )}{' '}
             <a className="underline" href={options.secure_login_url!}>
-              Open secure Iris
+              {t('Open secure Iris')}
             </a>
           </p>
         )}
         {!challenge && (
           <>
-            <Field label="Username">
+            <Field label={t('Username')}>
               <Input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -145,7 +164,7 @@ export function Login() {
                 required
               />
             </Field>
-            <Field label="Password">
+            <Field label={t('Password')}>
               <Input
                 type="password"
                 value={password}
@@ -155,13 +174,13 @@ export function Login() {
               />
             </Field>
             {options?.two_factor_enabled && (
-              <Field label="Send verification code by">
+              <Field label={t('Send verification code by')}>
                 <select
                   className="rounded border p-2"
                   value={channel || options?.default_channel || 'email'}
                   onChange={(e) => setChannel(e.target.value)}
                 >
-                  <option value="email">Email</option>
+                  <option value="email">{t('Email')}</option>
                   <option value="whatsapp">GreenAPI / WhatsApp</option>
                 </select>
               </Field>
@@ -171,9 +190,9 @@ export function Login() {
         {challenge && (
           <>
             <p className="text-sm">
-              Enter the code sent to your configured contact. It expires in 5 minutes.
+              {t('Enter the code sent to your configured contact. It expires in 5 minutes.')}
             </p>
-            <Field label="Verification code">
+            <Field label={t('Verification code')}>
               <Input
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
@@ -204,7 +223,7 @@ export function Login() {
                 setAccepted(false)
               }}
             >
-              Start again / request another code
+              {t('Start again / request another code')}
             </Button>
           </>
         )}
@@ -212,21 +231,21 @@ export function Login() {
           <div role="status" className="space-y-2 text-sm text-muted-foreground">
             <p>
               {accepted
-                ? 'Loading your session…'
+                ? t('Loading your session…')
                 : challenge
-                  ? 'Verifying your code…'
-                  : 'Signing in…'}
+                  ? t('Verifying your code…')
+                  : t('Signing in…')}
             </p>
             <div
               role="progressbar"
-              aria-label="Sign-in progress"
+              aria-label={t('Sign-in progress')}
               className="h-1 animate-pulse rounded bg-primary motion-reduce:animate-none"
             />
           </div>
         )}
         {error && (
           <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">
-            {error}
+            {t(error)}
           </p>
         )}
         <Button
@@ -236,7 +255,7 @@ export function Login() {
           disabled={busy || (accepted && !error) || needsHttps}
         >
           {busy && <Loader2 className="animate-spin" />}{' '}
-          {accepted && error ? 'Retry session' : challenge ? 'Verify code' : 'Sign in'}
+          {accepted && error ? t('Retry session') : challenge ? t('Verify code') : t('Sign in')}
         </Button>
       </form>
     </main>

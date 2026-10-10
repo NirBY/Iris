@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.db.models import Instance, LoginChallenge, Setting, User
 from app.deps import get_db
+from app.languages import SUPPORTED_LANGUAGES
 from app.security.auth import (
     _DUMMY_HASH,
     COOKIE_NAME,
@@ -56,6 +57,17 @@ class LoginBody(BaseModel):
 class PasswordBody(BaseModel):
     current_password: str = Field(max_length=256)
     new_password: str = Field(min_length=8, max_length=256)
+
+
+class LanguageBody(BaseModel):
+    language: str = Field(max_length=32)
+
+    @field_validator("language")
+    @classmethod
+    def supported_language(cls, language: str) -> str:
+        if language != "system" and language not in SUPPORTED_LANGUAGES:
+            raise ValueError("Unsupported interface language")
+        return language
 
 
 def _set_session_cookie(response: Response, settings: Settings, user: User) -> None:
@@ -195,7 +207,19 @@ async def logout(
 
 @router.get("/me")
 async def me(user: Annotated[User, Depends(current_user)]) -> dict[str, Any]:
-    return {"username": user.username, "role": user.role, "id": user.id}
+    return {"username": user.username, "role": user.role, "id": user.id, "language": user.language}
+
+
+@router.patch("/language")
+async def change_language(
+    body: LanguageBody,
+    user: Annotated[User, Depends(current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str]:
+    user.language = body.language
+    db.add(user)
+    await db.commit()
+    return {"language": user.language}
 
 
 @router.post("/password")

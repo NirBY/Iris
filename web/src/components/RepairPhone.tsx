@@ -1,7 +1,8 @@
+import { t } from '../lib/i18n'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { LoaderCircle } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { api } from '../lib/api'
 import type { Instance } from '../lib/types'
 import { Dialog, DialogTrigger, DialogContent } from './ui/dialog'
@@ -55,7 +56,7 @@ export function RepairPhone({
         qc.invalidateQueries({ queryKey: ['stats'] }),
       ])
       if (current.current) {
-        toast.success(`${phone.kid_name} reconnected.`)
+        toast.success(t('{value0} reconnected.', { value0: phone.kid_name }))
         setOpen(false)
       }
     } catch (error) {
@@ -92,16 +93,18 @@ export function RepairPhone({
     >
       {phone.connection_status !== 'ready' && (
         <DialogTrigger asChild>
-          <Button variant="outline">Re-pair WhatsApp</Button>
+          <Button variant="outline">{t('Re-pair WhatsApp')}</Button>
         </DialogTrigger>
       )}
       <DialogContent
         title={
           check.data?.status === 'ready'
-            ? `${phone.kid_name} connected`
-            : `Re-pair ${phone.kid_name}`
+            ? t('{value0} connected', { value0: phone.kid_name })
+            : t('Re-pair {value0}', { value0: phone.kid_name })
         }
-        description="Reconnect the existing WhatsApp session. Closing this window never deletes your phone or session."
+        description={t(
+          'Reconnect the existing WhatsApp session. Closing this window never deletes your phone or session.',
+        )}
       >
         {check.data?.qr && !check.isError && (
           <img
@@ -116,22 +119,22 @@ export function RepairPhone({
             <LoaderCircle aria-hidden className="size-5 animate-spin" />
           )}
           {finishing
-            ? 'Connected. Restoring monitoring…'
+            ? t('Connected. Restoring monitoring…')
             : check.data?.status === 'ready'
               ? finishError
-                ? 'WhatsApp connected. Monitoring setup needs attention.'
-                : 'WhatsApp connected.'
+                ? t('WhatsApp connected. Monitoring setup needs attention.')
+                : t('WhatsApp connected.')
               : check.data?.status === 'authenticating'
-                ? 'Scan received. Confirming WhatsApp connection…'
+                ? t('Scan received. Confirming WhatsApp connection…')
                 : check.data?.qr
-                  ? 'WhatsApp → Linked devices → Link a device. QR changes update automatically.'
+                  ? t('WhatsApp → Linked devices → Link a device. QR changes update automatically.')
                   : check.isError
-                    ? 'Connection check failed.'
-                    : 'Checking the existing session and waiting for OpenWA to provide a QR…'}
+                    ? t('Connection check failed.')
+                    : t('Checking the existing session and waiting for OpenWA to provide a QR…')}
         </p>
         {check.isError && (
           <p role="alert" className="text-sm text-danger">
-            {check.error instanceof Error ? check.error.message : 'OpenWA unavailable'}
+            {check.error instanceof Error ? check.error.message : t('OpenWA unavailable')}
           </p>
         )}
         {finishError && (
@@ -140,12 +143,14 @@ export function RepairPhone({
               {finishError}
             </p>
             <Button disabled={finishing} onClick={() => void finish()}>
-              Retry restoring monitoring
+              {t('Retry restoring monitoring')}
             </Button>
           </>
         )}
         <Button onClick={() => void check.refetch()} disabled={check.isFetching || finishing}>
-          {check.data?.status === 'ready' ? 'Check connection' : 'Refresh QR / check connection'}
+          {check.data?.status === 'ready'
+            ? t('Check connection')
+            : t('Refresh QR / check connection')}
         </Button>
       </DialogContent>
     </Dialog>

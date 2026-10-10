@@ -2,6 +2,14 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Wrap translated copy and long provider addresses even on narrow phones. */
+html {
+  overflow-wrap: anywhere;
+}
+input[dir='ltr'] {
+  text-align: left;
+}
+
 /*
  * Design tokens. Neutrals are tinted toward violet (never pure grey). Colour only ever
  * carries state together with an icon and a word: coral = harmful, saffron = needs a look,

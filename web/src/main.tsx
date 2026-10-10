@@ -7,8 +7,10 @@ import { ApiError } from './lib/api'
 import '@fontsource-variable/rubik'
 import './index.css'
 import { applyTheme, watchSystemTheme } from './lib/theme'
+import { applyLanguage } from './lib/i18n'
 
 applyTheme()
+applyLanguage()
 watchSystemTheme()
 
 if (window.isSecureContext && 'serviceWorker' in navigator && import.meta.env.PROD) {

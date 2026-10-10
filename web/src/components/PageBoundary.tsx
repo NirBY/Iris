@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { Component, type ReactNode } from 'react'
 import { Button } from './ui/button'
 
@@ -13,11 +14,13 @@ export class PageBoundary extends Component<{ children: ReactNode }, { failed: b
     if (this.state.failed)
       return (
         <div role="alert" className="flex flex-col items-start gap-3">
-          <h1 className="text-xl font-semibold">This page could not load</h1>
+          <h1 className="text-xl font-semibold">{t('This page could not load')}</h1>
           <p>
-            Iris may have been updated while this tab was open. Reload to get the current version.
+            {t(
+              'Iris may have been updated while this tab was open. Reload to get the current version.',
+            )}
           </p>
-          <Button onClick={() => window.location.reload()}>Reload Iris</Button>
+          <Button onClick={() => window.location.reload()}>{t('Reload Iris')}</Button>
         </div>
       )
     return this.props.children

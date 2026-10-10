@@ -1,7 +1,8 @@
+import { t } from '../lib/i18n'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { api } from '../lib/api'
 import type { AlertReadiness } from '../lib/types'
 import { ConfirmDialog } from '../components/ui/dialog'
@@ -105,14 +106,13 @@ export function UserSettings() {
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-lg border bg-surface p-5">
-        <h2 className="text-lg font-semibold">Users and roles</h2>
+        <h2 className="text-lg font-semibold">{t('Users and roles')}</h2>
         <p className="text-sm text-muted-foreground">
-          Watch users have read-only access to Home, Alerts, Review, Messages and Chats. Parents can
-          resolve reviews, resend alerts, reprocess messages and delete saved media evidence. Admins
-          also manage settings, users and phones. For 2FA, each user needs an approved email or
-          personal WhatsApp number.
+          {t(
+            'Watch users have read-only access to Home, Alerts, Review, Messages and Chats. Parents can resolve reviews, resend alerts, reprocess messages and delete saved media evidence. Admins also manage settings, users and phones. For 2FA, each user needs an approved email or personal WhatsApp number.',
+          )}
         </p>
-        {users.isError && <p role="alert">Could not load users.</p>}
+        {users.isError && <p role="alert">{t('Could not load users.')}</p>}
         <ul className="my-4 flex flex-col gap-2">
           {users.data?.map((u) => (
             <li key={u.id} className="flex flex-wrap items-center gap-3 rounded-md border p-3">
@@ -128,17 +128,17 @@ export function UserSettings() {
                       to="/settings?tab=Notifications#parent-alert-recipients"
                       className={`text-sm underline underline-offset-2 ${status.eligible ? 'text-success' : 'text-warning'}`}
                     >
-                      Alerts: {status.eligible ? 'Eligible' : status.reason}
+                      {t('Alerts:')} {status.eligible ? t('Eligible') : t(status.reason ?? '')}
                     </Link>
                   )
                 })()}
               {u.email &&
                 (u.email_verified ? (
-                  <span className="text-sm text-success">Email approved</span>
+                  <span className="text-sm text-success">{t('Email approved')}</span>
                 ) : (
                   <Button
                     disabled={busy || !security.data?.smtp.verified}
-                    aria-label={`Send email approval for ${u.username}`}
+                    aria-label={t('Send email approval for {value0}', { value0: u.username })}
                     onClick={() =>
                       void run(async () => {
                         await api(`/api/users/${u.id}/approve-contact`, {
@@ -149,12 +149,12 @@ export function UserSettings() {
                       })
                     }
                   >
-                    Send email approval
+                    {t('Send email approval')}
                   </Button>
                 ))}
               {u.whatsapp_number &&
                 (u.whatsapp_verified ? (
-                  <span className="text-sm text-success">WhatsApp approved</span>
+                  <span className="text-sm text-success">{t('WhatsApp approved')}</span>
                 ) : (
                   <Button
                     disabled={
@@ -162,7 +162,7 @@ export function UserSettings() {
                       (!security.data?.green_api?.verified &&
                         !settings.data?.['alerts.sender_instance_id'])
                     }
-                    aria-label={`Send WhatsApp approval for ${u.username}`}
+                    aria-label={t('Send WhatsApp approval for {value0}', { value0: u.username })}
                     onClick={() =>
                       void run(async () => {
                         await api(`/api/users/${u.id}/approve-contact`, {
@@ -175,7 +175,7 @@ export function UserSettings() {
                       })
                     }
                   >
-                    Send WhatsApp approval
+                    {t('Send WhatsApp approval')}
                   </Button>
                 ))}
 
@@ -186,21 +186,23 @@ export function UserSettings() {
                   setForm({ ...u, password: '' })
                 }}
               >
-                Edit
+                {t('Edit')}
               </Button>
               {u.role !== 'admin' && (
                 <ConfirmDialog
-                  title={`Delete ${u.username}?`}
-                  description="This removes the user account and its login access. Monitored phones and messages are retained."
-                  confirmLabel="Delete user"
+                  title={t('Delete {value0}?', { value0: u.username })}
+                  description={t(
+                    'This removes the user account and its login access. Monitored phones and messages are retained.',
+                  )}
+                  confirmLabel={t('Delete user')}
                   pending={busy}
                   trigger={
                     <Button
                       variant="danger"
                       disabled={busy}
-                      aria-label={`Delete user ${u.username}`}
+                      aria-label={t('Delete user {value0}', { value0: u.username })}
                     >
-                      Delete user
+                      {t('Delete user')}
                     </Button>
                   }
                   onConfirm={() =>
@@ -220,10 +222,10 @@ export function UserSettings() {
         </ul>
       </section>
       <section className="rounded-lg border bg-surface p-5">
-        <h2 className="mb-4 text-lg font-semibold">{editing ? 'Edit user' : 'Add user'}</h2>
+        <h2 className="mb-4 text-lg font-semibold">{editing ? t('Edit user') : t('Add user')}</h2>
         {saveError && (
           <p role="alert" className="mb-3 text-sm text-danger">
-            {saveError}
+            {t(saveError)}
           </p>
         )}
         <form
@@ -251,14 +253,14 @@ export function UserSettings() {
             })
           }}
         >
-          <Field label="Username">
+          <Field label={t('Username')}>
             <Input
               required
               value={form.username}
               onChange={(e) => setForm({ ...form, username: e.target.value })}
             />
           </Field>
-          <Field label={editing ? 'Reset this user’s password (optional)' : 'Password'}>
+          <Field label={editing ? t('Reset this user’s password (optional)') : t('Password')}>
             <Input
               type="password"
               minLength={8}
@@ -268,43 +270,41 @@ export function UserSettings() {
               onChange={(e) => setForm({ ...form, password: e.target.value })}
             />
           </Field>
-          <Field label="Role">
+          <Field label={t('Role')}>
             <Select
               value={form.role}
               onChange={(e) => setForm({ ...form, role: e.target.value as User['role'] })}
             >
-              <option value="parent">Parent</option>
-              <option value="watch">Watch only</option>
-              <option value="admin">Admin</option>
+              <option value="parent">{t('Parent')}</option>
+              <option value="watch">{t('Watch only')}</option>
+              <option value="admin">{t('Admin')}</option>
             </Select>
           </Field>
-          <Field label="Email">
+          <Field label={t('Email')}>
             <Input
               type="email"
               value={form.email || ''}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
           </Field>
-          <Field label="Personal WhatsApp number">
+          <Field label={t('Personal WhatsApp number')}>
             <Input
               type="tel"
-              aria-label="Personal WhatsApp number"
+              aria-label={t('Personal WhatsApp number')}
               autoComplete="tel"
               placeholder="+972501234567"
               value={form.whatsapp_number || ''}
               onChange={(e) => setForm({ ...form, whatsapp_number: e.target.value })}
             />
             <p className="text-sm text-muted-foreground">
-              Optional. Leave empty to remove the number. Your personal number for receiving alerts
-              and 2FA codes. It must differ from the GreenAPI sender number. Include + and country
-              code. Codes are sent through GreenAPI configured in Settings → Notifications.
-              Ownership approval can also use a connected OpenWA sender. Sending an approval request
-              does not approve the number; the recipient must open the link and confirm it.
+              {t(
+                'Optional. Leave empty to remove the number. Your personal number for receiving alerts and 2FA codes. It must differ from the GreenAPI sender number. Include + and country code. Codes are sent through GreenAPI configured in Settings → Notifications. Ownership approval can also use a connected OpenWA sender. Sending an approval request does not approve the number; the recipient must open the link and confirm it.',
+              )}
             </p>
           </Field>
           <div className="flex items-end gap-2">
             <Button type="submit" disabled={busy}>
-              Save user
+              {t('Save user')}
             </Button>
             {editing && (
               <Button
@@ -314,28 +314,32 @@ export function UserSettings() {
                   setForm(emptyUser)
                 }}
               >
-                Cancel
+                {t('Cancel')}
               </Button>
             )}
           </div>
         </form>
       </section>
       <section className="rounded-lg border bg-surface p-5">
-        <h2 className="text-lg font-semibold">Two-factor authentication</h2>
+        <h2 className="text-lg font-semibold">{t('Two-factor authentication')}</h2>
         <p className="mb-3 text-sm">
           {security.data?.enabled
-            ? '2FA is required at login. New users need a contact with a tested provider and must approve it before login. Disable 2FA before changing delivery providers.'
-            : 'Test SMTP or GreenAPI in Settings → Notifications, then approve at least one contact per user to enable 2FA.'}
+            ? t(
+                '2FA is required at login. New users need a contact with a tested provider and must approve it before login. Disable 2FA before changing delivery providers.',
+              )
+            : t(
+                'Test SMTP or GreenAPI in Settings → Notifications, then approve at least one contact per user to enable 2FA.',
+              )}
         </p>
         <p className="mb-3 text-sm text-muted-foreground">
-          Email codes use SMTP. WhatsApp 2FA uses GreenAPI only and includes a Copy code button. An
-          approved email with tested SMTP or an approved WhatsApp number with tested GreenAPI is
-          enough; both are optional alternatives. Approval links use Iris base URL in Settings →
-          Notifications.
+          {t(
+            'Email codes use SMTP. WhatsApp 2FA uses GreenAPI only and includes a Copy code button. An approved email with tested SMTP or an approved WhatsApp number with tested GreenAPI is enough; both are optional alternatives. Approval links use Iris base URL in Settings → Notifications.',
+          )}
         </p>
         <p className="mb-3 text-sm text-muted-foreground">
-          If code delivery fails, emergency recovery requires access to the Iris Docker container
-          and its predefined recovery key. No recovery-key bypass is available on this login page.
+          {t(
+            'If code delivery fails, emergency recovery requires access to the Iris Docker container and its predefined recovery key. No recovery-key bypass is available on this login page.',
+          )}
         </p>
         {!!canEnable &&
           availableChannels.length > 0 &&
@@ -344,14 +348,15 @@ export function UserSettings() {
           !settings.isError &&
           settings.data && (
             <div className="mb-4 flex flex-col gap-3">
-              <h3 className="font-semibold">Sign-in verification</h3>
+              <h3 className="font-semibold">{t('Sign-in verification')}</h3>
               <p className="text-sm text-muted-foreground">
-                Choose the preferred code channel from tested providers with approved user contacts.
-                Each user can use a channel available to their account when signing in.
+                {t(
+                  'Choose the preferred code channel from tested providers with approved user contacts. Each user can use a channel available to their account when signing in.',
+                )}
               </p>
-              <Field label="Default sign-in code channel">
+              <Field label={t('Default sign-in code channel')}>
                 <Select
-                  aria-label="Default sign-in code channel"
+                  aria-label={t('Default sign-in code channel')}
                   value={defaultChannel}
                   disabled={busy}
                   onChange={(event) => {
@@ -365,8 +370,8 @@ export function UserSettings() {
                     })
                   }}
                 >
-                  {emailReady && <option value="email">Email (default)</option>}
-                  {whatsappReady && <option value="whatsapp">WhatsApp via GreenAPI</option>}
+                  {emailReady && <option value="email">{t('Email (default)')}</option>}
+                  {whatsappReady && <option value="whatsapp">{t('WhatsApp via GreenAPI')}</option>}
                 </Select>
               </Field>
             </div>
@@ -389,7 +394,7 @@ export function UserSettings() {
             })
           }
         >
-          {security.data?.enabled ? 'Disable 2FA' : 'Enable 2FA'}
+          {security.data?.enabled ? t('Disable 2FA') : t('Enable 2FA')}
         </Button>
       </section>
     </div>

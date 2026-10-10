@@ -1,6 +1,7 @@
+import { t } from '../lib/i18n'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { api } from '../lib/api'
 import { dateTime } from '../lib/format'
 import { Button } from '../components/ui/button'
@@ -110,14 +111,15 @@ export function ScheduleSettings() {
     return <QueryError what="application schedules" onRetry={() => void schedules.refetch()} />
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold">Application schedules</h2>
+      <h2 className="text-lg font-semibold">{t('Application schedules')}</h2>
       <p className="text-sm text-muted-foreground">
-        Timezone: {schedules.data?.timezone}. {schedules.data?.history_policy}
+        {t('Timezone:')} {schedules.data?.timezone}. {schedules.data?.history_policy}
       </p>
       {schedules.data && !schedules.data.workers_enabled && (
         <p role="alert" className="text-sm text-warning">
-          Workers are paused. Queued and timed schedules wait until workers are enabled. Pairing
-          cleanup continues independently.
+          {t(
+            'Workers are paused. Queued and timed schedules wait until workers are enabled. Pairing cleanup continues independently.',
+          )}
         </p>
       )}
       {error && (
@@ -130,38 +132,38 @@ export function ScheduleSettings() {
           variant={view === 'schedules' ? 'primary' : 'outline'}
           onClick={() => setView('schedules')}
         >
-          Schedules
+          {t('Schedules')}
         </Button>
         <Button
           variant={view === 'history' ? 'primary' : 'outline'}
           onClick={() => setView('history')}
         >
-          Run history
+          {t('Run history')}
         </Button>
       </div>
       {schedules.data?.items?.map((s) => (
         <article key={s.key} className="flex flex-col gap-3 rounded-lg border bg-surface p-4">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="font-semibold">{s.name}</h3>
+            <h3 className="font-semibold">{t(s.name)}</h3>
             <span className={s.enabled ? 'text-sm text-success' : 'text-sm text-muted-foreground'}>
-              {s.enabled ? 'Enabled' : 'Disabled'}
+              {s.enabled ? t('Enabled') : t('Disabled')}
             </span>
           </div>
-          <p className="text-sm text-muted-foreground">{s.description}</p>
+          <p className="text-sm text-muted-foreground">{t(s.description)}</p>
           {view === 'schedules' ? (
             <>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  aria-label={`Enable ${s.name}`}
+                  aria-label={t('Enable {value0}', { value0: t(s.name) })}
                   checked={s.enabled}
                   disabled={busy}
                   onChange={(e) => void save(s.key, { enabled: e.target.checked })}
                 />
-                Enable schedule
+                {t('Enable schedule')}
               </label>
               {s.interval !== null && (
-                <Field label={`Interval for ${s.name} (seconds)`}>
+                <Field label={t('Interval for {value0} (seconds)', { value0: t(s.name) })}>
                   <Input
                     type="number"
                     min={15}
@@ -174,17 +176,16 @@ export function ScheduleSettings() {
                     disabled={busy || !drafts[s.key]}
                     onClick={() => void save(s.key, { interval: Number(drafts[s.key]) })}
                   >
-                    Save interval
+                    {t('Save interval')}
                   </Button>
                 </Field>
               )}
               {s.key === 'connections' && (
                 <div className="flex flex-col gap-3 rounded-lg border p-3">
                   <p className="text-sm text-muted-foreground">
-                    One recovery cycle starts when a device goes offline and resets only after it is
-                    online again. Set retry count to 0 to disable automatic refresh. Parent
-                    notifications wait from the first offline detection; the dashboard updates
-                    immediately.
+                    {t(
+                      'One recovery cycle starts when a device goes offline and resets only after it is online again. Set retry count to 0 to disable automatic refresh. Parent notifications wait from the first offline detection; the dashboard updates immediately.',
+                    )}
                   </p>
                   {(
                     [
@@ -227,20 +228,26 @@ export function ScheduleSettings() {
                             value < min ||
                             value > max
                           ) {
-                            setError(`${label}: enter a whole number from ${min} to ${max}.`)
+                            setError(
+                              t('{value0}: enter a whole number from {value1} to {value2}.', {
+                                value0: t(label),
+                                value1: min,
+                                value2: max,
+                              }),
+                            )
                             return
                           }
                           void save(s.key, { [field]: value })
                         }}
                       >
-                        Save {label.toLowerCase()}
+                        {t('Save')} {t(label).toLocaleLowerCase()}
                       </Button>
                     </Field>
                   ))}
                 </div>
               )}
               {s.key === 'daily_summary' && (
-                <Field label="Daily summary time">
+                <Field label={t('Daily summary time')}>
                   <Input
                     type="time"
                     value={drafts[s.key] ?? s.time}
@@ -251,20 +258,28 @@ export function ScheduleSettings() {
                     disabled={busy || !drafts[s.key]}
                     onClick={() => void save(s.key, { time: drafts[s.key] })}
                   >
-                    Save time
+                    {t('Save time')}
                   </Button>
                 </Field>
               )}
-              {s.next_run && <p className="text-sm">Next due: {dateTime(s.next_run)}</p>}
+              {s.next_run && (
+                <p className="text-sm">
+                  {t('Next due:')} {dateTime(s.next_run)}
+                </p>
+              )}
               {s.channel && (
                 <div className="text-sm">
-                  <p>Delivery: {s.channel}</p>
+                  <p>
+                    {t('Delivery:')} {s.channel}
+                  </p>
                   <ul>
                     {s.recipients.map((r) => (
                       <li key={r.target} className={r.eligible ? '' : 'text-warning'}>
                         {r.name}:{' '}
                         {r.eligible
-                          ? `Eligible · ${r.children?.join(', ') || 'No children'}`
+                          ? t('Eligible · {value0}', {
+                              value0: r.children?.join(', ') || 'No children',
+                            })
                           : r.reason}
                       </li>
                     ))}
@@ -278,18 +293,24 @@ export function ScheduleSettings() {
                     disabled={busy}
                     className="max-w-full whitespace-normal"
                   >
-                    Run {s.name} now
+                    {t('Run')} {t(s.name)} {t('now')}
                   </Button>
                 }
-                title={`Run ${s.name}?`}
+                title={t('Run {value0}?', { value0: t(s.name) })}
                 description={
                   s.channel
-                    ? 'This sends a real notification to eligible selected recipients, respecting child assignments and sending limits.'
+                    ? t(
+                        'This sends a real notification to eligible selected recipients, respecting child assignments and sending limits.',
+                      )
                     : s.key.includes('retention') || s.key.includes('cleanup')
-                      ? 'This runs cleanup now and may permanently delete expired records or media according to the saved retention rules.'
-                      : 'This queues the application task now. Its result is saved in run history.'
+                      ? t(
+                          'This runs cleanup now and may permanently delete expired records or media according to the saved retention rules.',
+                        )
+                      : t(
+                          'This queues the application task now. Its result is saved in run history.',
+                        )
                 }
-                confirmLabel="Run now"
+                confirmLabel={t('Run now')}
                 tone="primary"
                 onConfirm={() => run(s.key)}
               />
@@ -297,7 +318,7 @@ export function ScheduleSettings() {
           ) : (
             <div className="flex flex-col gap-2">
               {!s.runs.length && (
-                <p className="text-sm text-muted-foreground">No runs recorded yet.</p>
+                <p className="text-sm text-muted-foreground">{t('No runs recorded yet.')}</p>
               )}
               {s.runs.map((r) => (
                 <details key={r.id} className="rounded-md border p-3">
@@ -305,7 +326,11 @@ export function ScheduleSettings() {
                     #{r.id} · {r.status} · {dateTime(r.started_at)}
                   </summary>
                   <div className="mt-2 flex flex-col gap-2 text-sm">
-                    {r.finished_at && <p>Finished: {dateTime(r.finished_at)}</p>}
+                    {r.finished_at && (
+                      <p>
+                        {t('Finished:')} {dateTime(r.finished_at)}
+                      </p>
+                    )}
                     {r.result != null && (
                       <pre className="overflow-auto whitespace-pre-wrap">
                         {JSON.stringify(r.result, null, 2)}
@@ -327,7 +352,9 @@ export function ScheduleSettings() {
             </div>
           )}
           {view === 'schedules' && s.runs[0]?.error && (
-            <p className="text-sm text-danger">Last run: {s.runs[0].error}</p>
+            <p className="text-sm text-danger">
+              {t('Last run:')} {s.runs[0].error}
+            </p>
           )}
         </article>
       ))}

@@ -1,3 +1,4 @@
+import { t, getLanguage, useLanguage } from '../lib/i18n'
 import { Slot } from '@radix-ui/react-slot'
 import { useId } from 'react'
 import { Cpu, HardDrive, MemoryStick } from 'lucide-react'
@@ -18,14 +19,15 @@ export interface DashboardMetricsProps {
 function bytes(value: number) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
   const index = value > 0 ? Math.min(5, Math.floor(Math.log(value) / Math.log(1000))) : 0
-  return `${(value / 1000 ** index).toLocaleString('he-IL', { maximumFractionDigits: 1 })} ${units[index]}`
+  return `${(value / 1000 ** index).toLocaleString(getLanguage(), { maximumFractionDigits: 1 })} ${units[index]}`
 }
 function percent(value: number | null) {
   return value !== null && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null
 }
 
 /** Disk is the Iris filesystem; CPU and memory describe the Iris container. */
-export function DashboardMetrics({ disk, memory, cpu, dir = 'rtl' }: DashboardMetricsProps) {
+export function DashboardMetrics({ disk, memory, cpu, dir }: DashboardMetricsProps) {
+  const language = useLanguage()
   const id = useId()
   const diskPercent = percent(disk.percentage)
   const cpuPercent = percent(cpu.percentage)
@@ -33,31 +35,31 @@ export function DashboardMetrics({ disk, memory, cpu, dir = 'rtl' }: DashboardMe
   const metrics = [
     {
       key: 'disk',
-      name: 'דיסק',
+      name: 'Disk',
       value: diskPercent,
       icon: HardDrive,
-      description: 'הכונן שבו Iris מאחסנת נתונים, כולל קבצים נוספים בכונן.',
+      description: 'Iris data volume, including other files on the volume.',
       data: disk,
     },
     {
       key: 'cpu',
-      name: 'מעבד',
+      name: 'CPU',
       value: cpuPercent,
       icon: Cpu,
-      description: 'שימוש במעבד של מכולת Iris. דגימה של 250 מילישניות.',
+      description: 'Iris container CPU usage. 250 millisecond sample.',
       data: null,
     },
     {
       key: 'memory',
-      name: 'זיכרון',
+      name: 'Memory',
       value: memoryPercent,
       icon: MemoryStick,
-      description: 'זיכרון מכולת Iris, כולל מטמון קבצים.',
+      description: 'Iris container memory, including file cache.',
       data: memory,
     },
   ] as const
   return (
-    <div dir={dir} lang="he" className="grid gap-5 lg:grid-cols-3">
+    <div dir={dir ?? language.dir} lang={language.language} className="grid gap-5 lg:grid-cols-3">
       {metrics.map(({ key, name, value, icon: Icon, description, data }) => {
         const critical = value !== null && value > 90
         return (
@@ -78,17 +80,17 @@ export function DashboardMetrics({ disk, memory, cpu, dir = 'rtl' }: DashboardMe
                     className="size-4 text-purple-600 dark:text-purple-300"
                   />
                 </span>
-                {name}
+                {t(name)}
               </h3>
               <span
                 className={`rounded-full border px-2.5 py-1 text-xs font-medium ${critical ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-700 dark:bg-rose-950/60 dark:text-rose-200' : 'border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-700 dark:bg-purple-900/50 dark:text-purple-200'}`}
               >
-                {value === null ? 'לא זמין' : critical ? 'עומס גבוה' : 'תקין'}
+                {t(value === null ? t('Unavailable') : critical ? t('High usage') : t('Healthy'))}
               </span>
             </div>
             <Slot
               role={value === null ? 'img' : 'meter'}
-              aria-label={`${name}: ${value === null ? 'לא זמין' : `${value}% בשימוש`}`}
+              aria-label={`${t(name)}: ${value === null ? t('Unavailable') : `${value}% בשימוש`}`}
               aria-valuemin={value === null ? undefined : 0}
               aria-valuemax={value === null ? undefined : 100}
               aria-valuenow={value ?? undefined}
@@ -134,8 +136,8 @@ export function DashboardMetrics({ disk, memory, cpu, dir = 'rtl' }: DashboardMe
                       />
                     </svg>
                     <div className="relative mt-2 flex justify-between text-[10px] font-medium uppercase tracking-[0.18em] text-violet-300/80">
-                      <span>CPU</span>
-                      <span>LIVE SAMPLE</span>
+                      <span>{t('CPU')}</span>
+                      <span>{t('LIVE SAMPLE')}</span>
                     </div>
                   </div>
                 )}
@@ -153,8 +155,8 @@ export function DashboardMetrics({ disk, memory, cpu, dir = 'rtl' }: DashboardMe
                       ))}
                     </div>
                     <div className="mt-4 flex justify-between text-[10px] font-medium uppercase tracking-[0.18em] text-violet-300/80">
-                      <span>RAM</span>
-                      <span>32 SEGMENTS</span>
+                      <span>{t('RAM')}</span>
+                      <span>{t('32 SEGMENTS')}</span>
                     </div>
                   </div>
                 )}
@@ -164,32 +166,36 @@ export function DashboardMetrics({ disk, memory, cpu, dir = 'rtl' }: DashboardMe
               <span className="text-5xl font-semibold tracking-tight tabular-nums">
                 {value === null
                   ? '—'
-                  : `${value.toLocaleString('he-IL', { maximumFractionDigits: 1 })}%`}
+                  : `${value.toLocaleString(getLanguage(), { maximumFractionDigits: 1 })}%`}
               </span>
               <span className="text-sm text-purple-600 dark:text-purple-300">
-                {value === null ? 'לא זמין' : 'בשימוש'}
+                {t(value === null ? t('Unavailable') : t('Used'))}
               </span>
             </p>
             <div className="mt-3 min-h-12 text-sm leading-relaxed text-purple-800 dark:text-purple-200">
               {data?.usedBytes != null && data.totalBytes != null && (
                 <p>
-                  <bdi>{bytes(data.usedBytes)}</bdi> בשימוש מתוך <bdi>{bytes(data.totalBytes)}</bdi>
+                  {t('{value0} used of {value1}', {
+                    value0: bytes(data.usedBytes),
+                    value1: bytes(data.totalBytes),
+                  })}
                 </p>
               )}
               {data?.freeBytes != null && (
                 <p className="font-medium text-indigo-700 dark:text-indigo-300">
-                  <bdi>{bytes(data.freeBytes)}</bdi> פנויים
+                  {t('{value0} free', { value0: bytes(data.freeBytes) })}
                 </p>
               )}
               {key === 'cpu' && cpu.cores !== null && (
                 <p>
-                  <bdi>{cpu.cores.toLocaleString('he-IL', { maximumFractionDigits: 2 })}</bdi> ליבות
-                  זמינות
+                  {t('{value0} cores available', {
+                    value0: cpu.cores.toLocaleString(getLanguage(), { maximumFractionDigits: 2 }),
+                  })}
                 </p>
               )}
             </div>
             <p className="mt-auto border-t border-purple-200/60 pt-3 text-xs leading-relaxed text-purple-700 dark:border-purple-800/70 dark:text-purple-300">
-              {description}
+              {t(description)}
             </p>
           </article>
         )

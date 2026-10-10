@@ -1,15 +1,20 @@
+import { t } from '../lib/i18n'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from './ui/button'
+import { DocumentViewer } from './DocumentViewer'
+import { Link } from 'react-router-dom'
 
 /** Only Iris serves the bytes; OpenWA credentials never reach the browser. */
 export function OriginalMedia({
   id,
   type,
   revealed,
+  standalone = false,
 }: {
   id: number
   type: string
   revealed: boolean
+  standalone?: boolean
 }) {
   const [failed, setFailed] = useState('')
   const pending = useRef<AbortController | null>(null)
@@ -51,13 +56,21 @@ export function OriginalMedia({
   if (!revealed)
     return (
       <span className="text-sm text-muted-foreground">
-        Media hidden — use Show content to view.
+        {t('Media hidden — use Show content to view.')}
       </span>
     )
+  if (type === 'document') return <DocumentViewer key={id} id={id} />
   if (failed)
     return (
       <div className="flex flex-col gap-2 text-sm">
-        <p role="alert">{failed}</p>
+        <p role="alert">{t(failed)}</p>
+        {type === 'sticker' && failed.includes('no saved copy') && (
+          <p>
+            {t(
+              'This sticker is unavailable in OpenWA. Iris cannot display it without the original file.',
+            )}
+          </p>
+        )}
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
@@ -67,12 +80,16 @@ export function OriginalMedia({
               setFailed('')
             }}
           >
-            Retry media
+            {t('Retry media')}
           </Button>
           <Button asChild variant="ghost" size="sm">
-            <a href={`/api/media/message/${id}`} target="_blank" rel="noopener noreferrer">
-              Open original
-            </a>
+            {standalone ? (
+              <a href={`/api/media/message/${id}`} download>
+                {t('Download original')}
+              </a>
+            ) : (
+              <Link to={`/messages/${id}/original`}>{t('Open original')}</Link>
+            )}
           </Button>
         </div>
       </div>
@@ -85,7 +102,7 @@ export function OriginalMedia({
   return (
     <img
       {...props}
-      alt={type === 'sticker' ? 'Sticker' : 'Message image'}
+      alt={t(type === 'sticker' ? 'Sticker' : 'Message image')}
       className="max-h-64 max-w-full object-contain"
     />
   )

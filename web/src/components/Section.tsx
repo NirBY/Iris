@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { t } from '../lib/i18n'
 
 /** A titled group of related settings. */
 export function Section({
@@ -13,8 +14,10 @@ export function Section({
   return (
     <section className="flex flex-col gap-4 rounded-lg border bg-surface p-4 sm:p-5">
       <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        {description && <p className="max-w-prose text-sm text-muted-foreground">{description}</p>}
+        <h2 className="text-lg font-semibold">{t(title)}</h2>
+        {description && (
+          <p className="max-w-prose text-sm text-muted-foreground">{t(description)}</p>
+        )}
       </div>
       {children}
     </section>

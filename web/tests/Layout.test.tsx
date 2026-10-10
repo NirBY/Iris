@@ -1,5 +1,6 @@
+import { setLanguage, setAccountLanguage } from '../src/lib/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { Layout } from '../src/Layout'
@@ -153,4 +154,20 @@ test('a live alert shows a toast and counts in the tab title until the tab is se
     document.dispatchEvent(new Event('visibilitychange'))
   })
   expect(document.title).toBe('Iris')
+})
+
+afterEach(() => {
+  setAccountLanguage(null)
+  setLanguage('system')
+})
+
+test('Hebrew standalone desktop retains navigation and language selection in the account menu', async () => {
+  setLanguage('he')
+  setViewport(true)
+  renderLayout()
+  const nav = await screen.findByRole('navigation', { name: 'ניווט ראשי' })
+  await waitFor(() => expect(within(nav).getAllByRole('link')).toHaveLength(10))
+  expect(within(nav).getByRole('link', { name: /הגדרות/ })).toBeInTheDocument()
+  await userEvent.click(screen.getByTitle('חשבון ומראה'))
+  expect(await screen.findByLabelText('שפה')).toHaveValue('he')
 })

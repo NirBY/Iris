@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
@@ -34,7 +35,7 @@ export function OllamaModelPicker({
   })
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <Field label="Installed Ollama models">
+      <Field label={t('Installed Ollama models')}>
         <Select
           value={models.data?.some((m) => m.name === value) ? value : ''}
           onChange={(e) => {
@@ -43,16 +44,16 @@ export function OllamaModelPicker({
           disabled={models.isFetching || !models.data?.length}
         >
           <option value="">
-            {models.isFetching ? 'Detecting models…' : 'Choose an installed model…'}
+            {models.isFetching ? t('Detecting models…') : t('Choose an installed model…')}
           </option>
           {models.data?.map((m) => (
             <option key={m.name} value={m.name}>
               {m.name} ·{' '}
               {m.vision === true
-                ? 'Text + images'
+                ? t('Text + images')
                 : m.vision === false
-                  ? 'No vision'
-                  : 'Vision unknown'}
+                  ? t('No vision')
+                  : t('Vision unknown')}
             </option>
           ))}
         </Select>
@@ -62,21 +63,27 @@ export function OllamaModelPicker({
         disabled={models.isFetching || host !== endpoint}
         onClick={() => void models.refetch()}
       >
-        Refresh models
+        {t('Refresh models')}
       </Button>
       {models.isError && (
         <p role="alert" className="text-sm text-danger">
-          {models.error.message} You can enter a model below.
+          {models.error.message} {t('You can enter a model below.')}
         </p>
       )}
       {models.data?.length === 0 && (
-        <p className="text-sm">No models installed on this Ollama server.</p>
+        <p className="text-sm">{t('No models installed on this Ollama server.')}</p>
       )}
       <Field
-        label="Ollama model"
-        hint="Detected models come from the entered endpoint. Your current choice stays selected; changes take effect when saved. You can also enter a custom model name."
+        label={t('Ollama model')}
+        hint={t(
+          'Detected models come from the entered endpoint. Your current choice stays selected; changes take effect when saved. You can also enter a custom model name.',
+        )}
       >
-        <Input aria-label="Ollama model" value={value} onChange={(e) => onChange(e.target.value)} />
+        <Input
+          aria-label={t('Ollama model')}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
       </Field>
     </div>
   )

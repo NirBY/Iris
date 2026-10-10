@@ -1,10 +1,13 @@
+import { t as translate, useLanguage } from './lib/i18n'
 import { useQuery } from '@tanstack/react-query'
 import { Check, LogOut, Monitor, Moon, MoreHorizontal, Sun } from 'lucide-react'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { toast } from 'sonner'
+import { toast } from './lib/notify'
 import { IrisMark } from './components/IrisMark'
 import { InstallApp } from './components/InstallApp'
+import { LanguageSelect } from './components/LanguageSelect'
+import { BackButton } from './components/BackButton'
 import { LiveStatus } from './components/LiveStatus'
 import { PageLoading } from './components/PageLoading'
 import { PageBoundary } from './components/PageBoundary'
@@ -61,7 +64,9 @@ function Count({ n, className }: { n: number; className?: string }) {
       )}
     >
       <span aria-hidden>{n > 99 ? '99+' : n}</span>
-      <span className="sr-only">{n} waiting</span>
+      <span className="sr-only">
+        {n} {translate('waiting')}
+      </span>
     </span>
   )
 }
@@ -72,8 +77,14 @@ function SideLink({ item, stats, wide }: { item: NavItem; stats?: Stats; wide: b
     <NavLink
       to={item.to}
       end={item.to === '/'}
-      aria-label={wide ? undefined : n > 0 ? `${item.label}, ${n} waiting` : item.label}
-      title={wide ? undefined : item.label}
+      aria-label={
+        wide
+          ? undefined
+          : n > 0
+            ? translate('{value0}, {value1} waiting', { value0: translate(item.label), value1: n })
+            : translate(item.label)
+      }
+      title={wide ? undefined : translate(item.label)}
       className={({ isActive }) =>
         cn(
           'relative flex min-h-10 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors',
@@ -85,7 +96,7 @@ function SideLink({ item, stats, wide }: { item: NavItem; stats?: Stats; wide: b
       }
     >
       <item.icon className="size-5 shrink-0" />
-      {wide && <span className="flex-1">{item.label}</span>}
+      {wide && <span className="flex-1">{translate(item.label)}</span>}
       {wide ? (
         <Count n={n} />
       ) : (
@@ -111,8 +122,8 @@ function AccountMenu({ wide, version }: { wide: boolean; version?: string }) {
             'flex min-h-11 w-full items-center gap-3 rounded-md px-2 text-start text-sm hover:bg-surface-2',
             !wide && 'justify-center',
           )}
-          title="Account and appearance"
-          aria-label={wide ? undefined : 'Account and appearance'}
+          title={translate('Account and appearance')}
+          aria-label={wide ? undefined : translate('Account and appearance')}
         >
           <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary-soft text-sm font-semibold text-primary">
             {(me?.username ?? '?').slice(0, 1).toUpperCase()}
@@ -127,19 +138,23 @@ function AccountMenu({ wide, version }: { wide: boolean; version?: string }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top">
         <DropdownMenuLabel className="px-3 py-1.5 text-xs text-muted-foreground">
-          Appearance
+          {translate('Appearance')}
         </DropdownMenuLabel>
         {THEMES.map((t) => (
           <DropdownMenuItem key={t.value} onSelect={() => choose(t.value)}>
             <t.icon />
-            <span className="flex-1">{t.label}</span>
+            <span className="flex-1">{translate(t.label)}</span>
             {theme === t.value && <Check />}
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
+        <div className="px-3 py-2">
+          <LanguageSelect />
+        </div>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void logout()}>
           <LogOut />
-          Sign out
+          {translate('Sign out')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -169,13 +184,15 @@ function Sidebar({ stats, version, live }: { stats?: Stats; version?: string; li
         <IrisMark />
         {wide && <span className="text-lg font-semibold tracking-tight text-foreground">Iris</span>}
       </div>
-      <nav aria-label="Main" className="flex flex-1 flex-col gap-5 overflow-y-auto">
+      <nav aria-label={translate('Main')} className="flex flex-1 flex-col gap-5 overflow-y-auto">
         {groups
           .filter((g) => me?.role === 'admin' || g.key === 'watch')
           .map((g) => (
             <div key={g.key} className="flex flex-col gap-1">
               {wide && (
-                <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">{g.title}</p>
+                <p className="px-3 pb-1 text-xs font-medium text-muted-foreground">
+                  {translate(g.title)}
+                </p>
               )}
               {NAV.filter((n) => n.group === g.key).map((item) => (
                 <SideLink key={item.to} item={item} stats={stats} wide={wide} />
@@ -207,12 +224,13 @@ function TabLink({ item, stats }: { item: NavItem; stats?: Stats }) {
         <item.icon className="size-6" />
         <Count n={n} className="absolute -end-2.5 -top-1.5 min-w-4 px-1 text-[10px] leading-4" />
       </span>
-      {item.label}
+      {translate(item.label)}
     </NavLink>
   )
 }
 
 function MoreSheet({ stats, version }: { stats?: Stats; version?: string }) {
+  useLanguage()
   const { data: me } = useMe()
   const logout = useLogout()
   const [open, setOpen] = useState(false)
@@ -238,14 +256,18 @@ function MoreSheet({ stats, version }: { stats?: Stats; version?: string }) {
               className="absolute -end-2.5 -top-1.5 min-w-4 px-1 text-[10px] leading-4"
             />
           </span>
-          More
+          {translate('More')}
         </button>
       </DialogTrigger>
       <DialogContent
-        title="More"
-        description={`Signed in as ${me?.username ?? ''} · Iris ${version ?? ''}`}
+        title={translate('More')}
+        description={translate('{value0} {value1} · Iris {value2}', {
+          value0: translate('Signed in as'),
+          value1: me?.username ?? '',
+          value2: version ?? '',
+        })}
       >
-        <nav aria-label="More" className="flex flex-col">
+        <nav aria-label={translate('More')} className="flex flex-col">
           {secondary.map((item) => {
             const n = stats && item.badge ? item.badge(stats) : 0
             return (
@@ -256,7 +278,7 @@ function MoreSheet({ stats, version }: { stats?: Stats; version?: string }) {
                 className="flex min-h-12 items-center gap-3 rounded-md px-2 text-base hover:bg-surface-2"
               >
                 <item.icon className="size-5 text-muted-foreground" />
-                <span className="flex-1">{item.label}</span>
+                <span className="flex-1">{translate(item.label)}</span>
                 <Count n={n} />
               </NavLink>
             )
@@ -264,7 +286,7 @@ function MoreSheet({ stats, version }: { stats?: Stats; version?: string }) {
         </nav>
         <div
           role="group"
-          aria-label="Appearance"
+          aria-label={translate('Appearance')}
           className="grid grid-cols-3 gap-1 rounded-md bg-surface-2 p-1"
         >
           {THEMES.map((t) => (
@@ -281,13 +303,14 @@ function MoreSheet({ stats, version }: { stats?: Stats; version?: string }) {
               )}
             >
               <t.icon className="size-4" />
-              {t.label}
+              {translate(t.label)}
             </button>
           ))}
         </div>
+        <LanguageSelect />
         <Button variant="outline" onClick={() => void logout()}>
           <LogOut />
-          Sign out
+          {translate('Sign out')}
         </Button>
         <InstallApp />
       </DialogContent>
@@ -296,16 +319,18 @@ function MoreSheet({ stats, version }: { stats?: Stats; version?: string }) {
 }
 
 function PhoneChrome({ stats, version, live }: { stats?: Stats; version?: string; live: Status }) {
+  const { pathname } = useLocation()
   const tabs = NAV.filter((n) => TAB_BAR.includes(n.to))
   return (
     <>
       <header className="sticky top-0 z-30 flex items-center gap-2 border-b bg-background/85 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-primary backdrop-blur">
+        {pathname !== '/' && <BackButton />}
         <IrisMark className="size-6" />
         <span className="text-lg font-semibold tracking-tight text-foreground">Iris</span>
         <LiveStatus status={live} compact />
       </header>
       <nav
-        aria-label="Main"
+        aria-label={translate('Main')}
         className="fixed inset-x-0 bottom-0 z-30 flex border-t bg-surface pb-[env(safe-area-inset-bottom)]"
       >
         {tabs.map((item) => (
@@ -318,6 +343,7 @@ function PhoneChrome({ stats, version, live }: { stats?: Stats; version?: string
 }
 
 export function Layout() {
+  useLanguage()
   const desktop = useIsDesktop()
   const { pathname } = useLocation()
   const mainRef = useRef<HTMLElement>(null)
@@ -364,7 +390,7 @@ export function Layout() {
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:start-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-2 focus:text-primary-foreground"
       >
-        Skip to content
+        {translate('Skip to content')}
       </a>
       {desktop ? (
         <Sidebar stats={stats} version={version} live={live} />
@@ -378,6 +404,11 @@ export function Layout() {
           tabIndex={-1}
           className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-5 outline-none md:px-8 md:pb-10 md:pt-8"
         >
+          {desktop && pathname !== '/' && (
+            <div className="mb-4">
+              <BackButton />
+            </div>
+          )}
           <PageBoundary key={pathname}>
             <Suspense key={pathname} fallback={<PageLoading />}>
               <Outlet />

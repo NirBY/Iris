@@ -190,6 +190,8 @@ async def original_media(
                 db, message, cfg.key_bytes, path, max_bytes=250 * 1024 * 1024, recover=True
             )
             found = await asyncio.to_thread(sniff_file, path)
+            if found is None and message.type == "document":
+                found = ("application/octet-stream", "bin", False)
             if found is None:
                 raise HTTPException(415, "This media format cannot be displayed safely")
         except BaseException:
@@ -223,6 +225,17 @@ async def original_media(
         headers["Content-Disposition"] = (
             f'attachment; filename="iris-media-{message_id}.{found[1]}"'
         )
+    filename = None
+    if message.type == "document":
+        metadata = message.media if isinstance(message.media, dict) else {}
+        filename = str(metadata.get("filename") or f"iris-document-{message_id}.{found[1]}")
+        filename = filename.replace("\\", "/").rsplit("/", 1)[-1][:200]
+        headers.pop("Content-Disposition", None)
     return FileResponse(
-        path, media_type=found[0], headers=headers, background=BackgroundTask(cleanup)
+        path,
+        media_type=found[0],
+        headers=headers,
+        background=BackgroundTask(cleanup),
+        filename=filename,
+        content_disposition_type="inline" if found[0] in INLINE_TYPES else "attachment",
     )

@@ -217,6 +217,8 @@ export interface AlertReadiness {
     eligible: boolean
     reason: string | null
     legacy: boolean
+    destination?: string | null
+    channel?: string
   }[]
   users: {
     id: number

@@ -1,7 +1,8 @@
+import { t } from '../lib/i18n'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { api } from '../lib/api'
 import { Section } from '../components/Section'
 import { Button } from '../components/ui/button'
@@ -57,7 +58,7 @@ export function LearningSettings() {
         { method: 'POST' },
       ),
     onSuccess: (result) => {
-      toast.success(`Imported ${result.imported} reviewed text examples.`)
+      toast.success(t('Imported {value0} reviewed text examples.', { value0: result.imported }))
       setImportCursor(result.next_cursor)
       void refresh()
     },
@@ -65,8 +66,10 @@ export function LearningSettings() {
   })
   return (
     <Section
-      title="Learning evidence"
-      description="Safe and Harmful reviews supply overall labels. Ignore and missing-data reports do not teach the model. Examples stay with their source messages and disappear when those messages are deleted."
+      title={t('Learning evidence')}
+      description={t(
+        'Safe and Harmful reviews supply overall labels. Ignore and missing-data reports do not teach the model. Examples stay with their source messages and disappear when those messages are deleted.',
+      )}
     >
       <div className="flex flex-wrap gap-2">
         <Button
@@ -75,7 +78,7 @@ export function LearningSettings() {
           onClick={() => importReviews.mutate()}
           disabled={importReviews.isPending}
         >
-          Import existing reviewed text
+          {t('Import existing reviewed text')}
         </Button>
         <Button
           type="button"
@@ -85,7 +88,7 @@ export function LearningSettings() {
             void runs.refetch()
           }}
         >
-          Refresh learning evidence
+          {t('Refresh learning evidence')}
         </Button>
       </div>
       {examples.isError && (
@@ -97,14 +100,20 @@ export function LearningSettings() {
       {examples.data && (
         <div className="flex flex-col gap-2">
           <p className="text-sm text-muted-foreground">
-            Latest {examples.data.items.length} examples. Retrieval uses the method selected above
-            and only messages belonging to the same monitored children.
+            {t('Latest')} {examples.data.items.length}{' '}
+            {t(
+              'examples. Retrieval uses the method selected above and only messages belonging to the same monitored children.',
+            )}
           </p>
           {examples.data.items.map((e) => (
             <div key={e.message_id} className="flex items-center justify-between gap-2 text-sm">
               <span>
-                <Link to={`/messages/${e.message_id}`}>Message #{e.message_id}</Link> · {e.verdict}{' '}
-                · {e.source_valid ? 'source available' : 'source changed or unavailable'}
+                <Link to={`/messages/${e.message_id}`}>
+                  {t('Message #')}
+                  {e.message_id}
+                </Link>{' '}
+                · {e.verdict} ·{' '}
+                {e.source_valid ? 'source available' : 'source changed or unavailable'}
               </span>
               <Button
                 type="button"
@@ -113,7 +122,7 @@ export function LearningSettings() {
                 disabled={update.isPending}
                 onClick={() => update.mutate(e)}
               >
-                {e.enabled ? 'Exclude example' : 'Include example'}
+                {e.enabled ? t('Exclude example') : t('Include example')}
               </Button>
             </div>
           ))}
@@ -122,24 +131,26 @@ export function LearningSettings() {
       {runs.data && (
         <>
           <p className="text-sm text-muted-foreground">
-            Latest {runs.data.summary.sampled_runs} comparisons;{' '}
-            {runs.data.summary.reviewed_messages} distinct messages with human labels. These are
-            operational comparisons, not a held-out accuracy benchmark.
+            {t('Latest')} {runs.data.summary.sampled_runs} {t('comparisons;')}{' '}
+            {runs.data.summary.reviewed_messages}{' '}
+            {t(
+              'distinct messages with human labels. These are operational comparisons, not a held-out accuracy benchmark.',
+            )}
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr>
-                  <th className="text-left">Result</th>
-                  <th>False alerts</th>
-                  <th>Missed harm</th>
-                  <th>Review</th>
+                  <th className="text-start">{t('Result')}</th>
+                  <th>{t('False alerts')}</th>
+                  <th>{t('Missed harm')}</th>
+                  <th>{t('Review')}</th>
                 </tr>
               </thead>
               <tbody>
                 {(['baseline', 'candidate'] as const).map((name) => (
                   <tr key={name}>
-                    <td>{name === 'baseline' ? 'Current classifier' : 'With examples'}</td>
+                    <td>{name === 'baseline' ? t('Current classifier') : t('With examples')}</td>
                     <td className="text-center">{runs.data!.summary[name].false_positive}</td>
                     <td className="text-center">{runs.data!.summary[name].false_negative}</td>
                     <td className="text-center">{runs.data!.summary[name].review}</td>
@@ -150,12 +161,15 @@ export function LearningSettings() {
           </div>
           {runs.data.items.slice(0, 10).map((r) => (
             <p key={r.id} className="text-sm">
-              <Link to={`/messages/${r.message_id}`}>Message #{r.message_id}</Link>:{' '}
-              {r.baseline_verdict} → {r.candidate_verdict ?? 'failed'} · examples{' '}
+              <Link to={`/messages/${r.message_id}`}>
+                {t('Message #')}
+                {r.message_id}
+              </Link>
+              : {r.baseline_verdict} → {r.candidate_verdict ?? t('failed')} {t('· examples')}{' '}
               {r.example_ids.join(', ')}
               {r.error ? ` · ${r.error}` : ''}
               {r.retrieval
-                ? ` · ${r.retrieval.actual}${r.retrieval.embedding_model ? ` (${r.retrieval.embedding_model})` : ''}${r.retrieval.fallback ? ` · fallback: ${r.retrieval.fallback}` : ''}`
+                ? ` · ${r.retrieval.actual}${r.retrieval.embedding_model ? ` (${r.retrieval.embedding_model})` : ''}${r.retrieval.fallback ? t(' · fallback: {value0}', { value0: r.retrieval.fallback }) : ''}`
                 : ''}
             </p>
           ))}

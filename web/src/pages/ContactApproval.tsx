@@ -1,7 +1,9 @@
+import { t } from '../lib/i18n'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { Button } from '../components/ui/button'
+import { BackButton } from '../components/BackButton'
 
 export function ContactApproval() {
   const [params] = useSearchParams()
@@ -11,15 +13,20 @@ export function ContactApproval() {
   const [error, setError] = useState('')
   return (
     <main className="mx-auto mt-12 max-w-md rounded-lg border bg-surface p-6">
-      <h1 className="mb-3 text-xl font-semibold">Approve your Iris contact</h1>
+      <BackButton />
+      <h1 className="mb-3 text-xl font-semibold">{t('Approve your Iris contact')}</h1>
       <p className="mb-4">
         {approved
-          ? 'Your contact is approved for alerts and two-factor authentication. Your administrator can now select you as an alert recipient.'
-          : 'Confirm that this email address, WhatsApp number or Telegram destination belongs to you. This link expires after 30 minutes.'}
+          ? t(
+              'Your contact is approved for alerts and two-factor authentication. Your administrator can now select you as an alert recipient.',
+            )
+          : t(
+              'Confirm that this email address, WhatsApp number or Telegram destination belongs to you. This link expires after 30 minutes.',
+            )}
       </p>
       {error && (
         <p role="alert" className="mb-3 text-danger">
-          {error}
+          {t(error)}
         </p>
       )}
       {!approved && (
@@ -42,11 +49,11 @@ export function ContactApproval() {
             }
           }}
         >
-          {busy ? 'Approving…' : 'Approve contact'}
+          {busy ? t('Approving…') : t('Approve contact')}
         </Button>
       )}
       <Link className="mt-4 block underline" to="/">
-        Return to Iris
+        {t('Return to Iris')}
       </Link>
     </main>
   )

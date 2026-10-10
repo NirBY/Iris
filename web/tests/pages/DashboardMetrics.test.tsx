@@ -1,7 +1,11 @@
 import { render, screen } from '@testing-library/react'
+import { setLanguage } from '../../src/lib/i18n'
 import { DashboardMetrics } from '../../src/components/DashboardMetrics'
 
+afterEach(() => setLanguage('system'))
+
 test('renders three distinct accessible metrics in Hebrew and RTL', () => {
+  setLanguage('he')
   const { container } = render(
     <DashboardMetrics
       disk={{ percentage: 68, usedBytes: 136e9, totalBytes: 200e9, freeBytes: 64e9 }}
@@ -15,8 +19,8 @@ test('renders three distinct accessible metrics in Hebrew and RTL', () => {
   expect(screen.getByRole('heading', { name: 'זיכרון' })).toBeInTheDocument()
   expect(screen.getAllByRole('meter')).toHaveLength(3)
   expect(screen.getByRole('meter', { name: /מעבד/ })).toHaveAttribute('aria-valuenow', '85')
-  expect(screen.getByText('136 GB')).toBeInTheDocument()
-  expect(screen.getByText('8 GB')).toBeInTheDocument()
+  expect(screen.getByText(/136 GB/)).toBeInTheDocument()
+  expect(screen.getByText(/8 GB/)).toBeInTheDocument()
 })
 test('shows unavailable readings without false zero percentages', () => {
   render(

@@ -17,6 +17,9 @@ async def notifier_fingerprint(db: AsyncSession, channel: str) -> str:
         key: await get_setting(db, key)
         for key in ("alerts.recipient", "alerts.recipient_contacts", "alerts.sender_instance_id")
     }
+    channels = await get_setting(db, "alerts.recipient_channels")
+    if channels:
+        values["alerts.recipient_channels"] = channels
     if channel == "telegram":
         values["token"] = await get_secret(
             db, "alerts.telegram_bot_token", get_settings().key_bytes

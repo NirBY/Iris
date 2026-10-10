@@ -113,3 +113,38 @@ async def test_original_media_explains_the_actual_failure(
     monkeypatch.setattr("app.api.media.fetch_original", fail)
     response = await app_client.get(f"/api/media/message/{mid}")
     assert response.status_code == status and expected in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "payload,mime,disposition",
+    [
+        (b"%PDF-1.7\nPDF preview", "application/pdf", "inline"),
+        (b"<html><script>alert(1)</script></html>", "application/octet-stream", "attachment"),
+    ],
+)
+async def test_document_pdf_preview_and_unknown_format_download(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch, payload: bytes, mime: str, disposition: str
+) -> None:
+    await seed(app_client)
+    async with app_client.app.state.session_factory() as db:
+        message = (await db.scalars(select(Message).where(Message.type == "image"))).one()
+        message.type = "document"
+        message.media = {**(message.media or {}), "filename": "../מסמך.pdf"}
+        mid = message.id
+        await db.commit()
+    paths = []
+
+    async def fetch(db: Any, message: Any, key: bytes, path: Path, **kwargs: Any) -> str:
+        paths.append(path)
+        await asyncio.to_thread(path.write_bytes, payload)
+        return mime
+
+    monkeypatch.setattr("app.api.media.fetch_original", fetch)
+    response = await app_client.get(f"/api/media/message/{mid}")
+    assert response.status_code == 200 and response.content == payload
+    assert response.headers["content-type"].startswith(mime)
+    assert response.headers["content-disposition"].startswith(disposition)
+    assert "../" not in response.headers["content-disposition"]
+    assert "sandbox" in response.headers["content-security-policy"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert all(not path.exists() for path in paths)

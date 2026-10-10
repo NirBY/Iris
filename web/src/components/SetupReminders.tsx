@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
@@ -34,18 +35,19 @@ export function SetupReminders({ userId }: { userId: number }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="setup-reminders-heading" className="text-lg font-semibold">
-          Finish setting up Iris
+          {t('Finish setting up Iris')}
         </h2>
         <Link
           className="rounded-md underline underline-offset-4 focus-visible:outline-2 dark:text-purple-200 dark:focus-visible:outline-purple-300"
           to="/setup"
         >
-          Open setup checklist
+          {t('Open setup checklist')}
         </Link>
       </div>
       <p className="mt-2 text-sm">
-        Incomplete or skipped essentials stay visible until configured. Optional reminders can be
-        dismissed for your account.
+        {t(
+          'Incomplete or skipped essentials stay visible until configured. Optional reminders can be dismissed for your account.',
+        )}
       </p>
       <ul className="mt-4 space-y-3">
         {reminders.data.steps.map((step) => (
@@ -55,13 +57,13 @@ export function SetupReminders({ userId }: { userId: number }) {
           >
             <div className="min-w-0 flex-1">
               <p className="font-medium">
-                {step.title}
-                {reminders.data.skipped.includes(step.id) ? ' · Skipped' : ''}
+                {t(step.title)}
+                {reminders.data.skipped.includes(step.id) ? t(' · Skipped') : ''}
               </p>
-              <p className="mt-1 text-sm text-purple-900 dark:text-purple-200">{step.warning}</p>
+              <p className="mt-1 text-sm text-purple-900 dark:text-purple-200">{t(step.warning)}</p>
               {!step.dismissible && (
                 <p className="mt-1 text-xs font-medium dark:text-purple-300">
-                  Essential configuration
+                  {t('Essential configuration')}
                 </p>
               )}
             </div>
@@ -70,10 +72,10 @@ export function SetupReminders({ userId }: { userId: number }) {
                 type="button"
                 disabled={dismiss.isPending}
                 onClick={() => dismiss.mutate(step.id)}
-                aria-label={`Dismiss ${step.title}`}
+                aria-label={t('Dismiss {value0}', { value0: t(step.title) })}
                 className="min-h-11 rounded-md border border-purple-300 px-3 text-sm font-medium hover:bg-purple-100 focus-visible:outline-2 disabled:opacity-50 dark:border-purple-600 dark:bg-purple-900/40 dark:text-purple-100 dark:hover:bg-purple-800/60 dark:focus-visible:outline-purple-300"
               >
-                Dismiss
+                {t('Dismiss')}
               </button>
             )}
           </li>
@@ -81,7 +83,7 @@ export function SetupReminders({ userId }: { userId: number }) {
       </ul>
       {dismiss.isError && (
         <p role="alert" className="mt-3 text-sm">
-          Could not dismiss the reminder. Please try again.
+          {t('Could not dismiss the reminder. Please try again.')}
         </p>
       )}
     </section>

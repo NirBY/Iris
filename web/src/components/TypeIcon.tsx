@@ -28,7 +28,8 @@ export function TypeIcon({ type, className }: { type: string; className?: string
   return (
     <>
       <Icon aria-hidden className={className ?? 'size-4'} />
-      <span className="sr-only">{type}</span>
+      <span className="sr-only">{t(type)}</span>
     </>
   )
 }
+import { t } from '../lib/i18n'

@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
@@ -36,13 +37,13 @@ export function AuditSettings() {
   })
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold">User action audit</h2>
+      <h2 className="text-lg font-semibold">{t('User action audit')}</h2>
       <p className="text-sm text-muted-foreground">
-        Actions and committed changes are recorded from this update onward. Passwords, credentials
-        and message content are redacted. Failed requests are included; they may have no committed
-        changes.
+        {t(
+          'Actions and committed changes are recorded from this update onward. Passwords, credentials and message content are redacted. Failed requests are included; they may have no committed changes.',
+        )}
       </p>
-      <Field label="Filter by exact username">
+      <Field label={t('Filter by exact username')}>
         <Input
           value={username}
           onChange={(e) => {
@@ -52,7 +53,7 @@ export function AuditSettings() {
         />
       </Field>
       {isError && <QueryError what="user actions" onRetry={() => void refetch()} />}
-      {data?.items?.length === 0 && <p>No actions recorded.</p>}
+      {data?.items?.length === 0 && <p>{t('No actions recorded.')}</p>}
       {data?.items?.map((a) => (
         <details key={a.id} className="rounded-lg border bg-surface p-4">
           <summary className="cursor-pointer text-sm">
@@ -61,7 +62,7 @@ export function AuditSettings() {
           </summary>
           <div className="mt-3 flex flex-col gap-3">
             {!a.changes.length && (
-              <p className="text-sm text-muted-foreground">No committed field changes.</p>
+              <p className="text-sm text-muted-foreground">{t('No committed field changes.')}</p>
             )}
             {a.changes.map((c, i) => (
               <div key={i} className="text-sm">
@@ -70,13 +71,13 @@ export function AuditSettings() {
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div>
-                    <p>From</p>
+                    <p>{t('From')}</p>
                     <pre className="overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-2 p-2">
                       {JSON.stringify(c.before, null, 2)}
                     </pre>
                   </div>
                   <div>
-                    <p>To</p>
+                    <p>{t('To')}</p>
                     <pre className="overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-2 p-2">
                       {JSON.stringify(c.after, null, 2)}
                     </pre>

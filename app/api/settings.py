@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.alerts import ALERT_PREFIX
 from app.alerts.format import with_signed_link
 from app.alerts.pacing import reserve
-from app.alerts.readiness import bind_recipient_users, delivery_readiness
+from app.alerts.readiness import bind_recipient_users, delivery_readiness, recipient_channel_options
 from app.alerts.recipients import recipients
 from app.classify.moderation import ModerationClient
 from app.classify.ollama import OllamaModerator
@@ -45,6 +45,11 @@ router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depe
 
 class SettingsUpdate(BaseModel):
     settings: dict[str, Any]
+
+
+@router.get("/recipient-channels")
+async def recipient_channels(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, Any]:
+    return await recipient_channel_options(db)
 
 
 @router.get("/alert-readiness")
@@ -174,9 +179,39 @@ async def update_settings(
         # Recheck even when returning to a previously saved channel. Approval
         # belongs to the current contact, never to a prior channel selection.
         clean = {key: REGISTRY[key].validate(value) for key, value in body.settings.items()}
-        readiness = await delivery_readiness(db, overrides=clean)
+        # The default is independently configurable; explicit parent channels are preserved.
+        readiness = await delivery_readiness(
+            db, overrides={**clean, "alerts.recipient_channels": {}}
+        )
         if not readiness.ready:
             raise HTTPException(422, {"alerts.channel": readiness.error})
+    if "alerts.recipient_channels" in body.settings:
+        clean = {key: REGISTRY[key].validate(value) for key, value in body.settings.items()}
+        mapping = clean["alerts.recipient_channels"]
+        targets = recipients(
+            clean.get("alerts.recipient", await get_setting(db, "alerts.recipient"))
+        )
+        if set(mapping) - set(targets):
+            raise HTTPException(
+                422, {"alerts.recipient_channels": "Select existing parent recipients"}
+            )
+        old_mapping = await get_setting(db, "alerts.recipient_channels")
+        old_targets = recipients(await get_setting(db, "alerts.recipient"))
+        for target, channel in mapping.items():
+            if old_mapping.get(target) == channel and target in old_targets:
+                continue
+            ready = await delivery_readiness(
+                db,
+                channel,
+                {
+                    **clean,
+                    "alerts.recipient_channels": {},
+                    "alerts.recipient": target,
+                    "alerts.recipient_children": {},
+                },
+            )
+            if not ready.ready:
+                raise HTTPException(422, {"alerts.recipient_channels": ready.error})
     # Changing a host must not send a saved credential to that new host unnoticed.
     if body.settings.get("runtime.whisper_url") and cfg.whisper_api_key:
         from urllib.parse import urlsplit
@@ -461,6 +496,35 @@ async def _test_media(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
 async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> TestResult:
     """Send a real WhatsApp test message with the entered (or saved) sender and recipient."""
     channel = str(await get_setting(db, "alerts.channel"))
+    if await get_setting(db, "alerts.recipient_channels"):
+        readiness = await delivery_readiness(db)
+        if not readiness.ready or any(not r.eligible for r in readiness.recipients):
+            return TestResult(
+                ok=False,
+                detail=readiness.error
+                or " ".join(
+                    f"{r.name}: {r.reason}" for r in readiness.recipients if not r.eligible
+                ),
+            )
+        text = with_signed_link(
+            f"{ALERT_PREFIX} (test)\nAlert delivery is working.",
+            cfg.public_base_url,
+            cfg.key_bytes,
+            0,
+        )
+        await enqueue(
+            db,
+            "test_alert",
+            {
+                "recipients": readiness.eligible_targets,
+                "text": text,
+                "sender_id": await get_setting(db, "alerts.sender_instance_id"),
+            },
+        )
+        await db.commit()
+        return TestResult(
+            ok=True, detail="Test notification queued. Check Jobs for delivery status."
+        )
     if channel != "openwa":
         readiness = await delivery_readiness(db, channel)
         if not readiness.ready:

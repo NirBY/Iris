@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useQuery } from '@tanstack/react-query'
 import { MessagesSquare, Search, User, Users } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -90,16 +91,18 @@ export function Chats() {
   return (
     <div className="flex max-w-4xl flex-col gap-5">
       <PageHeader
-        title="Chats"
-        description="Filter conversations by their messages. Counts show all messages and alerts in each chat."
+        title={t('Chats')}
+        description={t(
+          'Filter conversations by their messages. Counts show all messages and alerts in each chat.',
+        )}
       />
       <div className="relative">
         <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           type="search"
           dir="auto"
-          aria-label="Search chat messages"
-          placeholder="Search messages or transcripts within chats"
+          aria-label={t('Search chat messages')}
+          placeholder={t('Search messages or transcripts within chats')}
           className="min-h-11 ps-9"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -114,19 +117,19 @@ export function Chats() {
         }}
         leading={
           <Chips
-            label="When"
+            label={t('When')}
             value={get('when')}
             options={WHEN}
             onChange={(v) => update({ when: v })}
           />
         }
       >
-        <Field label="Phone" className="md:w-40">
+        <Field label={t('Phone')} className="md:w-40">
           <Select
             value={get('instance_id')}
             onChange={(e) => update({ instance_id: e.target.value })}
           >
-            <option value="">All phones</option>
+            <option value="">{t('All phones')}</option>
             {instances?.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.kid_name}
@@ -134,25 +137,27 @@ export function Chats() {
             ))}
           </Select>
         </Field>
-        <Field label="Type" className="md:w-36">
+        <Field label={t('Type')} className="md:w-36">
           <Select value={get('type')} onChange={(e) => update({ type: e.target.value })}>
-            <option value="">All types</option>
-            {TYPES.map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Verdict" className="md:w-40">
-          <Select value={get('verdict')} onChange={(e) => update({ verdict: e.target.value })}>
-            <option value="">Any verdict</option>
-            {VERDICTS.map((v) => (
-              <option key={v.value} value={v.value}>
-                {v.label}
+            <option value="">{t('All types')}</option>
+            {TYPES.map((type) => (
+              <option key={type} value={type}>
+                {t(type)}
               </option>
             ))}
           </Select>
         </Field>
-        <Field label="Sender" className="md:w-40">
+        <Field label={t('Verdict')} className="md:w-40">
+          <Select value={get('verdict')} onChange={(e) => update({ verdict: e.target.value })}>
+            <option value="">{t('Any verdict')}</option>
+            {VERDICTS.map((v) => (
+              <option key={v.value} value={v.value}>
+                {t(v.label)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label={t('Sender')} className="md:w-40">
           <Input
             dir="auto"
             value={get('sender')}
@@ -172,11 +177,11 @@ export function Chats() {
             >
               <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary-soft text-primary">
                 {c.is_group ? <Users className="size-5" /> : <User className="size-5" />}
-                <span className="sr-only">{c.is_group ? 'Group' : 'Direct chat'}</span>
+                <span className="sr-only">{c.is_group ? t('Group') : t('Direct chat')}</span>
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="truncate font-medium" dir="auto">
-                  {c.name ?? (c.is_group ? 'Unnamed group' : 'Direct chat')}
+                  {c.name ?? (c.is_group ? t('Unnamed group') : t('Direct chat'))}
                 </span>
                 <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                   <KidStack names={c.kids.map((k) => k.kid_name)} />
@@ -185,11 +190,11 @@ export function Chats() {
               </span>
               <span className="flex shrink-0 flex-col items-end gap-1 text-sm">
                 <span className="tabular">
-                  {c.message_count} {c.message_count === 1 ? 'message' : 'messages'}
+                  {c.message_count} {c.message_count === 1 ? t('message') : t('messages')}
                 </span>
                 {c.alert_count > 0 && (
                   <Badge tone="danger">
-                    {c.alert_count} {c.alert_count === 1 ? 'alert' : 'alerts'}
+                    {c.alert_count} {c.alert_count === 1 ? t('alert') : t('alerts')}
                   </Badge>
                 )}
                 {c.last_message_at && (
@@ -205,7 +210,7 @@ export function Chats() {
           <li>
             <EmptyState
               icon={MessagesSquare}
-              title={active ? 'No chats match' : 'No chats yet'}
+              title={active ? t('No chats match') : t('No chats yet')}
               action={
                 active ? (
                   <Button
@@ -215,12 +220,12 @@ export function Chats() {
                       clear()
                     }}
                   >
-                    Clear search and filters
+                    {t('Clear search and filters')}
                   </Button>
                 ) : undefined
               }
             >
-              Chats show up here once a connected phone receives or sends a message.
+              {t('Chats show up here once a connected phone receives or sends a message.')}
             </EmptyState>
           </li>
         )}

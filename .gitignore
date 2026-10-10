@@ -70,3 +70,6 @@ PR_DRAFT.md
 .local/
 
 web/.local/
+
+# Generated browser PDF assets, copied from the pinned package during build
+/web/public/pdfjs/

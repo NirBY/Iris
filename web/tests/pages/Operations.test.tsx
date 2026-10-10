@@ -95,7 +95,9 @@ test('one eligible recipient does not hide invalid recipients', async () => {
     },
   })
   expect(await screen.findByText('WhatsApp number is not approved.')).toBeInTheDocument()
-  expect(screen.getByText('1 eligible recipient(s) for this channel.')).toBeInTheDocument()
+  expect(
+    screen.getByText('1 eligible recipient(s) across their selected channels.'),
+  ).toBeInTheDocument()
 })
 
 test('device schedule saves configurable retry count and notification wait', async () => {

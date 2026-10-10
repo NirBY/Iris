@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { Pagination } from '../components/Pagination'
 import { SkipGroup } from '../components/SkipGroup'
 import { useUrlState } from '../lib/urlState'
@@ -13,7 +14,7 @@ import {
   Copy,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { EmptyState } from '../components/EmptyState'
 import { KidStack } from '../components/KidAvatar'
 import { MessageFlags } from '../components/MessageFlags'
@@ -109,43 +110,47 @@ export function Review() {
   return (
     <div className="flex max-w-3xl flex-col gap-5">
       <PageHeader
-        title="Review"
-        description="Human review: messages ready for your Safe or Harmful decision. Messages still being checked by AI are in IrisReview. Reviewed text can guide future Ollama checks when learning is enabled."
+        title={t('Review')}
+        description={t(
+          'Human review: messages ready for your Safe or Harmful decision. Messages still being checked by AI are in IrisReview. Reviewed text can guide future Ollama checks when learning is enabled.',
+        )}
       />
       <Link to="/iris-review" className="text-sm text-primary">
-        Open IrisReview AI queue
+        {t('Open IrisReview AI queue')}
       </Link>
       {['admin', 'parent'].includes(me?.role || '') && (
         <ConfirmDialog
           trigger={
             <Button variant="outline" disabled={purge.isPending}>
-              Delete all saved media evidence
+              {t('Delete all saved media evidence')}
             </Button>
           }
-          title="Delete all saved media evidence?"
-          description="This permanently removes all saved media copies. Message records and review decisions remain."
-          confirmLabel="Delete media"
+          title={t('Delete all saved media evidence?')}
+          description={t(
+            'This permanently removes all saved media copies. Message records and review decisions remain.',
+          )}
+          confirmLabel={t('Delete media')}
           onConfirm={() => purge.mutateAsync().then(() => undefined)}
         />
       )}
-      <div className="flex flex-wrap gap-2" aria-label="Review views">
+      <div className="flex flex-wrap gap-2" aria-label={t('Review views')}>
         <Button
           variant={view === 'pending' ? 'primary' : 'outline'}
           onClick={() => update({ view: '' })}
         >
-          Awaiting review
+          {t('Awaiting review')}
         </Button>
         <Button
           variant={view === 'missing_data' ? 'primary' : 'outline'}
           onClick={() => update({ view: 'missing_data' })}
         >
-          Ignored: missing data
+          {t('Ignored: missing data')}
         </Button>
         <Button
           variant={view === 'responses' ? 'primary' : 'outline'}
           onClick={() => update({ view: 'responses' })}
         >
-          Parent responses & notes
+          {t('Parent responses & notes')}
         </Button>
       </div>
       {data && (
@@ -156,8 +161,8 @@ export function Review() {
             : view === 'missing_data'
               ? 'ignored for missing data'
               : 'awaiting review'}
-          ; {data.reviewed_total ?? 0} judged. Human labels are review records, not proof of AI
-          accuracy.
+          ; {data.reviewed_total ?? 0}{' '}
+          {t('judged. Human labels are review records, not proof of AI accuracy.')}
         </p>
       )}
       {isLoading && <Skeleton className="h-40" />}
@@ -166,11 +171,11 @@ export function Review() {
         <div className="rounded-lg border bg-surface">
           <EmptyState
             icon={ListChecks}
-            title={view === 'missing_data' ? 'No missing-data reports' : 'Nothing to review'}
+            title={view === 'missing_data' ? t('No missing-data reports') : t('Nothing to review')}
           >
             {view === 'missing_data'
-              ? 'Items ignored because data is missing appear here for later design review.'
-              : 'When Iris cannot tell whether a message is harmful, it waits here for you.'}
+              ? t('Items ignored because data is missing appear here for later design review.')
+              : t('When Iris cannot tell whether a message is harmful, it waits here for you.')}
           </EmptyState>
         </div>
       )}
@@ -196,7 +201,9 @@ export function Review() {
                   <KidStack names={m.kids.map((k) => k.kid_name)} />
                   <span className="font-medium">{m.kids.map((k) => k.kid_name).join(' and ')}</span>
                   {m.chat_name && (
-                    <span className="text-sm text-muted-foreground">in {m.chat_name}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {t('in')} {m.chat_name}
+                    </span>
                   )}
                   <span className="ms-auto text-xs text-muted-foreground">
                     {relativeTime(m.sent_at)}
@@ -213,13 +220,14 @@ export function Review() {
                 </div>
                 {missingData && (
                   <p role="status" className="rounded-md bg-warning-soft p-3 text-sm text-warning">
-                    Ignored because data is missing. This report is saved separately from safety
-                    decisions.
+                    {t(
+                      'Ignored because data is missing. This report is saved separately from safety decisions.',
+                    )}
                   </p>
                 )}
                 {!!notes?.length && (
                   <section className="rounded-lg bg-surface-2/40 p-3">
-                    <h3 className="mb-2 text-sm font-medium">Parent response notes</h3>
+                    <h3 className="mb-2 text-sm font-medium">{t('Parent response notes')}</h3>
                     <ul className="flex flex-col gap-2">
                       {notes.map((note, i) => (
                         <li key={i} className="text-sm">
@@ -237,7 +245,9 @@ export function Review() {
                 )}
                 {feedback && (
                   <section className="rounded-md bg-surface-2 p-3 text-sm">
-                    <p className="font-medium">Human decision: {feedback.verdict}</p>
+                    <p className="font-medium">
+                      {t('Human decision:')} {feedback.verdict}
+                    </p>
                     {!!feedback.categories?.length && <p>{feedback.categories.join(', ')}</p>}
                     {feedback.explanation && (
                       <p dir="auto" className="whitespace-pre-wrap">
@@ -261,7 +271,7 @@ export function Review() {
                 {classifications.slice(-1).map((c) => (
                   <details key={c.id} className="group rounded-md bg-surface-2/60 p-3">
                     <summary className="cursor-pointer text-sm font-medium">
-                      Why it is unclear
+                      {t('Why it is unclear')}
                     </summary>
                     <div className="mt-3">
                       <Scores scores={c.scores} min={0.05} />
@@ -274,8 +284,8 @@ export function Review() {
                       <Button
                         variant="success"
                         size="sm"
-                        aria-label="Mark safe"
-                        title="Mark this message safe"
+                        aria-label={t('Mark safe')}
+                        title={t('Mark this message safe')}
                         disabled={
                           resolve.isPending ||
                           rejudging(m) ||
@@ -283,13 +293,13 @@ export function Review() {
                         }
                         onClick={() => resolve.mutate({ id: m.id, resolution: 'safe' })}
                       >
-                        <Check /> Safe
+                        <Check /> {t('Safe')}
                       </Button>
                       <Button
                         variant="danger"
                         size="sm"
-                        aria-label="Mark harmful"
-                        title="Mark this message harmful"
+                        aria-label={t('Mark harmful')}
+                        title={t('Mark this message harmful')}
                         disabled={
                           resolve.isPending ||
                           rejudging(m) ||
@@ -297,13 +307,17 @@ export function Review() {
                         }
                         onClick={() => resolve.mutate({ id: m.id, resolution: 'harmful' })}
                       >
-                        <ShieldAlert /> Harmful
+                        <ShieldAlert /> {t('Harmful')}
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        aria-label={missingData ? 'Missing data reported' : 'Ignore — missing data'}
-                        title="Ignore this item and save a missing-data report without judging safety."
+                        aria-label={
+                          missingData ? t('Missing data reported') : t('Ignore — missing data')
+                        }
+                        title={t(
+                          'Ignore this item and save a missing-data report without judging safety.',
+                        )}
                         className="min-[400px]:col-span-2 sm:col-span-1"
                         disabled={
                           resolve.isPending ||
@@ -313,7 +327,7 @@ export function Review() {
                         }
                         onClick={() => resolve.mutate({ id: m.id, resolution: 'missing_data' })}
                       >
-                        <CircleHelp /> {missingData ? 'Reported' : 'Ignore'}
+                        <CircleHelp /> {missingData ? t('Reported') : t('Ignore')}
                       </Button>
                     </>
                   )}
@@ -325,16 +339,16 @@ export function Review() {
                   >
                     <Link
                       to={`/messages/${m.id}`}
-                      aria-label="See the conversation"
-                      title="Open the full conversation"
+                      aria-label={t('See the conversation')}
+                      title={t('Open the full conversation')}
                     >
-                      <MessagesSquare /> Chat
+                      <MessagesSquare /> {t('Chat')}
                     </Link>
                   </Button>
                 </div>
                 {rejudging(m) && (
                   <p role="status" className="text-xs text-muted-foreground">
-                    AI recheck queued or running. Actions unlock when it finishes.
+                    {t('AI recheck queued or running. Actions unlock when it finishes.')}
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">
@@ -342,8 +356,8 @@ export function Review() {
                   <Button
                     variant="outline"
                     size="sm"
-                    aria-label="Ask AI to judge again"
-                    title="Run AI judgment again using available message content and media"
+                    aria-label={t('Ask AI to judge again')}
+                    title={t('Run AI judgment again using available message content and media')}
                     disabled={
                       judgeAgain.isPending ||
                       m.redacted ||
@@ -353,13 +367,13 @@ export function Review() {
                     }
                     onClick={() => judgeAgain.mutate(m.id)}
                   >
-                    <RotateCcw /> Rejudge
+                    <RotateCcw /> {t('Rejudge')}
                   </Button>
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="Copy full trace"
-                    title="Copy the full saved AI execution trace"
+                    aria-label={t('Copy full trace')}
+                    title={t('Copy the full saved AI execution trace')}
                     disabled={rejudging(m)}
                     onClick={() => void copyTrace(m.id)}
                   >

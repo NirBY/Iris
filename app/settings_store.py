@@ -282,6 +282,18 @@ def _schedules(value: Any) -> dict[str, Any]:
     return clean
 
 
+def _recipient_channels(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise ValueError("must map parent recipients to alert channels")
+    clean = {}
+    for parent, channel in value.items():
+        targets = recipients(parent) if isinstance(parent, str) else []
+        if len(targets) != 1:
+            raise ValueError("invalid parent recipient")
+        clean[targets[0]] = _choice("openwa", "telegram", "smtp", "greenapi")(channel)
+    return clean
+
+
 REGISTRY: dict[str, Spec] = {
     "openwa.webhook_attempts": Spec(3, _int_range(1, 5)),
     "openwa.recovery_enabled": Spec(True, _bool),
@@ -350,6 +362,7 @@ REGISTRY: dict[str, Spec] = {
     "auth.default_channel": Spec("email", _choice("email", "whatsapp")),
     "alerts.channel": Spec("openwa", _choice("openwa", "telegram", "smtp", "greenapi")),
     "alerts.recipient_contacts": Spec({}, _recipient_contacts),
+    "alerts.recipient_channels": Spec({}, _recipient_channels),
     "alerts.telegram_bot_token": Spec(None, _telegram_token, secret=True),
     "alerts.recipient_children": Spec({}, _recipient_children),
     "alerts.review_notify_since": Spec(None, _timestamp),

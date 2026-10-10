@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useMe } from '../lib/auth'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -110,7 +111,7 @@ function attentionItems(s: Stats): Item[] {
   if (s.parent_recipients === 0)
     items.push({
       icon: Settings,
-      to: '/settings?tab=Alerts',
+      to: '/settings?tab=Notifications',
       action: 'Add parents',
       tone: 'warning',
       text: 'No parent recipients are configured. Select parents and add destinations for your alert channel.',
@@ -118,7 +119,7 @@ function attentionItems(s: Stats): Item[] {
   if (s.alert_sender_configured === false && (!s.alert_channel || s.alert_channel === 'openwa'))
     items.push({
       icon: Smartphone,
-      to: '/settings?tab=Alerts',
+      to: '/settings?tab=Notifications',
       action: 'Set alert phone',
       tone: 'warning',
       text: 'No alert phone is set. Connect a sender phone and select it to send alerts to parents.',
@@ -144,7 +145,7 @@ function attentionItems(s: Stats): Item[] {
   if (!s.delivery_configured)
     items.push({
       icon: Settings,
-      to: '/settings?tab=Alerts',
+      to: '/settings?tab=Notifications',
       action: 'Set up delivery',
       tone: 'warning',
       text: 'Alert delivery is not configured, so alerts are recorded but not sent.',
@@ -161,7 +162,7 @@ function attentionItems(s: Stats): Item[] {
   if (s.sender_is_recipient)
     items.push({
       icon: Smartphone,
-      to: '/settings?tab=Alerts',
+      to: '/settings?tab=Notifications',
       action: 'Check recipients',
       tone: 'warning',
       text: 'The sender is also a parent recipient. Messages to yourself may not notify you; use a separate sender phone for reliable parent notifications.',
@@ -243,12 +244,16 @@ function Stat({
   return (
     <div className="relative flex flex-col-reverse gap-1.5 px-4 py-3 hover:bg-surface-2/60 sm:px-5">
       <dt className="text-sm text-muted-foreground">
-        {label}
+        {t(label)}
         {note && <span className="block text-xs">{note}</span>}
       </dt>
       <dd className="tabular text-2xl font-semibold leading-none">
         {to ? (
-          <Link to={to} aria-label={`${label}: ${value}`} className="after:absolute after:inset-0">
+          <Link
+            to={to}
+            aria-label={`${t(label)}: ${value}`}
+            className="after:absolute after:inset-0"
+          >
             {value}
           </Link>
         ) : (
@@ -261,7 +266,7 @@ function Stat({
 
 function Loading() {
   return (
-    <div className="flex flex-col gap-6" aria-busy="true" aria-label="Loading the dashboard">
+    <div className="flex flex-col gap-6" aria-busy="true" aria-label={t('Loading the dashboard')}>
       <Skeleton className="h-52 rounded-lg" />
       <Skeleton className="h-64 rounded-lg" />
       <Skeleton className="h-40 rounded-lg" />
@@ -340,9 +345,9 @@ export function Dashboard() {
   if (stats.isError)
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader title="Home" />
+        <PageHeader title={t('Home')} />
         <p role="alert" className="rounded-md bg-danger-soft p-4 text-sm text-danger">
-          Could not load the dashboard. Check that Iris is running, then reload the page.
+          {t('Could not load the dashboard. Check that Iris is running, then reload the page.')}
         </p>
       </div>
     )
@@ -358,11 +363,11 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader title="Home" />
+      <PageHeader title={t('Home')} />
       {me?.role === 'admin' && <SetupReminders userId={me.id} />}
 
       <section
-        aria-label="Status"
+        aria-label={t('Status')}
         className="flex flex-col items-center gap-6 rounded-xl border bg-surface p-6 sm:flex-row sm:p-8"
       >
         <IrisRing alerts={s.alerts_by_status['new'] ?? 0} review={s.review_queue} />
@@ -372,29 +377,29 @@ export function Dashboard() {
             <p className="max-w-prose text-muted-foreground">{sub}</p>
           </div>
           <dl className="grid grid-cols-2 divide-x divide-y rounded-md border sm:grid-cols-3 rtl:divide-x-reverse">
-            <Stat label="Messages today" value={s.messages_today} to="/messages" />
-            <Stat label="Last 7 days" value={s.messages_7d} to="/messages" />
-            <Stat label="In the queue" value={s.queue_depth} />
+            <Stat label={t('Messages today')} value={s.messages_today} to="/messages" />
+            <Stat label={t('Last 7 days')} value={s.messages_7d} to="/messages" />
+            <Stat label={t('In the queue')} value={s.queue_depth} />
             <Stat
-              label="Children"
+              label={t('Children')}
               value={s.children ?? s.instances}
               to={watch ? undefined : '/instances'}
             />
             <Stat
-              label="Parents"
+              label={t('Parents')}
               value={s.parent_recipients ?? 0}
-              to={watch ? undefined : '/settings?tab=Alerts'}
+              to={watch ? undefined : '/settings?tab=Notifications'}
               note="Alert recipients"
             />
             <Stat
-              label="Alert phones"
+              label={t('Alert phones')}
               value={s.alert_phones ?? 0}
-              to={watch ? undefined : '/settings?tab=Alerts'}
+              to={watch ? undefined : '/settings?tab=Notifications'}
               note="Sender connections"
             />
             {((s.media_policy && s.media_policy !== 'off') || (s.media_files ?? 0) > 0) && (
               <Stat
-                label="Media kept"
+                label={t('Media kept')}
                 value={s.media_files ?? 0}
                 note={fileSize(s.media_bytes ?? 0)}
               />
@@ -406,18 +411,19 @@ export function Dashboard() {
       {(s.alert_media_warning_count ?? s.alert_media_not_saved ?? 0) > 0 && (
         <section
           className="rounded-lg border bg-warning-soft p-4"
-          aria-label="Alert media not saved"
+          aria-label={t('Alert media not saved')}
         >
           <h2 className="font-semibold">
-            {s.alert_media_warning_count ?? s.alert_media_not_saved} alerts have no saved media copy
+            {s.alert_media_warning_count ?? s.alert_media_not_saved}{' '}
+            {t('alerts have no saved media copy')}
           </h2>
           <p className="mt-1 text-sm">
-            Photos or recordings may be missing in Messages. Keep media may be off, the content may
-            be unexamined, or its copy may have expired. The original can be checked through OpenWA
-            when available.
+            {t(
+              'Photos or recordings may be missing in Messages. Keep media may be off, the content may be unexamined, or its copy may have expired. The original can be checked through OpenWA when available.',
+            )}
           </p>
           <Link className="mt-2 inline-block text-primary" to="/alerts?view=all&media=missing">
-            View affected alerts
+            {t('View affected alerts')}
           </Link>
           <button
             type="button"
@@ -425,11 +431,11 @@ export function Dashboard() {
             onClick={() => dismissMediaWarning.mutate(s.alert_media_warning_latest_id ?? 0)}
             className="ms-3 mt-2 inline-flex min-h-10 items-center rounded-md border px-3 text-sm font-medium hover:bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600 disabled:opacity-50"
           >
-            {dismissMediaWarning.isPending ? 'Dismissing…' : 'Dismiss warning'}
+            {dismissMediaWarning.isPending ? t('Dismissing…') : t('Dismiss warning')}
           </button>
           {dismissMediaWarning.isError && (
             <p role="alert" className="mt-2 text-sm text-danger">
-              Could not dismiss the warning. Please try again.
+              {t('Could not dismiss the warning. Please try again.')}
             </p>
           )}
         </section>
@@ -437,7 +443,7 @@ export function Dashboard() {
       {items.length > 0 && (
         <section aria-labelledby="attention" className="flex flex-col gap-3">
           <h2 id="attention" className="text-lg font-semibold">
-            Needs attention
+            {t('Needs attention')}
           </h2>
           <ul className="divide-y rounded-lg border bg-surface">
             {items.map((it) => (
@@ -460,32 +466,35 @@ export function Dashboard() {
         </section>
       )}
 
-      <HomeSection id="activity" title={`Activity, last ${activityDays} days`}>
+      <HomeSection
+        id="activity"
+        title={t('Activity, last {value0} days', { value0: activityDays })}
+      >
         <div className="flex flex-wrap gap-3">
           <label className="text-sm">
-            Time period
+            {t('Time period')}
             <select
               className="ml-2 rounded border bg-surface p-2"
-              aria-label="Activity time period"
+              aria-label={t('Activity time period')}
               value={activityDays}
               onChange={(e) => setActivityDays(Number(e.target.value))}
             >
               {[1, 7, 14, 30, 60, 90].map((n) => (
                 <option key={n} value={n}>
-                  {n} days
+                  {n} {t('days')}
                 </option>
               ))}
             </select>
           </label>
           <label className="text-sm">
-            Child
+            {t('Child')}
             <select
               className="ml-2 rounded border bg-surface p-2"
-              aria-label="Activity child"
+              aria-label={t('Activity child')}
               value={childId}
               onChange={(e) => setChildId(e.target.value)}
             >
-              <option value="">All children</option>
+              <option value="">{t('All children')}</option>
               {children.data
                 ?.filter((c) => c.role !== 'parent')
                 .map((c) => (
@@ -504,14 +513,14 @@ export function Dashboard() {
           <ActivityChart days={days} />
         ) : (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            The chart appears once Iris has seen some messages.
+            {t('The chart appears once Iris has seen some messages.')}
           </p>
         )}
       </HomeSection>
 
-      <HomeSection id="group-alerts" title="Alerts per group / contact">
+      <HomeSection id="group-alerts" title={t('Alerts per group / contact')}>
         <p className="text-sm text-muted-foreground">
-          All retained alerts, with the children linked to each conversation.
+          {t('All retained alerts, with the children linked to each conversation.')}
         </p>
         {chats.isError ? (
           <QueryError what="chat alert counts" onRetry={() => void chats.refetch()} />
@@ -529,20 +538,22 @@ export function Dashboard() {
                     to={`/alerts?chat_id=${c.id}${childId ? `&instance_id=${childId}` : ''}`}
                     className="text-primary"
                   >
-                    {c.name || (c.is_group ? 'Unnamed group' : 'Direct contact')}
+                    {c.name || (c.is_group ? t('Unnamed group') : t('Direct contact'))}
                     <span className="block text-sm text-muted-foreground">
-                      {c.is_group ? 'Group' : 'Contact'} ·{' '}
+                      {c.is_group ? t('Group') : t('Contact')} ·{' '}
                       {c.kids.map((k) => k.kid_name).join(', ') || 'No child linked'}
                     </span>
                   </Link>
-                  <span>{c.alert_count} alerts</span>
+                  <span>
+                    {c.alert_count} {t('alerts')}
+                  </span>
                 </li>
               ))}
           </ul>
         )}
       </HomeSection>
 
-      <HomeSection id="recent" title="Recent alerts">
+      <HomeSection id="recent" title={t('Recent alerts')}>
         <div className="flex items-center justify-end">
           <div className="flex items-center gap-1">
             <RevealButton revealed={revealed} onToggle={toggle} />
@@ -550,7 +561,7 @@ export function Dashboard() {
               to="/alerts"
               className="inline-flex min-h-10 items-center rounded-md px-3 text-sm font-medium text-primary hover:bg-primary-soft"
             >
-              See all
+              {t('See all')}
             </Link>
           </div>
         </div>
@@ -565,9 +576,10 @@ export function Dashboard() {
           ))}
           {alerts.data && alerts.data.items.length === 0 && (
             <li>
-              <EmptyState icon={BellRing} title="No alerts yet">
-                When a message needs your attention, Iris lists it here and sends it to your
-                WhatsApp.
+              <EmptyState icon={BellRing} title={t('No alerts yet')}>
+                {t(
+                  'When a message needs your attention, Iris lists it here and notifies parents through their configured alert channels.',
+                )}
               </EmptyState>
             </li>
           )}
@@ -576,11 +588,11 @@ export function Dashboard() {
       {me?.role === 'admin' && (
         <HomeSection
           id="resources"
-          title="System resources"
+          title={t('System resources')}
           className="rounded-3xl border border-purple-200 bg-white p-5 text-purple-950 sm:p-6 dark:border-purple-800/70 dark:bg-[#18142b] dark:text-purple-50"
         >
           <p className="text-sm text-purple-700 dark:text-purple-300">
-            CPU, memory, disk usage and the data Iris keeps.
+            {t('CPU, memory, disk usage and the data Iris keeps.')}
           </p>
           {storage.isError ? (
             <QueryError what="storage usage" onRetry={() => void storage.refetch()} />
@@ -622,53 +634,56 @@ export function Dashboard() {
                       key={source}
                       className="rounded-2xl border border-purple-100 bg-purple-50/60 p-5"
                     >
-                      <dt className="font-medium">{source === 'iris' ? 'Iris' : 'OpenWA'} data</dt>
+                      <dt className="font-medium">
+                        {source === 'iris' ? 'Iris' : 'OpenWA'} {t('data')}
+                      </dt>
                       <dd>
                         {storage.data[source].bytes === null
                           ? storage.data[source].status
                           : fileSize(storage.data[source].bytes)}
                         <span className="mt-2 block text-xs text-purple-700 dark:text-purple-300">
-                          Database files on this volume:{' '}
+                          {t('Database files on this volume:')}{' '}
                           {storage.data[source].database_bytes === null
-                            ? 'Unavailable'
+                            ? t('Unavailable')
                             : fileSize(storage.data[source].database_bytes)}
                         </span>
                       </dd>
                     </div>
                   ))}
                   <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5">
-                    <dt className="text-sm font-medium text-indigo-900">Iris kept media</dt>
+                    <dt className="text-sm font-medium text-indigo-900">{t('Iris kept media')}</dt>
                     <dd className="mt-1 text-xl font-semibold text-indigo-700">
                       {fileSize(storage.data.iris_media_bytes)}
                     </dd>
-                    <dd className="mt-1 text-xs text-indigo-700">Includes remote storage</dd>
+                    <dd className="mt-1 text-xs text-indigo-700">{t('Includes remote storage')}</dd>
                   </div>
                 </dl>
               </div>
               <p className="mt-3 text-xs leading-relaxed text-purple-700 dark:text-purple-300">
-                Measured file sizes, refreshed each minute. Database size includes indexes and free
-                pages; it is not a text-only size. Iris retention controls Iris copies. OpenWA keeps
-                its own database, sessions and cache; configure its retention separately.
+                {t(
+                  'Measured file sizes, refreshed each minute. Database size includes indexes and free pages; it is not a text-only size. Iris retention controls Iris copies. OpenWA keeps its own database, sessions and cache; configure its retention separately.',
+                )}
               </p>
               <p className="mt-3 text-xs leading-relaxed text-purple-700 dark:text-purple-300">
-                Keep media is{' '}
+                {t('Keep media is')}{' '}
                 {s.media_policy === 'off'
-                  ? 'off: Iris does not save new media copies'
+                  ? t('off: Iris does not save new media copies')
                   : 'enabled for the selected verdicts'}
-                . Unexamined and withheld media are not saved. Opening an original from OpenWA does
-                not retain an Iris copy.
+                {t(
+                  '. Unexamined and withheld media are not saved. Opening an original from OpenWA does not retain an Iris copy.',
+                )}
               </p>
               <Link
                 className="me-3 mt-4 inline-flex min-h-10 items-center rounded-xl border border-purple-200 bg-purple-50 px-4 text-sm font-medium text-purple-800 hover:bg-purple-100 dark:border-purple-700 dark:bg-purple-900/40 dark:text-purple-200 dark:hover:bg-purple-800/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600"
                 to="/settings?tab=Media"
               >
-                Configure Keep media
+                {t('Configure Keep media')}
               </Link>
               <Link
                 className="me-3 mt-4 inline-flex min-h-10 items-center rounded-xl border border-purple-200 bg-purple-50 px-4 text-sm font-medium text-purple-800 hover:bg-purple-100 dark:border-purple-700 dark:bg-purple-900/40 dark:text-purple-200 dark:hover:bg-purple-800/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600"
                 to="/settings?tab=Retention"
               >
-                Manage Iris retention
+                {t('Manage Iris retention')}
               </Link>
             </>
           )}

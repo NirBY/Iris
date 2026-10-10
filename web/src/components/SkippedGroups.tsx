@@ -1,5 +1,6 @@
+import { t } from '../lib/i18n'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import { toast } from '../lib/notify'
 import { api } from '../lib/api'
 import { Button } from './ui/button'
 
@@ -13,10 +14,10 @@ export function SkippedGroups() {
   })
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-lg font-semibold">Skipped WhatsApp chats and groups</h2>
+      <h2 className="text-lg font-semibold">{t('Skipped WhatsApp chats and groups')}</h2>
       {data?.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          No skipped chats or groups. Skip a chat or group from Messages, Alerts, or Review.
+          {t('No skipped chats or groups. Skip a chat or group from Messages, Alerts, or Review.')}
         </p>
       )}
       {data?.map((g) => (
@@ -43,7 +44,7 @@ export function SkippedGroups() {
               }
             }}
           >
-            Resume monitoring
+            {t('Resume monitoring')}
           </Button>
         </div>
       ))}

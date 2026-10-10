@@ -70,9 +70,10 @@ export function SetupCheck({
           aria-live="polite"
           className={`max-w-prose text-sm ${success ? 'text-success' : check.isError || (detail && !passed && !check.isPending && !check.isSuccess) ? 'text-danger' : 'text-muted-foreground'}`}
         >
-          {message}
+          {t(message)}
         </p>
       )}
     </div>
   )
 }
+import { t } from '../lib/i18n'

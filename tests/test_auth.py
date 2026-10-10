@@ -64,11 +64,28 @@ async def test_login_cookie_flags_and_me(client: httpx.AsyncClient) -> None:
         "username": "admin",
         "role": "admin",
         "id": 1,
+        "language": "system",
     }
 
 
 async def test_me_requires_auth(client: httpx.AsyncClient) -> None:
     assert (await client.get("/api/auth/me")).status_code == 401
+
+
+async def test_language_requires_auth_and_validates_supported_preferences(
+    client: httpx.AsyncClient,
+) -> None:
+    assert (await client.patch("/api/auth/language", json={"language": "he"})).status_code == 401
+    await _login(client)
+    assert (await client.patch("/api/auth/language", json={"language": "fr"})).status_code == 422
+    for language in ("he", "en", "system"):
+        result = await client.patch("/api/auth/language", json={"language": language})
+        assert result.status_code == 200
+        assert (await client.get("/api/auth/me")).json()["language"] == language
+    await client.patch("/api/auth/language", json={"language": "he"})
+    await client.post("/api/auth/logout")
+    await _login(client)
+    assert (await client.get("/api/auth/me")).json()["language"] == "he"
 
 
 async def test_forged_cookie_rejected(client: httpx.AsyncClient) -> None:

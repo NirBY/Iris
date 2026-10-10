@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -87,10 +88,12 @@ export function Setup() {
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
       <PageHeader
-        title="Set up Iris"
-        description="Connect monitoring, test notifications and choose who receives alerts. You can skip any step and return here later."
+        title={t('Set up Iris')}
+        description={t(
+          'Connect monitoring, test notifications and choose who receives alerts. You can skip any step and return here later.',
+        )}
       />
-      <nav aria-label="Setup steps" className="grid gap-2 sm:grid-cols-3">
+      <nav aria-label={t('Setup steps')} className="grid gap-2 sm:grid-cols-3">
         {data.steps.map((item, index) => (
           <button
             key={item.id}
@@ -100,14 +103,16 @@ export function Setup() {
             className={`flex items-center gap-2 rounded-xl border p-3 text-start text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600 dark:focus-visible:outline-purple-300 ${selected === index ? 'border-purple-500 bg-purple-50 text-purple-950 dark:border-purple-400 dark:bg-purple-900/50 dark:text-purple-100' : 'bg-surface'}`}
           >
             {item.ready ? (
-              <CheckCircle2 aria-label="Ready" className="size-5 shrink-0 text-success" />
+              <CheckCircle2 aria-label={t('Ready')} className="size-5 shrink-0 text-success" />
             ) : (
               <Circle aria-hidden="true" className="size-5 shrink-0" />
             )}
             <span>
-              {index + 1}. {item.title}
+              {index + 1}. {t(item.title)}
               {data.skipped.includes(item.id) && !item.ready && (
-                <span className="block text-xs text-warning">Skipped · still incomplete</span>
+                <span className="block text-xs text-warning">
+                  {t('Skipped · still incomplete')}
+                </span>
               )}
             </span>
           </button>
@@ -118,46 +123,45 @@ export function Setup() {
         aria-labelledby="setup-step"
       >
         <h2 id="setup-step" className="text-xl font-semibold">
-          {step.title}
+          {t(step.title)}
         </h2>
         <p className={step.ready ? 'text-success' : 'text-warning'}>
-          {step.ready ? 'This step is ready.' : step.warning}
+          {step.ready ? t('This step is ready.') : t(step.warning)}
         </p>
         {step.id === 'openwa' && (
           <p>
-            Use your Docker/initial configuration, or enter the OpenWA address, API key and session
-            manually in Phones. Pair WhatsApp if needed, then check the connection here. Checks do
-            not send read receipts.
+            {t(
+              'Use your Docker/initial configuration, or enter the OpenWA address, API key and session manually in Phones. Pair WhatsApp if needed, then check the connection here. Checks do not send read receipts.',
+            )}
           </p>
         )}
         {step.id === 'notifiers' && (
           <>
             <p>
-              You can configure GreenAPI, SMTP, OpenWA and Telegram. Select an active alert channel
-              in Notifications and successfully test at least one provider. Extra providers remain
-              available to configure and test.
+              {t(
+                'You can configure GreenAPI, SMTP, OpenWA and Telegram. Select an active alert channel in Notifications and successfully test at least one provider. Extra providers remain available to configure and test.',
+              )}
             </p>
             <div className="flex flex-wrap gap-2">
               {Object.entries(data.providers).map(([name, ready]) => (
                 <span key={name} className="rounded-full border px-3 py-1 text-sm">
-                  {name}: {ready ? 'Test passed' : 'Test needed'}
+                  {name}: {ready ? t('Test passed') : t('Test needed')}
                 </span>
               ))}
             </div>
             <p className="text-sm text-muted-foreground">
-              Tests send a real notification. A queued notification counts only after its delivery
-              job succeeds. SMTP/GreenAPI tests need your saved admin contact.
+              {t(
+                'Tests send a real notification. A queued notification counts only after its delivery job succeeds. SMTP/GreenAPI tests need your saved admin contact.',
+              )}
             </p>
           </>
         )}
         {step.id === 'ai' && (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Save endpoints, credentials and models in Providers, then test each saved connection
-              here. Required providers follow your selected classification and transcription routes.
-              Tests use built-in samples; cloud tests may incur a small charge. Local Whisper checks
-              authentication and available models; use Try it with audio to check real
-              transcription.
+              {t(
+                'Save endpoints, credentials and models in Providers, then test each saved connection here. Required providers follow your selected classification and transcription routes. Tests use built-in samples; cloud tests may incur a small charge. Local Whisper checks authentication and available models; use Try it with audio to check real transcription.',
+              )}
             </p>
             {data.ai_providers?.map((provider) => (
               <div
@@ -166,20 +170,20 @@ export function Setup() {
               >
                 <div>
                   <p className="font-medium">
-                    {provider.title} · {provider.required ? 'Required' : 'Optional'}
+                    {t(provider.title)} · {provider.required ? t('Required') : t('Optional')}
                   </p>
                   <p className="text-sm text-muted-foreground">
                     {provider.tested
-                      ? 'Test passed for saved settings'
+                      ? t('Test passed for saved settings')
                       : provider.configured
-                        ? 'Configured · needs a test'
-                        : 'Not configured'}
+                        ? t('Configured · needs a test')
+                        : t('Not configured')}
                   </p>
                 </div>
                 <SetupCheck
                   key={`${provider.id}:${provider.tested}`}
                   path={`/api/setup/ai/test/${provider.id}`}
-                  label={`Test ${provider.title}`}
+                  label={t('Test {value0}', { value0: t(provider.title) })}
                   passed={provider.tested}
                   disabled={!provider.configured}
                   detail={provider.detail}
@@ -187,56 +191,58 @@ export function Setup() {
               </div>
             ))}
             <Link className="text-primary underline" to="/try">
-              Try a real text, image or recording
+              {t('Try a real text, image or recording')}
             </Link>
           </div>
         )}
         {step.id === 'parents' && (
           <p>
-            Add a parent or admin user and select their destination under Parent alert recipients
-            for the active channel. GreenAPI and Telegram do not require individual contact
-            approval. OpenWA and email require an approved recipient contact.
+            {t(
+              'Add a parent or admin user and select their destination under Parent alert recipients for the active channel. GreenAPI and Telegram do not require individual contact approval. OpenWA and email require an approved recipient contact.',
+            )}
           </p>
         )}
         {step.id === 'children' && (
           <p>
-            Add at least one child phone, pair it with WhatsApp through OpenWA and check that its
-            session is ready. Sender phones do not count as monitored children.
+            {t(
+              'Add at least one child phone, pair it with WhatsApp through OpenWA and check that its session is ready. Sender phones do not count as monitored children.',
+            )}
           </p>
         )}
         {step.id === 'defaults' && (
           <div className="space-y-3">
             <p>
-              Review monitoring scope, data retention, media storage, alert timing and the public
-              URL before monitoring real messages. Confirm child assignments and run a sample
-              message, image and recording through Try it. Keep a database backup and recovery
-              procedure.
+              {t(
+                'Review monitoring scope, data retention, media storage, alert timing and the public URL before monitoring real messages. Confirm child assignments and run a sample message, image and recording through Try it. Keep a database backup and recovery procedure.',
+              )}
             </p>
             {data.defaults && (
               <dl className="grid gap-3 sm:grid-cols-2">
                 {Object.entries(data.defaults).map(([name, value]) => (
                   <div key={name} className="rounded-lg border p-3">
                     <dt className="text-sm text-muted-foreground">
-                      {(
-                        {
-                          public_url: 'Public URL',
-                          monitor_direct: 'Monitor direct chats',
-                          monitor_groups: 'Monitor groups',
-                          monitor_from_me: 'Monitor outgoing messages',
-                          media_policy: 'Keep media',
-                          message_days: 'Message retention (days)',
-                          alert_days: 'Alert retention (days)',
-                          timezone: 'Alert timezone',
-                          recovery_enabled: 'Recover missed OpenWA messages',
-                        } as Record<string, string>
-                      )[name] ?? name}
+                      {t(
+                        (
+                          {
+                            public_url: 'Public URL',
+                            monitor_direct: 'Monitor direct chats',
+                            monitor_groups: 'Monitor groups',
+                            monitor_from_me: 'Monitor outgoing messages',
+                            media_policy: 'Keep media',
+                            message_days: 'Message retention (days)',
+                            alert_days: 'Alert retention (days)',
+                            timezone: 'Alert timezone',
+                            recovery_enabled: 'Recover missed OpenWA messages',
+                          } as Record<string, string>
+                        )[name] ?? name,
+                      )}
                     </dt>
                     <dd className="mt-1 break-words font-medium">
                       {typeof value === 'boolean'
                         ? value
-                          ? 'On'
-                          : 'Off'
-                        : (value ?? 'Not configured')}
+                          ? t('On')
+                          : t('Off')
+                        : (value ?? t('Not configured'))}
                     </dd>
                   </div>
                 ))}
@@ -247,11 +253,11 @@ export function Setup() {
         <div className="flex flex-wrap gap-3">
           {links[step.id]?.map((link) => (
             <Link
-              key={link.label}
+              key={t(link.label)}
               to={link.to}
               className="rounded-lg border px-4 py-3 text-sm text-primary hover:bg-primary-soft"
             >
-              {link.label}
+              {t(link.label)}
             </Link>
           ))}
         </div>
@@ -260,7 +266,7 @@ export function Setup() {
             <SetupCheck
               key={`${step.id}:${step.ready}`}
               path="/api/setup/check"
-              label="Check connections"
+              label={t('Check connections')}
               passed={step.ready}
               step={step.id}
             />
@@ -270,19 +276,19 @@ export function Setup() {
               <SetupCheck
                 key={`smtp:${data.providers.smtp}`}
                 path="/api/users/security/smtp/test"
-                label="Test saved SMTP"
+                label={t('Test saved SMTP')}
                 passed={data.providers.smtp}
               />
               <SetupCheck
                 key={`greenapi:${data.providers.greenapi}`}
                 path="/api/users/security/whatsapp/test"
-                label="Test saved GreenAPI"
+                label={t('Test saved GreenAPI')}
                 passed={data.providers.greenapi}
               />
               <SetupCheck
                 key={`${data.active_channel}:${data.providers[data.active_channel]}`}
                 path="/api/settings/test/alert"
-                label={`Test active alert channel (${data.active_channel})`}
+                label={t('Test active alert channel ({value0})', { value0: data.active_channel })}
                 passed={data.providers[data.active_channel]}
               />
             </>
@@ -291,14 +297,14 @@ export function Setup() {
             <SetupCheck
               key={`defaults:${step.ready}`}
               path="/api/setup/progress"
-              label="I reviewed these defaults"
+              label={t('I reviewed these defaults')}
               body={{ review_defaults: true }}
               passed={step.ready}
               step="defaults"
             />
           )}
           <Button disabled={action.isPending} onClick={() => void status.refetch()}>
-            Refresh status
+            {t('Refresh status')}
           </Button>
           {!step.ready && (
             <Button
@@ -310,11 +316,11 @@ export function Setup() {
                   .catch(() => {})
               }}
             >
-              Skip this step
+              {t('Skip this step')}
             </Button>
           )}
           {selected < data.steps.length - 1 && (
-            <Button onClick={() => setSelected(selected + 1)}>Next</Button>
+            <Button onClick={() => setSelected(selected + 1)}>{t('Next')}</Button>
           )}
         </div>
         {result && (
@@ -331,12 +337,12 @@ export function Setup() {
       {data.warnings.length > 0 && (
         <section
           className="rounded-xl border bg-warning-soft p-5"
-          aria-label="Incomplete setup warnings"
+          aria-label={t('Incomplete setup warnings')}
         >
-          <h2 className="font-semibold">Iris may not work correctly yet</h2>
+          <h2 className="font-semibold">{t('Iris may not work correctly yet')}</h2>
           <ul className="mt-2 list-disc space-y-1 ps-5 text-sm">
             {data.warnings.map((w) => (
-              <li key={w}>{w}</li>
+              <li key={w}>{t(w)}</li>
             ))}
           </ul>
         </section>
@@ -354,7 +360,7 @@ export function Setup() {
         }}
       >
         <ShieldCheck className="size-4" />{' '}
-        {data.warnings.length ? 'Continue to Home with these warnings' : 'Finish setup'}
+        {data.warnings.length ? t('Continue to Home with these warnings') : t('Finish setup')}
       </Button>
     </div>
   )

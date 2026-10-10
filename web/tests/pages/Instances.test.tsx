@@ -36,12 +36,21 @@ test('adding a parent recipient only saves the alert number', async () => {
   const calls = renderWithApp(<ParentConnections />, {
     '/api/instances': [],
     '/api/settings': { 'alerts.recipient': '15550100101' },
+    '/api/settings/recipient-channels': {
+      channels: [{ channel: 'greenapi', configured: true, error: null, recipients: [] }],
+    },
   })
   await userEvent.type(await screen.findByLabelText('Parent phone number'), '15550100102')
+  await userEvent.selectOptions(screen.getByLabelText('Alert channel'), 'greenapi')
   await userEvent.click(screen.getByRole('button', { name: 'Add parent' }))
   expect(calls.find((call) => call.method === 'PUT')).toMatchObject({
     url: '/api/settings',
-    body: { settings: { 'alerts.recipient': '15550100101, 15550100102' } },
+    body: {
+      settings: {
+        'alerts.recipient': '15550100101, 15550100102',
+        'alerts.recipient_channels': { '15550100102@c.us': 'greenapi' },
+      },
+    },
   })
   expect(calls.some((call) => call.method === 'POST' && call.url === '/api/instances')).toBe(false)
 })

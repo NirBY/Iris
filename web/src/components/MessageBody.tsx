@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import {
   CheckCircle2,
   CircleAlert,
@@ -18,7 +19,7 @@ export function MessageBody({ m, revealed = false }: { m: Message; revealed?: bo
   if (m.redacted)
     return (
       <span className="inline-flex items-center gap-1.5 italic text-muted-foreground">
-        <ShieldOff className="size-4" /> Content withheld on purpose and never stored.
+        <ShieldOff className="size-4" /> {t('Content withheld on purpose and never stored.')}
       </span>
     )
   const body = m.text || m.transcript
@@ -30,8 +31,8 @@ export function MessageBody({ m, revealed = false }: { m: Message; revealed?: bo
           ? 'WhatsApp poll — its question and options were not provided by OpenWA.'
           : m.type === 'other'
             ? 'Unsupported WhatsApp message — OpenWA provided no readable content.'
-            : `[${m.type}]`
-    return <em className="text-muted-foreground">{label}</em>
+            : `[${t(m.type)}]`
+    return <em className="text-muted-foreground">{t(label)}</em>
   }
   return (
     <span dir="auto" className="whitespace-pre-wrap break-words">
@@ -48,7 +49,7 @@ export function RevealableMessage({ m, showMedia = false }: { m: Message; showMe
   const { revealed, toggle } = useReveal()
   const hasMedia =
     showMedia &&
-    ['image', 'sticker', 'voice', 'audio', 'video'].includes(m.type) &&
+    ['image', 'sticker', 'voice', 'audio', 'video', 'document'].includes(m.type) &&
     !m.redacted &&
     !m.revoked_at
   return (
@@ -102,7 +103,7 @@ export function Failure({ m }: { m: Pick<Message, 'failure' | 'skip_reason' | 'r
   if (!reason) return null
   return (
     <span className={m.failure ? 'text-xs text-danger' : 'text-xs text-muted-foreground'}>
-      {reason}
+      {t(reason)}
     </span>
   )
 }

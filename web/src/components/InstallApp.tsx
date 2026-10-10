@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useEffect, useState } from 'react'
 import { Download } from 'lucide-react'
 import { Button } from './ui/button'
@@ -64,15 +65,18 @@ export function InstallApp({ compact = false }: { compact?: boolean }) {
         <Button
           variant="outline"
           size={compact ? 'icon' : 'default'}
-          aria-label={installed ? 'App installed' : 'Install app'}
-          title="Install app"
+          aria-label={installed ? t('App installed') : t('Install app')}
+          title={t('Install app')}
         >
-          {compact ? <Download /> : installed ? 'App installed' : 'Install app'}
+          {compact ? <Download /> : installed ? t('App installed') : t('Install app')}
         </Button>
       </DialogTrigger>
-      <DialogContent title="Install Iris" description="Use Iris as a desktop or Android app.">
+      <DialogContent
+        title={t('Install Iris')}
+        description={t('Use Iris as a desktop or Android app.')}
+      >
         {installed ? (
-          <p>Iris is already running as an installed app.</p>
+          <p>{t('Iris is already running as an installed app.')}</p>
         ) : (
           <>
             {prompt && (
@@ -84,22 +88,25 @@ export function InstallApp({ compact = false }: { compact?: boolean }) {
                   setPrompt(null)
                 }}
               >
-                Install Iris
+                {t('Install Iris')}
               </Button>
             )}
             <p>
-              In Chrome on Android, open the browser menu and choose Add to home screen, then
-              Install. On desktop Chrome, choose Install Iris from the address bar or browser menu.
+              {t(
+                'In Chrome on Android, open the browser menu and choose Add to home screen, then Install. On desktop Chrome, choose Install Iris from the address bar or browser menu.',
+              )}
             </p>
             {!window.isSecureContext && (
               <p>
-                Open Iris through an HTTPS address to enable app installation. This HTTP address may
-                only support a browser shortcut.
+                {t(
+                  'Open Iris through an HTTPS address to enable app installation. This HTTP address may only support a browser shortcut.',
+                )}
               </p>
             )}
             <p>
-              The app needs access to your Iris server. It does not provide background notifications
-              or offline monitoring status.
+              {t(
+                'The app needs access to your Iris server. It does not provide background notifications or offline monitoring status.',
+              )}
             </p>
           </>
         )}

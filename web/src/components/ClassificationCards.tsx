@@ -23,7 +23,7 @@ export function ClassificationCards({
   if (items.length === 0)
     return (
       <p className="rounded-lg border bg-surface p-4 text-sm text-muted-foreground">
-        {emptyReason || 'Not checked yet. Iris classifies new messages within a few seconds.'}
+        {emptyReason || t('Not checked yet. Iris classifies new messages within a few seconds.')}
       </p>
     )
   return (
@@ -31,7 +31,7 @@ export function ClassificationCards({
       {items.map((c) => (
         <div key={c.id} className="flex flex-col gap-3 rounded-lg border bg-surface p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-medium">{STAGE[c.stage] ?? c.stage}</p>
+            <p className="font-medium">{t(STAGE[c.stage] ?? c.stage)}</p>
             <Badge tone={BAND[c.band]?.tone ?? 'neutral'}>{BAND[c.band]?.label ?? c.band}</Badge>
             <span className="ms-auto text-xs text-muted-foreground">
               {c.input_kind}, {c.model}
@@ -43,3 +43,4 @@ export function ClassificationCards({
     </div>
   )
 }
+import { t } from '../lib/i18n'

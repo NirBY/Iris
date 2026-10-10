@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { useMe } from '../lib/auth'
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -115,14 +116,16 @@ export function Alerts() {
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
-        title="Alerts"
-        description="Entering this page marks the displayed alerts read for your account. They remain visible during this visit and move to Seen when you return."
+        title={t('Alerts')}
+        description={t(
+          'Entering this page marks the displayed alerts read for your account. They remain visible during this visit and move to Seen when you return.',
+        )}
         actions={<RevealButton revealed={revealed} onToggle={toggle} />}
       />
 
       {read.isError && (
         <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">
-          Could not mark these alerts read.{' '}
+          {t('Could not mark these alerts read.')}{' '}
           <button
             className="underline"
             onClick={() => {
@@ -130,7 +133,7 @@ export function Alerts() {
               if (ids.length) read.mutate({ ids, key: viewKey })
             }}
           >
-            Retry marking read
+            {t('Retry marking read')}
           </button>
         </p>
       )}
@@ -139,11 +142,11 @@ export function Alerts() {
           role="status"
           className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-warning-soft p-3 text-sm text-warning"
         >
-          Alert delivery is not set up, so alerts are saved here but not sent to your WhatsApp.
+          {t('Alert delivery is not set up, so alerts are saved here but not sent to parents.')}
           {me?.role === 'admin' && (
             <Button asChild variant="link" size="sm" className="h-auto min-h-0 p-0">
-              <Link to="/settings?tab=Alerts">
-                <Settings /> Set up delivery
+              <Link to="/settings?tab=Notifications">
+                <Settings /> {t('Set up delivery')}
               </Link>
             </Button>
           )}
@@ -152,8 +155,9 @@ export function Alerts() {
 
       {media === 'missing' && (
         <p role="status" className="rounded-lg border bg-surface-2 p-3 text-sm">
-          Showing alerts with no saved media copy, including previously read alerts when All is
-          selected. Open an alert to check whether its original is still available through OpenWA.
+          {t(
+            'Showing alerts with no saved media copy, including previously read alerts when All is selected. Open an alert to check whether its original is still available through OpenWA.',
+          )}
         </p>
       )}
       <FilterBar
@@ -161,16 +165,16 @@ export function Alerts() {
         onClear={clear}
         leading={
           <Chips
-            label="View"
+            label={t('View')}
             value={status}
             options={STATUS}
             onChange={(v) => update({ view: v, status: '' })}
           />
         }
       >
-        <Field label="Phone" className="md:w-44">
+        <Field label={t('Phone')} className="md:w-44">
           <Select value={kid} onChange={(e) => update({ instance_id: e.target.value })}>
-            <option value="">All phones</option>
+            <option value="">{t('All phones')}</option>
             {instances?.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.kid_name}
@@ -178,18 +182,18 @@ export function Alerts() {
             ))}
           </Select>
         </Field>
-        <Field label="Category" className="md:w-52">
+        <Field label={t('Category')} className="md:w-52">
           <Select value={category} onChange={(e) => update({ category: e.target.value })}>
-            <option value="">Any category</option>
+            <option value="">{t('Any category')}</option>
             {CATEGORIES.map((c) => (
               <option key={c}>{c}</option>
             ))}
           </Select>
         </Field>
-        <Field label="Media" className="md:w-52">
+        <Field label={t('Media')} className="md:w-52">
           <Select value={media} onChange={(e) => update({ media: e.target.value })}>
-            <option value="">Any media status</option>
-            <option value="missing">No saved media copy</option>
+            <option value="">{t('Any media status')}</option>
+            <option value="missing">{t('No saved media copy')}</option>
           </Select>
         </Field>
       </FilterBar>
@@ -203,9 +207,9 @@ export function Alerts() {
           ))}
         {isError && (
           <li className="p-4 text-sm text-danger" role="alert">
-            Could not load alerts.{' '}
+            {t('Could not load alerts.')}{' '}
             <button className="underline" onClick={() => void refetch()}>
-              Retry
+              {t('Retry')}
             </button>
           </li>
         )}
@@ -217,18 +221,20 @@ export function Alerts() {
             {active > 0 ? (
               <EmptyState
                 icon={BellRing}
-                title="No alerts match these filters"
+                title={t('No alerts match these filters')}
                 action={
                   <Button variant="outline" onClick={clear}>
-                    Clear filters
+                    {t('Clear filters')}
                   </Button>
                 }
               >
-                Try a different status, phone or category.
+                {t('Try a different status, phone or category.')}
               </EmptyState>
             ) : (
-              <EmptyState icon={BellRing} title="No unseen alerts">
-                You have no unread alerts. Choose Seen or All to revisit alerts you already opened.
+              <EmptyState icon={BellRing} title={t('No unseen alerts')}>
+                {t(
+                  'You have no unread alerts. Choose Seen or All to revisit alerts you already opened.',
+                )}
               </EmptyState>
             )}
           </li>
@@ -238,10 +244,13 @@ export function Alerts() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
             {read.isPending
-              ? 'Marking displayed alerts read…'
-              : `${data.items.length} ${data.items.length === 1 ? 'alert' : 'alerts'} marked read for you`}
+              ? t('Marking displayed alerts read…')
+              : t('{value0} {value1} marked read for you', {
+                  value0: data.items.length,
+                  value1: data.items.length === 1 ? t('alert') : t('alerts'),
+                })}
             {data.total > data.items.length
-              ? ` · ${data.total - data.items.length} unread alerts remaining`
+              ? t(' · {value0} unread alerts remaining', { value0: data.total - data.items.length })
               : ''}
           </p>
           {data.total > data.items.length && (
@@ -253,7 +262,7 @@ export function Alerts() {
                 setVisit((value) => value + 1)
               }}
             >
-              Next unread alerts
+              {t('Next unread alerts')}
             </Button>
           )}
         </div>
