@@ -298,11 +298,12 @@ async def test_new_openwa_qr_replaces_old_code_without_restart(app_client: Any) 
     assert mocked["start"].call_count == 1
 
 
-async def test_cleanup_retries_after_database_failure(app_client: Any, monkeypatch: Any) -> None:
+async def test_cleanup_retries_after_database_failure(app_client: Any) -> None:
     import pytest
 
     calls = 0
     sleeps = 0
+    real_sleep = asyncio.sleep
     factory = app_client.app.state.session_factory
 
     def flaky_factory() -> Any:
@@ -318,9 +319,10 @@ async def test_cleanup_retries_after_database_failure(app_client: Any, monkeypat
         if sleeps == 2:
             raise asyncio.CancelledError
 
-    monkeypatch.setattr(pairing.asyncio, "sleep", sleep)
     with pytest.raises(asyncio.CancelledError):
-        await pairing.cleanup_loop(flaky_factory)
+        await pairing.cleanup_loop(flaky_factory, sleep=sleep)
+    assert asyncio.sleep is real_sleep
+    assert sleeps == 2
     assert calls >= 2  # configuration and durable run history use additional sessions
     from app.db.models import ScheduleRun
 

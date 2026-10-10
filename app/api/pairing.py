@@ -8,7 +8,7 @@ import json
 import re
 import secrets
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
@@ -436,7 +436,11 @@ async def cleanup_once(factory: async_sessionmaker[AsyncSession]) -> None:
                 await _remove(db, row, data, cfg)
 
 
-async def cleanup_loop(factory: async_sessionmaker[AsyncSession]) -> None:
+async def cleanup_loop(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> None:
     from app.schedules import schedule_config, tracked
 
     while True:
@@ -449,4 +453,4 @@ async def cleanup_loop(factory: async_sessionmaker[AsyncSession]) -> None:
                 await tracked(factory, "pairing_cleanup", lambda: cleanup_once(factory))
         except Exception:
             logger.exception("pairing cleanup pass failed; retrying")
-        await asyncio.sleep(interval)
+        await sleep(interval)
