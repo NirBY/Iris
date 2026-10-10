@@ -212,9 +212,9 @@ async def delivery_readiness(
                 reason = "WhatsApp number is not approved. Approve the current number in Users."
         elif channel == "smtp":
             destination = (
-                contact.get("email")
-                or (user.email if user else None)
-                or (target[6:] if target.startswith("email:") else None)
+                user.email
+                if user
+                else contact.get("email") or (target[6:] if target.startswith("email:") else None)
             )
             owner = by_target.get("email:" + destination.lower()) if destination else None
             if not destination:

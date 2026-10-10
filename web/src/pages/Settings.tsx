@@ -286,8 +286,10 @@ function TestButton({
   target,
   body,
   label = 'Test',
+  disabled = false,
 }: {
   label?: string
+  disabled?: boolean
   target: string
   body: Record<string, unknown>
 }) {
@@ -300,7 +302,7 @@ function TestButton({
   })
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending}>
+      <Button variant="outline" onClick={() => test.mutate()} disabled={disabled || test.isPending}>
         {test.isPending && <Loader2 className="animate-spin" />}{' '}
         {test.isPending ? 'Testing' : label}
       </Button>
@@ -1009,8 +1011,8 @@ export function Settings() {
 
           <TabsContent value="Notifications" className="flex flex-col gap-5">
             <Section
-              title="Alert delivery"
-              description="Choose one alert channel. Child assignments apply to every channel. Sign-in codes have their own choice below."
+              title="Parent alert delivery"
+              description="Choose how alerts are sent, then choose the parents who receive them. One channel applies to all selected parents. Sign-in codes have their own choice below."
             >
               <Field label="Send parent alerts using">
                 <Select
@@ -1040,6 +1042,39 @@ export function Settings() {
                     onClear={() => void save({ 'alerts.telegram_bot_token': null })}
                   />
                 </Field>
+              )}
+              <ParentConnections
+                channel={get('alerts.channel') || 'openwa'}
+                showSender={!get('alerts.channel') || get('alerts.channel') === 'openwa'}
+              />
+              {(!get('alerts.channel') || get('alerts.channel') === 'openwa') && (
+                <Field label="OpenWA sender phone">
+                  <Select
+                    value={get('alerts.sender_instance_id')}
+                    onChange={(e) => set('alerts.sender_instance_id')(e.target.value)}
+                  >
+                    <option value="">Not set</option>
+                    {instances?.map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.kid_name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+              <TestButton
+                target="alert"
+                label="Test parent alert delivery"
+                disabled={edit['alerts.channel'] !== undefined}
+                body={{
+                  sender_instance_id: get('alerts.sender_instance_id') || undefined,
+                  recipient: get('alerts.recipient') || undefined,
+                }}
+              />
+              {edit['alerts.channel'] !== undefined && (
+                <p role="status" className="text-sm text-muted-foreground">
+                  Save changes to apply this channel before testing alert delivery.
+                </p>
               )}
             </Section>
             <Section
@@ -1108,34 +1143,6 @@ export function Settings() {
               >
                 Recover missed messages now
               </Button>
-            </Section>
-            <ParentConnections
-              showSender={!get('alerts.channel') || get('alerts.channel') === 'openwa'}
-            />
-            <Section
-              title="Where alerts go"
-              description="OpenWA uses a linked sender phone. Telegram and email use the parent destinations below; GreenAPI uses the configured account."
-            >
-              <Field label="OpenWA sender phone">
-                <Select
-                  value={get('alerts.sender_instance_id')}
-                  onChange={(e) => set('alerts.sender_instance_id')(e.target.value)}
-                >
-                  <option value="">Not set</option>
-                  {instances?.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.kid_name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <TestButton
-                target="alert"
-                body={{
-                  sender_instance_id: get('alerts.sender_instance_id') || undefined,
-                  recipient: get('alerts.recipient') || undefined,
-                }}
-              />
             </Section>
             <Section title="Frequency and timing">
               <Field

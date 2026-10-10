@@ -642,7 +642,9 @@ export function AddPhone({ defaultRole = 'child' }: { defaultRole?: 'child' | 'p
   )
 }
 
-function ParentRecipients() {
+type AlertChannel = 'openwa' | 'greenapi' | 'smtp' | 'telegram'
+
+function ParentRecipients({ channel }: { channel?: string }) {
   const qc = useQueryClient()
   const accounts = useQuery({
     queryKey: ['users'],
@@ -654,11 +656,12 @@ function ParentRecipients() {
           role: string
           email: string | null
           email_verified: boolean
+          whatsapp_number: string | null
         }[]
       >('/api/users'),
   })
-  const emailParents = Array.isArray(accounts.data)
-    ? accounts.data.filter((user) => user.role !== 'watch' && user.email && user.email_verified)
+  const registeredParents = Array.isArray(accounts.data)
+    ? accounts.data.filter((user) => user.role !== 'watch' && (user.email || user.whatsapp_number))
     : []
   const { data } = useQuery({
     queryKey: ['settings'],
@@ -668,6 +671,7 @@ function ParentRecipients() {
     queryKey: ['instances'],
     queryFn: () => api<Instance[]>('/api/instances'),
   })
+  const selectedChannel = channel ?? (data?.['alerts.channel'] as AlertChannel) ?? 'openwa'
   const contacts = (data?.['alerts.recipient_contacts'] ?? {}) as Record<
     string,
     { email?: string; telegram_chat_id?: string }
@@ -743,11 +747,17 @@ function ParentRecipients() {
         Choose which children each parent receives alerts for. All children is the default.
         Selecting no children pauses alerts for that parent. Up to ten recipients.
       </p>
+      <p className="text-sm text-muted-foreground">
+        The channel selected in Alert delivery applies to every recipient.
+        {selectedChannel === 'smtp' && ' Email alerts use the email saved in Users.'}
+        {selectedChannel === 'telegram' &&
+          ' Set the private or group Telegram chat ID for each recipient below.'}
+      </p>
       <ul className="flex flex-col gap-2">
         {targets.map((target) => (
           <li
             key={target}
-            className="grid min-w-0 gap-3 rounded-md border p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-center"
+            className={`grid min-w-0 gap-3 rounded-md border p-3 lg:items-center ${selectedChannel === 'telegram' ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'}`}
           >
             <span dir="ltr" className="break-all">
               {/^\d+$/.test(target) ? `+${target}` : target}
@@ -790,54 +800,39 @@ function ParentRecipients() {
                     </label>
                   ))}
             </div>
-            <div className="grid min-w-0 gap-2">
-              <Input
-                type="email"
-                aria-label={`Email for ${target}`}
-                placeholder="Parent email for alerts"
-                value={
-                  (contactDrafts[canonical(target)] ?? contacts[canonical(target)])?.email ?? ''
-                }
-                onChange={(e) =>
-                  setContactDrafts({
-                    ...contactDrafts,
-                    [canonical(target)]: {
-                      ...(contactDrafts[canonical(target)] ?? contacts[canonical(target)]),
-                      email: e.target.value,
-                    },
-                  })
-                }
-              />
-              <Input
-                aria-label={`Telegram chat ID for ${target}`}
-                placeholder="Individual or group Telegram chat ID"
-                value={
-                  (contactDrafts[canonical(target)] ?? contacts[canonical(target)])
-                    ?.telegram_chat_id ?? ''
-                }
-                onChange={(e) =>
-                  setContactDrafts({
-                    ...contactDrafts,
-                    [canonical(target)]: {
-                      ...(contactDrafts[canonical(target)] ?? contacts[canonical(target)]),
-                      telegram_chat_id: e.target.value,
-                    },
-                  })
-                }
-              />
-              <Button
-                variant="outline"
-                disabled={!contactDrafts[canonical(target)] || contactSave.isPending}
-                onClick={() =>
-                  contactSave.mutate({
-                    ...contacts,
-                    [canonical(target)]: contactDrafts[canonical(target)],
-                  })
-                }
-              >
-                Save destinations
-              </Button>
-            </div>
+            {selectedChannel === 'telegram' && (
+              <div className="grid min-w-0 gap-2">
+                <Input
+                  aria-label={`Telegram chat ID for ${target}`}
+                  placeholder="Individual or group Telegram chat ID"
+                  value={
+                    (contactDrafts[canonical(target)] ?? contacts[canonical(target)])
+                      ?.telegram_chat_id ?? ''
+                  }
+                  onChange={(e) =>
+                    setContactDrafts({
+                      ...contactDrafts,
+                      [canonical(target)]: {
+                        ...(contactDrafts[canonical(target)] ?? contacts[canonical(target)]),
+                        telegram_chat_id: e.target.value,
+                      },
+                    })
+                  }
+                />
+                <Button
+                  variant="outline"
+                  disabled={!contactDrafts[canonical(target)] || contactSave.isPending}
+                  onClick={() =>
+                    contactSave.mutate({
+                      ...contacts,
+                      [canonical(target)]: contactDrafts[canonical(target)],
+                    })
+                  }
+                >
+                  Save Telegram destination
+                </Button>
+              </div>
+            )}
             <Button
               variant="outline"
               onClick={() => change.mutate(targets.filter((value) => value !== target).join(', '))}
@@ -849,13 +844,13 @@ function ParentRecipients() {
         ))}
       </ul>
       {!targets.length && <p>No parent recipients yet.</p>}
-      {emailParents.length > 0 && (
+      {registeredParents.length > 0 && (
         <Field
-          label="Add a registered parent by email"
-          hint="Use their approved email without a WhatsApp number."
+          label="Choose a parent"
+          hint="Select their Iris account. Alert delivery selects the channel; WhatsApp alerts use their number saved in Users."
         >
           <Select
-            aria-label="Add a registered parent by email"
+            aria-label="Choose a parent"
             value=""
             disabled={change.isPending}
             onChange={(event) => {
@@ -863,13 +858,17 @@ function ParentRecipients() {
             }}
           >
             <option value="">Choose a parent…</option>
-            {emailParents.map((user) => (
+            {registeredParents.map((user) => (
               <option
                 key={user.id}
-                value={user.email!}
-                disabled={targets.some((target) => canonical(target) === canonical(user.email!))}
+                value={user.email || user.whatsapp_number!}
+                disabled={targets.some((target) =>
+                  [user.email, user.whatsapp_number].some(
+                    (contact) => contact && canonical(target) === canonical(contact),
+                  ),
+                )}
               >
-                {user.username} — {user.email}
+                {user.username}
               </option>
             ))}
           </Select>
@@ -885,7 +884,7 @@ function ParentRecipients() {
         <Field
           label="Parent number, email or WhatsApp group ID"
           className="w-full max-w-sm"
-          hint="Enter a parent email, an international phone number, or a WhatsApp group ID ending in @g.us. Telegram and email destinations are saved per parent above."
+          hint="Select a parent by their email or phone number, or add a WhatsApp group ID ending in @g.us. Alert delivery determines the channel."
         >
           <Input
             aria-label="Parent phone number"
@@ -911,7 +910,13 @@ function ParentRecipients() {
   )
 }
 
-export function ParentConnections({ showSender = true }: { showSender?: boolean }) {
+export function ParentConnections({
+  showSender = true,
+  channel,
+}: {
+  showSender?: boolean
+  channel?: string
+}) {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['instances'],
     queryFn: () => api<Instance[]>('/api/instances'),
@@ -923,10 +928,10 @@ export function ParentConnections({ showSender = true }: { showSender?: boolean 
   })
   const senderId = Number(alertSettings?.['alerts.sender_instance_id'])
   const parents = data?.filter((phone) => phone.role === 'parent' || phone.id === senderId)
-  if (!showSender) return <ParentRecipients />
+  if (!showSender) return <ParentRecipients channel={channel} />
   return (
     <div className="flex flex-col gap-4">
-      <ParentRecipients />
+      <ParentRecipients channel={channel} />
       <h2 className="text-lg font-semibold">Alert sender connections</h2>
       <p className="text-sm text-muted-foreground">
         One connected WhatsApp number sends alerts to all parent recipients. Sender connections are

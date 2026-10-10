@@ -333,6 +333,18 @@ async def test_smtp_user_approval_and_provider_both_required(app_client: Any) ->
         await c.put("/api/settings", json={"settings": {"alerts.channel": "smtp"}})
     ).status_code == 422
     await provider(c, CONFIG_KEY)
+    # Old destination overrides must not replace a registered parent's profile email.
+    override = await c.put(
+        "/api/settings",
+        json={
+            "settings": {
+                "alerts.recipient_contacts": {
+                    "parent@example.com": {"email": "obsolete@example.com"}
+                }
+            }
+        },
+    )
+    assert override.status_code == 200
     assert (
         await c.put("/api/settings", json={"settings": {"alerts.channel": "smtp"}})
     ).status_code == 200
