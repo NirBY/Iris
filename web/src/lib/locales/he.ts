@@ -1,5 +1,7 @@
 /** UI translations; message content, credentials, API values and URLs are never translated. */
 export const hebrew: Record<string, string> = {
+  'source available': 'המקור זמין',
+  'source changed or unavailable': 'המקור השתנה או אינו זמין',
   'Learning sharing consent': 'אישור שיתוף לצורכי למידה',
   'Sharing is off by default and requires your explicit approval. Only reviewed synthetic contributions may be shared. Messages, contacts and private reviews are excluded. This preference does not upload anything automatically.':
     'השיתוף כבוי כברירת מחדל ודורש אישור מפורש שלך. ניתן לשתף רק תרומות סינתטיות שנבדקו. הודעות, אנשי קשר ומשוב פרטי אינם נכללים. הגדרה זו אינה מעלה דבר באופן אוטומטי.',
