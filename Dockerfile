@@ -4,6 +4,8 @@ WORKDIR /src/web
 COPY web/package*.json ./
 RUN npm ci
 COPY web/ ./
+# The frontend and backend share the supported language definitions.
+COPY app/assets/ui-languages.json /src/app/assets/ui-languages.json
 # Vite outDir is ../app/static
 RUN npm run build
 
