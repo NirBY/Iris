@@ -581,6 +581,19 @@ test('provider groups switch between AI and delivery without mixing their creden
   expect(screen.getByLabelText('Classification provider')).toBeVisible()
 })
 
+test('Telegram connection test explains a missing token and does not require a phone', async () => {
+  const calls = renderPage({ ...settings, 'alerts.telegram_bot_token': { set: true } })
+  await userEvent.click(await screen.findByRole('tab', { name: 'Notification providers' }))
+  const test = screen.getByRole('button', { name: 'Test Telegram connection' })
+  expect(test).toBeEnabled()
+  await userEvent.click(test)
+  expect(calls.some((call) => call.url === '/api/settings/test/telegram')).toBe(true)
+  expect(screen.getByText(/No phone number is required/)).toBeVisible()
+  await userEvent.type(screen.getByLabelText(/Telegram bot token/), 'unsaved-token')
+  expect(test).toBeDisabled()
+  expect(screen.getByText('Save the Telegram bot token before testing.')).toBeVisible()
+})
+
 test('provider notification frequency saves a number and check frequency opens schedules', async () => {
   const calls = renderPage({ ...settings, 'alerts.provider_notification_minutes': 60 })
   await userEvent.click(await screen.findByRole('button', { name: 'Provider monitoring' }))

@@ -16,6 +16,27 @@ async def test_defaults_and_secret_reported_as_set_flag(app_client: Any) -> None
     assert s["openai.api_key"] == {"set": False}
 
 
+async def test_telegram_connection_without_phone_and_safe_errors(app_client: Any) -> None:
+    import httpx
+    import respx
+
+    missing = await app_client.post("/api/settings/test/telegram", json={})
+    assert missing.json()["ok"] is False
+    token = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ123456789"
+    await app_client.put("/api/settings", json={"settings": {"alerts.telegram_bot_token": token}})
+    with respx.mock:
+        route = respx.get(f"https://api.telegram.org/bot{token}/getMe").mock(
+            return_value=httpx.Response(200, json={"ok": True, "result": {"is_bot": True}})
+        )
+        assert (await app_client.post("/api/settings/test/telegram", json={})).json()["ok"]
+        route.mock(return_value=httpx.Response(401, json={"ok": False}))
+        failed = await app_client.post("/api/settings/test/telegram", json={})
+        assert not failed.json()["ok"] and token not in failed.text
+        route.mock(side_effect=httpx.ReadTimeout(token))
+        failed = await app_client.post("/api/settings/test/telegram", json={})
+        assert not failed.json()["ok"] and token not in failed.text
+
+
 async def test_secret_is_encrypted_write_only_and_round_trips(app_client: Any) -> None:
     r = await app_client.put("/api/settings", json={"settings": {"openai.api_key": "sk-live-123"}})
     assert r.status_code == 200 and r.json()["openai.api_key"] == {"set": True}

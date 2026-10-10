@@ -339,6 +339,7 @@ async def test_provider(
         "openai",
         "cloudflare",
         "alert",
+        "telegram",
         "media",
         "ollama",
         "ollama_image",
@@ -351,6 +352,21 @@ async def test_provider(
 ) -> TestResult:
     body = body or TestRequest()
     try:
+        if target == "telegram":
+            token = await get_secret(db, "alerts.telegram_bot_token", cfg.key_bytes)
+            if not token:
+                return TestResult(ok=False, detail="Save the Telegram bot token before testing.")
+            async with httpx.AsyncClient(timeout=15, follow_redirects=False) as telegram_client:
+                response = await telegram_client.get(f"https://api.telegram.org/bot{token}/getMe")
+                if response.status_code != 200 or not response.json().get("ok"):
+                    return TestResult(
+                        ok=False, detail="Telegram connection failed. Check the bot token."
+                    )
+            return TestResult(
+                ok=True,
+                detail="Telegram bot connection verified. "
+                "Sending messages requires a recipient chat ID.",
+            )
         if target in ("ollama", "ollama_image", "ollama_embedding"):
             if cfg.classification_provider != "ollama" and not body.base_url:
                 return TestResult(ok=False, detail="Ollama is not enabled")
@@ -478,6 +494,8 @@ async def test_provider(
     except (PermanentError, TransientError) as exc:
         return TestResult(ok=False, detail=str(exc))  # messages are static, never secrets
     except (httpx.HTTPError, ValueError, AttributeError):
+        if target == "telegram":
+            return TestResult(ok=False, detail="Telegram connection failed. Check the bot token.")
         return TestResult(ok=False, detail="Local provider unreachable or returned invalid output")
 
 

@@ -1013,6 +1013,24 @@ export function Settings() {
                     >
                       {translate('Save Telegram connection')}
                     </Button>
+                    <TestButton
+                      target="telegram"
+                      body={{}}
+                      label="Test Telegram connection"
+                      disabled={
+                        saving ||
+                        !data['alerts.telegram_bot_token']?.set ||
+                        edit['alerts.telegram_bot_token'] !== undefined
+                      }
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      {translate(
+                        !data['alerts.telegram_bot_token']?.set ||
+                          edit['alerts.telegram_bot_token'] !== undefined
+                          ? 'Save the Telegram bot token before testing.'
+                          : 'The connection test checks the bot. No phone number is required. Sending messages requires a recipient chat ID in Notifications.',
+                      )}
+                    </p>
                   </Section>
                   <Section
                     collapsible

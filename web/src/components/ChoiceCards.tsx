@@ -10,7 +10,7 @@ export function ChoiceCards({
 }: {
   label: string
   value: string
-  options: { value: string; label: string; disabled?: boolean }[]
+  options: { value: string; label: string; displayLabel?: string; disabled?: boolean }[]
   onChange: (value: string) => void
   disabled?: boolean
 }) {
@@ -18,7 +18,7 @@ export function ChoiceCards({
   return (
     <fieldset disabled={disabled} className="min-w-0" aria-label={t(label)}>
       <legend className="mb-2 text-sm font-medium">{t(label)}</legend>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-2">
         {options.map((option) => (
           <label
             key={option.value}
@@ -26,6 +26,7 @@ export function ChoiceCards({
           >
             <input
               type="radio"
+              aria-label={t(option.label)}
               name={name}
               value={option.value}
               checked={value === option.value}
@@ -33,7 +34,7 @@ export function ChoiceCards({
               onChange={() => onChange(option.value)}
               className="size-4 shrink-0 accent-primary"
             />
-            <span className="min-w-0 break-words">{t(option.label)}</span>
+            <span className="min-w-0">{t(option.displayLabel ?? option.label)}</span>
           </label>
         ))}
       </div>

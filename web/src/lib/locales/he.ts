@@ -1,5 +1,14 @@
 /** UI translations; message content, credentials, API values and URLs are never translated. */
 export const hebrew: Record<string, string> = {
+  'Email · SMTP': 'דוא״ל · SMTP',
+  'Test Telegram connection': 'בדיקת חיבור Telegram',
+  'Save the Telegram bot token before testing.': 'יש לשמור את אסימון הבוט של Telegram לפני הבדיקה.',
+  'Telegram connection failed. Check the bot token.':
+    'חיבור Telegram נכשל. יש לבדוק את אסימון הבוט.',
+  'Telegram bot connection verified. Sending messages requires a recipient chat ID.':
+    'חיבור הבוט של Telegram תקין. לשליחת הודעות נדרש מזהה צ׳אט של נמען.',
+  'The connection test checks the bot. No phone number is required. Sending messages requires a recipient chat ID in Notifications.':
+    'הבדיקה בודקת את חיבור הבוט. אין צורך במספר טלפון. לשליחת הודעות יש להגדיר מזהה צ׳אט של נמען בהתראות.',
   'Check setup': 'בדיקת ההגדרות',
   'See why': 'בירור התקלה',
   'See alerts': 'הצגת ההתראות',

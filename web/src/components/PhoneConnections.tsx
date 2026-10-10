@@ -907,7 +907,7 @@ function ParentRecipients({ channel }: { channel?: string }) {
         {targets.map((target) => (
           <li
             key={target}
-            className="grid min-w-0 gap-3 rounded-md border p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-start"
+            className="grid min-w-0 gap-4 rounded-lg border p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start"
           >
             <ParentDestination
               target={target}
@@ -916,7 +916,7 @@ function ParentRecipients({ channel }: { channel?: string }) {
                 (recipient) => recipient.target === canonical(target),
               )}
             />
-            <div className="flex min-w-0 flex-col gap-2">
+            <div className="flex min-w-0 flex-col gap-2 lg:col-span-2 lg:row-start-2">
               <AlertChannelPicker
                 options={channelOptions.data}
                 target={canonical(target)}

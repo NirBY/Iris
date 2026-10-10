@@ -60,6 +60,12 @@ export function AlertChannelPicker({
           ...available.map((option) => ({
             value: option.channel,
             label: t(ALERT_CHANNEL_LABELS[option.channel]),
+            displayLabel:
+              option.channel === 'smtp'
+                ? t('Email · SMTP')
+                : option.channel === 'telegram'
+                  ? 'Telegram'
+                  : `WhatsApp · ${option.channel === 'greenapi' ? 'GreenAPI' : 'OpenWA'}`,
           })),
         ]}
       />
