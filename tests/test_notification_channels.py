@@ -62,6 +62,33 @@ async def test_greenapi_supports_group_destinations():
     }
 
 
+@respx.mock
+async def test_greenapi_iris_preview_contains_local_logo_and_last_signed_link(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "app.alerts.channels.get_settings",
+        lambda: SimpleNamespace(public_base_url="https://iris.example"),
+    )
+    client = ChannelClient(
+        "greenapi",
+        None,
+        {"api_url": "https://api.green-api.com", "instance_id": "123", "token": "testtoken"},
+        {},
+        b"k" * 32,
+    )
+    route = respx.post("https://api.green-api.com/waInstance123/sendMessage/testtoken").respond(
+        200, json={"idMessage": "sent"}
+    )
+    text = "Server: https://iris.example\nOpen: https://iris.example/?iris_notice=signed"
+    await client.send_text("", "12345@g.us", text)
+    body = json.loads(route.calls.last.request.content)
+    assert body["message"] == text
+    assert body["customPreview"]["title"] == "Iris"
+    assert body["customPreview"]["link"] == "https://iris.example/?iris_notice=signed"
+    assert body["customPreview"]["jpegThumbnail"].startswith("/9j/")
+
+
 async def test_smtp_alert_is_email_not_an_otp(monkeypatch):
     send = Mock()
     monkeypatch.setattr("app.alerts.channels.send_email", send)

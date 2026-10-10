@@ -1,11 +1,15 @@
 """Alert transports share recipient checkpoints, while authentication keeps its own lane."""
 
 import asyncio
+import base64
 import logging
+import re
 import smtplib
 import ssl
 from email.message import EmailMessage
+from functools import lru_cache
 from html import escape
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -18,6 +22,15 @@ from app.openwa.client import OpenWAClient, OpenWAError
 from app.security.crypto import decrypt
 from app.security.two_factor import green_api_config, smtp_config
 from app.settings_store import get_secret, get_setting
+
+
+@lru_cache(maxsize=1)
+def _preview_thumbnail() -> str | None:
+    try:
+        preview = Path(__file__).resolve().parents[1] / "assets" / "iris-preview.jpg"
+        return base64.b64encode(preview.read_bytes()).decode("ascii")
+    except OSError:
+        return None
 
 
 class _CredentialURLFilter(logging.Filter):
@@ -168,6 +181,33 @@ class ChannelClient:
                 f"/sendMessage/{self.config['token']}"
             )
             body = {"chatId": target, "message": text}
+            # Include the thumbnail in the request: private Iris hosts cannot be
+            # fetched by WhatsApp's public preview crawler.
+            iris_base = get_settings().public_base_url.rstrip("/")
+            links = re.findall(r"https?://[^\s<>]+", text)
+            iris_link = next(
+                (
+                    link
+                    for link in reversed(links)
+                    if link == iris_base or link.startswith(iris_base + "/")
+                ),
+                None,
+            )
+            if iris_link and not self.buttons:
+                thumbnail = await asyncio.to_thread(_preview_thumbnail)
+                if thumbnail:
+                    body.update(
+                        {
+                            "linkPreview": True,
+                            "typePreview": "small",
+                            "customPreview": {
+                                "title": "Iris",
+                                "description": "Open Iris to review your alerts securely.",
+                                "link": iris_link,
+                                "jpegThumbnail": thumbnail,
+                            },
+                        }
+                    )
             if self.buttons:
                 url = url.replace("/sendMessage/", "/sendInteractiveButtonsReply/")
                 body = {

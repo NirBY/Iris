@@ -278,6 +278,7 @@ async def poll(factory: Any) -> dict[str, Any]:
         }
         channels = set(await db.scalars(select(AlertAction.channel).distinct()))
         processed = 0
+        issues = []
         async with httpx.AsyncClient(timeout=15, follow_redirects=False) as client:
             for channel in ("telegram", "greenapi"):
                 config = configs[channel]
@@ -340,10 +341,11 @@ async def poll(factory: Any) -> dict[str, Any]:
                 if channel == "telegram":
                     info = await call("getWebhookInfo")
                     if info.get("url"):
-                        raise RuntimeError(
+                        issues.append(
                             "Telegram bot has a webhook. Use a dedicated bot with no webhook "
                             "for Iris response polling."
                         )
+                        continue
                     state_key = "internal.review_offset." + provider_key(channel, config)
                     state = await db.get(Setting, state_key)
                     offset = state.value if state else 0
@@ -384,16 +386,18 @@ async def poll(factory: Any) -> dict[str, Any]:
                 else:
                     info = await call("getSettings", verb="GET")
                     if info.get("webhookUrl"):
-                        raise RuntimeError(
+                        issues.append(
                             "GreenAPI instance has a webhook. Use a dedicated instance "
                             "with no webhook "
                             "for Iris response polling."
                         )
+                        continue
                     if info.get("incomingWebhook") != "yes":
-                        raise RuntimeError(
+                        issues.append(
                             "Enable GreenAPI incoming message notifications "
                             "to receive review button responses."
                         )
+                        continue
                     for _ in range(50):
                         notification = await call("receiveNotification", verb="GET")
                         if not notification:
@@ -422,4 +426,4 @@ async def poll(factory: Any) -> dict[str, Any]:
                             {"receiptId": notification["receiptId"]},
                             verb="DELETE",
                         )
-        return {"responses_checked": processed}
+        return {"responses_checked": processed, **({"issues": issues} if issues else {})}

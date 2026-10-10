@@ -249,3 +249,34 @@ async def test_green_poll_acknowledges_after_commit_and_replay_is_a_noop(app_cli
     await poll(factory)
     await poll(factory)
     assert deletion.call_count == 2
+
+
+@respx.mock
+async def test_green_webhook_conflict_is_reported_without_polling_or_crashing(
+    app_client: Any,
+) -> None:
+    import json
+
+    from app.db.models import Setting
+    from app.security.crypto import encrypt
+
+    _, aid = await sample(app_client)
+    factory = app_client.app.state.session_factory
+    config = {
+        "api_url": "https://green.test",
+        "instance_id": "1",
+        "token": "secret",
+        "verified": True,
+    }
+    async with factory() as db:
+        db.add(Setting(key="security.green_api", value=encrypt(b"k" * 32, json.dumps(config))))
+        await db.commit()
+        await buttons(db, aid, TARGET, "greenapi", TARGET, config)
+    respx.get("https://green.test/waInstance1/getSettings/secret").respond(
+        200, json={"incomingWebhook": "yes", "webhookUrl": "https://existing.example/webhook"}
+    )
+    result = await poll(factory)
+    assert result["responses_checked"] == 0
+    assert "webhook" in result["issues"][0]
+    assert all("receiveNotification" not in str(call.request.url) for call in respx.calls)
+    assert all(call.request.method == "GET" for call in respx.calls)

@@ -169,6 +169,8 @@ async def tracked(
         status, result, error, trace = "success", None, None, None
         try:
             result = await callback()
+            if key == "review_responses" and result.get("issues"):
+                status, error = "partial", " ".join(result["issues"])
             if key == "openwa_recovery" and result.get("errors"):
                 status = "partial"
                 error = (
