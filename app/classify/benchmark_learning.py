@@ -15,6 +15,8 @@ from sqlalchemy import select
 from app.classify.learning import content_hash, eligible, select_examples
 from app.classify.ollama import OllamaModerator
 from app.classify.pipeline import run_pipeline
+from app.classify.prompt import prompt_fingerprint
+from app.classify.quality import QUALITY_POLICY
 from app.classify.stages import StageContext
 from app.classify.thresholds import effective_thresholds
 from app.config import get_settings
@@ -54,14 +56,16 @@ async def evaluate(limit: int, strategy: str | None = None, *, emit: bool = True
             client = OllamaModerator(cfg.ollama_base_url, cfg.ollama_model)
             chats = list((await db.execute(select(Chat.id, Chat.wa_chat_id))).all())
             excluded = {cid for cid, wa_id in chats if test_chat(wa_id)}
-            rows = await db.execute(
-                select(Message, ReviewFeedback, LearningExample)
-                .join(ReviewFeedback, ReviewFeedback.message_id == Message.id)
-                .join(LearningExample, LearningExample.message_id == Message.id)
-                .where(Message.chat_id.in_(excluded), LearningExample.enabled.is_(True))
-                .order_by(Message.sent_at, Message.id)
-                .limit(limit)
-            )
+            rows = (
+                await db.execute(
+                    select(Message, ReviewFeedback, LearningExample)
+                    .join(ReviewFeedback, ReviewFeedback.message_id == Message.id)
+                    .join(LearningExample, LearningExample.message_id == Message.id)
+                    .where(Message.chat_id.in_(excluded), LearningExample.enabled.is_(True))
+                    .order_by(Message.sent_at, Message.id)
+                    .limit(limit)
+                )
+            ).all()
             ctx = StageContext(
                 db=db,
                 moderator=client,
@@ -124,6 +128,7 @@ async def evaluate(limit: int, strategy: str | None = None, *, emit: bool = True
                     continue
                 evaluated.append(
                     {
+                        "conversation": message.chat_id,
                         "human": feedback.verdict,
                         "baseline": baseline.verdict,
                         "candidate": candidate.verdict,
@@ -160,15 +165,20 @@ async def evaluate(limit: int, strategy: str | None = None, *, emit: bool = True
                         indent=2,
                     )
                 )
-            from app.classify.evaluation import metrics, promotion_gate
+            from app.classify.quality import metrics, paired_comparison, promotion_gate
 
             report = {
                 "source": "held_out_human_reviews",
+                "quality_policy": QUALITY_POLICY,
+                "prompt_sha256": prompt_fingerprint(),
                 "model": cfg.ollama_model,
                 "evaluated": len(evaluated),
+                "expected": len(rows) - skipped,
+                "pending": max(0, len(rows) - skipped - failures - len(evaluated)),
                 "failures": failures,
                 "baseline": metrics(evaluated, "baseline"),
                 "candidate": metrics(evaluated, "candidate"),
+                "paired": paired_comparison(evaluated, unit="conversation"),
                 "retrieval_matches": matched,
                 "embedding_fallbacks": fallbacks,
                 "split": "Whole conversations held out; no messages or identifiers exported",

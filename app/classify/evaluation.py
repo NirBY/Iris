@@ -8,6 +8,8 @@ from typing import Any
 
 from app.classify.community import guidance, load_pack, public_manifest
 from app.classify.ollama import OllamaModerator
+from app.classify.prompt import prompt_fingerprint
+from app.classify.quality import QUALITY_POLICY, paired_comparison
 from app.classify.quality import metrics as metrics
 from app.classify.quality import promotion_gate as promotion_gate
 from app.classify.thresholds import DEFAULT_THRESHOLDS, band_for
@@ -83,6 +85,8 @@ async def evaluate_community(
             failures = len(pack["evaluation"]) - len(rows) - pending
         report: dict[str, Any] = {
             "source": "synthetic",
+            "quality_policy": QUALITY_POLICY,
+            "prompt_sha256": prompt_fingerprint(),
             "model": model,
             "pack": public_manifest(),
             "checked_at": datetime.now(UTC).isoformat(),
@@ -94,6 +98,7 @@ async def evaluate_community(
             "latency_ms": int((time.monotonic() - started) * 1000),
             "baseline": metrics(rows, "baseline"),
             "candidate": metrics(rows, "candidate"),
+            "paired": paired_comparison(rows),
             "languages": {
                 lang: {
                     field: metrics([r for r in rows if r["language"] == lang], field)
@@ -143,7 +148,11 @@ async def evaluate_job(job: ClaimedJob, deps: Deps) -> None:
         else:
             fingerprint = hashlib.sha256(
                 (
-                    cfg.ollama_model + cfg.ollama_base_url + str(public_manifest()) + "eval-v2"
+                    cfg.ollama_model
+                    + cfg.ollama_base_url
+                    + str(public_manifest())
+                    + prompt_fingerprint()
+                    + QUALITY_POLICY
                 ).encode()
             ).hexdigest()
             checkpoint = job.payload.get("evaluation_checkpoint", {})

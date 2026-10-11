@@ -1,7 +1,7 @@
 /** UI translations; message content, credentials, API values and URLs are never translated. */
 export const hebrew: Record<string, string> = {
-  'This report uses an older reference pack. Run a new evaluation.':
-    'הדוח מבוסס על חבילת דוגמאות ישנה. יש להריץ בדיקה חדשה.',
+  'This report uses an older reference pack or evaluation policy. Run a new evaluation.':
+    'הדוח מבוסס על חבילת דוגמאות או מדיניות בדיקה ישנה. יש להריץ בדיקה חדשה.',
   'Quiet hours': 'שעות שקטות',
   'Parent notifications': 'התראות להורים',
   'Enable quiet hours': 'הפעלת שעות שקטות',
@@ -49,6 +49,20 @@ export const hebrew: Record<string, string> = {
   'Candidate precision and harmful detection must both reach 95 percent.':
     'הדיוק וזיהוי התוכן המזיק של הגרסה המוצעת צריכים להגיע שניהם ל־95 אחוזים.',
   'Learning evaluation requires Ollama.': 'הערכת למידה דורשת חיבור Ollama.',
+  'Both models must evaluate the same paired human labels.':
+    'שני המודלים צריכים להיבדק מול אותן החלטות אנושיות.',
+  'All eligible evaluation cases must be completed.': 'יש להשלים את כל מקרי הבדיקה המתאימים.',
+  'The candidate increases manual review workload.': 'הגרסה המוצעת מוסיפה עבודה לבדיקה ידנית.',
+  'Language-level evidence must cover every evaluated case.':
+    'הבדיקה לפי שפה צריכה לכלול את כל המקרים שנבדקו.',
+  'Each represented language needs 20 labels, including five harmful and five safe.':
+    'נדרשות 20 החלטות בכל שפה שנבדקת, ובהן חמש מזיקות וחמש בטוחות.',
+  'The candidate must not regress in any evaluated language.':
+    'אסור שהגרסה המוצעת תציג תוצאות פחות טובות באחת השפות שנבדקו.',
+  'Improvement requires a conversation-level paired sign test at p <= 0.05.':
+    'נדרש שיפור מובהק במבחן מזווג לפי שיחה, עם p ≤ 0.05.',
+  '{value0} conversations improved; {value1} regressed. Paired test p: {value2}.':
+    '{value0} שיחות השתפרו; {value1} שיחות הציגו תוצאות פחות טובות. ערך p במבחן המזווג: {value2}.',
   OpenWA: 'OpenWA',
   GreenAPI: 'GreenAPI',
   'System notifications': 'התראות מערכת',

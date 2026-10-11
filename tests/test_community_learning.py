@@ -7,6 +7,8 @@ import respx
 
 from app.classify.community import guidance, load_pack, public_manifest
 from app.classify.evaluation import evaluate_community, metrics, promotion_gate
+from app.classify.prompt import prompt_fingerprint
+from app.classify.quality import QUALITY_POLICY, paired_comparison
 from app.classify.thresholds import DEFAULT_THRESHOLDS
 from scripts.prepare_learning_model import prepare
 from scripts.train_learning_adapter import validate
@@ -39,17 +41,35 @@ def test_training_rejects_private_content_even_with_forged_checksum(tmp_path):
 
 
 def test_gate_rejects_synthetic_small_regressed_and_equal_candidates():
-    rows = [{"human": "harmful", "baseline": "harmful", "candidate": "harmful"}] * 50
-    rows += [{"human": "safe", "baseline": "safe", "candidate": "safe"}] * 50
+    rows = [
+        {"human": "harmful", "baseline": "harmful", "candidate": "harmful", "conversation": i}
+        for i in range(50)
+    ]
+    rows += [
+        {"human": "safe", "baseline": "safe", "candidate": "safe", "conversation": i + 50}
+        for i in range(50)
+    ]
     report = {
         "source": "held_out_human_reviews",
         "baseline": metrics(rows, "baseline"),
         "candidate": metrics(rows, "candidate"),
         "failures": 0,
+        "paired": paired_comparison(rows, unit="conversation"),
+        "languages": {
+            "he": {"baseline": metrics(rows, "baseline"), "candidate": metrics(rows, "candidate")}
+        },
     }
     assert not promotion_gate(report)["eligible"]  # equal is not evidence of improvement
-    rows[0] = {"human": "harmful", "baseline": "safe", "candidate": "harmful"}
+    for i in range(5):
+        rows[i] = {
+            "human": "harmful",
+            "baseline": "safe",
+            "candidate": "harmful",
+            "conversation": i,
+        }
     report["baseline"] = metrics(rows, "baseline")
+    report["paired"] = paired_comparison(rows, unit="conversation")
+    report["languages"]["he"]["baseline"] = metrics(rows, "baseline")
     assert promotion_gate(report)["eligible"]
     assert not promotion_gate({**report, "source": "synthetic"})["eligible"]
     assert not promotion_gate({**report, "failures": 1})["eligible"]
@@ -165,7 +185,8 @@ async def test_evaluation_queue_validates_source_and_reuses_pending_job(app_clie
     ).status_code == 422
 
 
-async def test_old_pack_result_is_marked_stale_without_discarding_history(app_client):
+@pytest.mark.parametrize("source", ["synthetic", "held_out_human_reviews"])
+async def test_old_pack_result_is_marked_stale_without_discarding_history(app_client, source):
     from app.classify.evaluation import RESULT_KEY
     from app.db.models import Setting
 
@@ -174,7 +195,7 @@ async def test_old_pack_result_is_marked_stale_without_discarding_history(app_cl
         db.add(
             Setting(
                 key=RESULT_KEY,
-                value={"source": "synthetic", "pack": {"sha256": "old"}, "evaluated": 12},
+                value={"source": source, "pack": {"sha256": "old"}, "evaluated": 12},
             )
         )
         await db.commit()
@@ -182,7 +203,12 @@ async def test_old_pack_result_is_marked_stale_without_discarding_history(app_cl
     assert status["stale"] and status["result"]["evaluated"] == 12
     async with factory() as db:
         row = await db.get(Setting, RESULT_KEY)
-        row.value = {**row.value, "pack": public_manifest()}
+        row.value = {
+            **row.value,
+            "pack": public_manifest(),
+            "quality_policy": QUALITY_POLICY,
+            "prompt_sha256": prompt_fingerprint(),
+        }
         await db.commit()
     assert not (await app_client.get("/api/learning/evaluation")).json()["stale"]
 

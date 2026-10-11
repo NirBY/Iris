@@ -3,6 +3,30 @@ import userEvent from '@testing-library/user-event'
 import { LearningSettings } from '../../src/pages/LearningSettings'
 import { renderWithApp } from '../test-utils'
 
+test('paired conversation evidence shows aggregate wins, losses and significance', async () => {
+  renderWithApp(<LearningSettings />, {
+    '/api/learning/evaluation': {
+      running: false,
+      stale: false,
+      result: {
+        source: 'held_out_human_reviews',
+        evaluated: 100,
+        expected: 100,
+        failures: 0,
+        paired: { unit: 'conversation', improved: 5, regressed: 0, one_sided_p: 0.03125 },
+      },
+    },
+    '/api/learning/examples': { items: [] },
+    '/api/learning/runs': {
+      summary: { sampled_runs: 0, reviewed_messages: 0, baseline: {}, candidate: {} },
+      items: [],
+    },
+  })
+  expect(
+    await screen.findByText('5 conversations improved; 0 regressed. Paired test p: 0.0313.'),
+  ).toBeVisible()
+})
+
 test('an old reference-pack result remains visible with a stale-result notice', async () => {
   renderWithApp(<LearningSettings />, {
     '/api/learning/evaluation': {
@@ -22,7 +46,9 @@ test('an old reference-pack result remains visible with a stale-result notice', 
     },
   })
   expect(
-    await screen.findByText('This report uses an older reference pack. Run a new evaluation.'),
+    await screen.findByText(
+      'This report uses an older reference pack or evaluation policy. Run a new evaluation.',
+    ),
   ).toBeVisible()
   expect(screen.getByText(/12 \/ 12/)).toBeVisible()
 })

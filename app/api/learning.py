@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.classify.community import public_manifest
 from app.classify.evaluation import RESULT_KEY
 from app.classify.learning import capture, content_hash, eligible
+from app.classify.prompt import prompt_fingerprint
+from app.classify.quality import QUALITY_POLICY
 from app.db.models import Job, LearningExample, LearningRun, Message, ReviewFeedback, Setting
 from app.deps import get_db
 from app.jobs.queue import enqueue
@@ -34,8 +36,15 @@ async def evaluation_status(db: DB) -> dict[str, Any]:
         "result": value,
         "stale": bool(
             value
-            and value.get("source") == "synthetic"
-            and value.get("pack", {}).get("sha256") != pack["sha256"]
+            and value.get("source") in {"synthetic", "held_out_human_reviews"}
+            and (
+                value.get("quality_policy") != QUALITY_POLICY
+                or value.get("prompt_sha256") != prompt_fingerprint()
+                or (
+                    value.get("source") == "synthetic"
+                    and value.get("pack", {}).get("sha256") != pack["sha256"]
+                )
+            )
         ),
         "running": bool(running),
         "community_pack": pack,

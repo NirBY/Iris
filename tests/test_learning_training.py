@@ -1,12 +1,46 @@
 import json
 
+import httpx
 import pytest
+import respx
 
 from app.classify.community import guidance, load_pack
+from app.classify.ollama import OllamaModerator
+from app.classify.prompt import moderation_prompt, prompt_fingerprint
 from app.classify.thresholds import DEFAULT_THRESHOLDS
 from scripts.evaluate_learning_adapter import parse_scores, summarize_predictions
 from scripts.prepare_learning_model import prepare, records_for
 from scripts.train_learning_adapter import validate
+
+
+def test_training_uses_the_exact_production_prompt_and_pins_it(tmp_path):
+    manifest = prepare(tmp_path, "test/model", "0" * 40)
+    assert manifest["prompt_sha256"] == prompt_fingerprint()
+    for record in records_for(load_pack(), "examples"):
+        assert record["messages"][0]["content"] == moderation_prompt()
+    manifest["prompt_sha256"] = "changed"
+    (tmp_path / "training-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="Training prompt"):
+        validate(tmp_path)
+
+
+@respx.mock
+async def test_live_model_request_uses_the_pinned_training_prompt():
+    route = respx.post("http://ollama/api/chat").mock(
+        return_value=httpx.Response(
+            200, json={"message": {"content": json.dumps(dict.fromkeys(DEFAULT_THRESHOLDS, 0))}}
+        )
+    )
+    client = OllamaModerator("http://ollama", "model")
+    try:
+        await client.moderate("model", "Synthetic target")
+    finally:
+        await client.aclose()
+    request = json.loads(route.calls.last.request.content)
+    assert (
+        request["messages"][0]["content"]
+        == records_for(load_pack(), "examples")[0]["messages"][0]["content"]
+    )
 
 
 def test_every_category_has_synthetic_coverage_in_each_language_and_split():

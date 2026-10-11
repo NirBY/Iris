@@ -140,6 +140,26 @@ Run `python scripts/smoke_learning_training.py` in the optional training environ
 
 ## Category coverage and adapter output validation
 
+The optional training dataset uses the exact production moderation prompt. Its
+SHA-256 is pinned in the training plan and checked before training or adapter
+evaluation. Old plans must be prepared again after a prompt change. Reports identify
+their prompt and quality policy; Iris marks older policies stale while retaining
+their historical results.
+
+Production eligibility requires the same complete paired held-out human labels,
+at least 100 cases including 30 harmful and 30 safe, and 95% precision and harmful
+detection. Each represented language needs 20 cases including five harmful and
+five safe, and must meet those quality thresholds without adding missed harm,
+false alerts or manual reviews. Total manual review workload cannot increase.
+
+An exact one-sided sign test must reach p <= 0.05 on conversation-level changes.
+Each conversation contributes one vote from its net change in correctly decided
+messages; abstention is not a correct automated decision. Repeated wins in one
+chat cannot manufacture independent evidence. Reports contain only aggregate
+counts and the p-value, never conversation identifiers. This is evidence on the
+reviewed holdout, not population accuracy or proof that parent labels are
+infallible. Promotion and publication remain manual and disabled by default.
+
 Reference pack 2026.10.2 contains 28 training examples and 28 independent evaluation cases. Every content category is represented in both Hebrew and English, including sexual content involving minors, self-harm instruction requests, violent crime and graphic violence. Additional harmless education, prevention and reporting contexts check false alerts. Guidance remains bounded to six language-matched examples, balanced between harmful and harmless contexts. A report from an earlier pack is marked stale in Iris.
 
 Remote training bases require a full immutable commit hash. Local base weights, configuration and tokenizer files are checksummed during preparation and checked again before training and evaluation; changed files invalidate the plan.

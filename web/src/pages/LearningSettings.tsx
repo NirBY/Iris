@@ -40,6 +40,7 @@ type Evaluation = {
     failures?: number
     baseline?: Metric
     candidate?: Metric
+    paired?: { unit: string; improved: number; regressed: number; one_sided_p: number }
     promotion?: { eligible: boolean; reasons: string[] }
     error?: string
   } | null
@@ -153,7 +154,9 @@ export function LearningSettings() {
           <div className="mt-3 flex flex-col gap-2">
             {evaluation.data.stale && (
               <p role="status" className="text-warning">
-                {t('This report uses an older reference pack. Run a new evaluation.')}
+                {t(
+                  'This report uses an older reference pack or evaluation policy. Run a new evaluation.',
+                )}
               </p>
             )}
             <p>
@@ -168,6 +171,18 @@ export function LearningSettings() {
               · {t('Failed checks')}: {evaluation.data.result.failures ?? 0}
             </p>
             {evaluation.data.result.error && <p role="alert">{t(evaluation.data.result.error)}</p>}
+            {evaluation.data.result.paired?.unit === 'conversation' && (
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  '{value0} conversations improved; {value1} regressed. Paired test p: {value2}.',
+                  {
+                    value0: evaluation.data.result.paired.improved,
+                    value1: evaluation.data.result.paired.regressed,
+                    value2: evaluation.data.result.paired.one_sided_p.toFixed(4),
+                  },
+                )}
+              </p>
+            )}
             {evaluation.data.result.promotion && (
               <p className="text-warning">
                 {t('Automatic promotion is disabled. Review the evidence before enabling Active.')}
@@ -281,7 +296,8 @@ export function LearningSettings() {
                 {t('Message #')}
                 {r.message_id}
               </Link>
-              : {r.baseline_verdict} → {r.candidate_verdict ?? t('failed')} {t('· examples')}{' '}
+              : {t(r.baseline_verdict)} →{' '}
+              {r.candidate_verdict ? t(r.candidate_verdict) : t('failed')} {t('· examples')}{' '}
               {r.example_ids.join(', ')}
               {r.error ? ` · ${r.error}` : ''}
               {r.retrieval

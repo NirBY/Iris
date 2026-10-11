@@ -102,6 +102,7 @@ async def fetch_original(
 ) -> str:
     """Download the message's media, from the session that has it; returns its content type."""
     first_error: PermanentError | None = None
+    transient: TransientError | None = None
     missing: list[dict[str, Any]] = []
     for ref in media_refs(message):
         try:
@@ -117,12 +118,14 @@ async def fetch_original(
             first_error = first_error or exc
             if recover and "no stored media" in str(exc):
                 missing.append(ref)
+        except TransientError as exc:
+            # A stalled primary session must not hide a saved receiver's copy.
+            transient = transient or exc
         finally:
             await client.aclose()
     # Try all already-saved session copies before starting slower WhatsApp recovery.
     attempts = int(await get_setting(db, "media.recovery_attempts")) if missing else 0
     wait = int(await get_setting(db, "media.recovery_wait_seconds")) if missing else 0
-    transient: TransientError | None = None
     for ref in missing:
         client, session_id = await openwa_for(db, ref, key_bytes)
         try:

@@ -10,7 +10,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.classify.community import load_pack, public_manifest
-from app.classify.quality import metrics, promotion_gate
+from app.classify.prompt import prompt_fingerprint
+from app.classify.quality import QUALITY_POLICY, metrics, paired_comparison, promotion_gate
 from app.classify.thresholds import DEFAULT_THRESHOLDS, band_for
 from scripts.train_learning_adapter import validate
 
@@ -57,6 +58,8 @@ def summarize_predictions(baseline: list[str], candidate: list[str]) -> dict:
         rows.append(row)
     report = {
         "source": "synthetic_adapter",
+        "quality_policy": QUALITY_POLICY,
+        "prompt_sha256": prompt_fingerprint(),
         "pack": public_manifest(),
         "expected": len(cases),
         "evaluated": len(rows),
@@ -64,6 +67,7 @@ def summarize_predictions(baseline: list[str], candidate: list[str]) -> dict:
         "invalid_outputs": errors,
         "baseline": metrics(rows, "baseline"),
         "candidate": metrics(rows, "candidate"),
+        "paired": paired_comparison(rows),
         "languages": {
             language: {
                 stage: metrics([r for r in rows if r["language"] == language], stage)
@@ -105,7 +109,14 @@ def evaluate(
         raise ValueError("Generation must be bounded to 8–512 new tokens")
     manifest = validate(directory)
     trained = json.loads((adapter / "training-manifest.json").read_text(encoding="utf-8"))
-    for key in ("pack", "datasets", "base_model", "base_revision", "base_identity"):
+    for key in (
+        "pack",
+        "datasets",
+        "base_model",
+        "base_revision",
+        "base_identity",
+        "prompt_sha256",
+    ):
         if trained.get(key) != manifest[key]:
             raise ValueError("Adapter does not match this reviewed training plan")
     with (adapter / "adapter_model.safetensors").open("rb") as stream:
