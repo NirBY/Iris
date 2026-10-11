@@ -7,6 +7,7 @@ import respx
 
 from app.classify.community import guidance, load_pack, public_manifest
 from app.classify.evaluation import evaluate_community, metrics, promotion_gate
+from app.classify.evaluation_state import configuration_fingerprint
 from app.classify.prompt import prompt_fingerprint
 from app.classify.quality import QUALITY_POLICY, paired_comparison
 from app.classify.thresholds import DEFAULT_THRESHOLDS
@@ -205,6 +206,7 @@ async def test_old_pack_result_is_marked_stale_without_discarding_history(app_cl
         row = await db.get(Setting, RESULT_KEY)
         row.value = {
             **row.value,
+            "configuration_sha256": await configuration_fingerprint(db),
             "pack": public_manifest(),
             "quality_policy": QUALITY_POLICY,
             "prompt_sha256": prompt_fingerprint(),
@@ -232,3 +234,39 @@ async def test_sharing_requires_explicit_revocable_account_consent(app_client):
     assert (await app_client.get("/api/auth/learning-sharing")).json()["enabled"] is True
     revoked = await app_client.patch("/api/auth/learning-sharing", json={"enabled": False})
     assert revoked.json()["enabled"] is False
+
+
+async def test_report_history_is_bounded_and_does_not_archive_partial_progress(app_client):
+    from app.classify.evaluation_state import HISTORY_KEY, save_report
+    from app.db.models import Setting
+    from app.settings_store import set_setting
+
+    factory = app_client.app.state.session_factory
+    async with factory() as db:
+        configuration = await configuration_fingerprint(db)
+        for i in range(12):
+            report = {
+                "evaluation_id": str(i),
+                "source": "held_out_human_reviews",
+                "configuration_sha256": configuration,
+                "quality_policy": QUALITY_POLICY,
+                "prompt_sha256": prompt_fingerprint(),
+                "evaluated": i,
+                "pending": 0,
+            }
+            await save_report(db, report)
+            await db.commit()
+        await save_report(db, {**report, "evaluation_id": "next", "pending": 3})
+        await db.commit()
+        history = await db.get(Setting, HISTORY_KEY)
+        assert len(history.value) == 10
+        assert [r["evaluation_id"] for r in history.value] == [str(i) for i in range(11, 1, -1)]
+    status = (await app_client.get("/api/learning/evaluation")).json()
+    assert not status["stale"] and all(not r["stale"] for r in status["history"])
+    assert status["result"]["pending"] == 3
+    async with factory() as db:
+        await set_setting(db, "runtime.ollama_model", "another-model")
+        await db.commit()
+    status = (await app_client.get("/api/learning/evaluation")).json()
+    assert status["stale"] and all(r["stale"] for r in status["history"])
+    assert len(status["history"]) == 10

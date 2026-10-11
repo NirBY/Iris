@@ -1,12 +1,13 @@
 """Bounded synthetic evaluation and explicit promotion gate; no conversation exports."""
 
 import asyncio
-import hashlib
 import time
 from datetime import UTC, datetime
 from typing import Any
 
 from app.classify.community import guidance, load_pack, public_manifest
+from app.classify.evaluation_state import RESULT_KEY as RESULT_KEY
+from app.classify.evaluation_state import configuration_fingerprint, save_report
 from app.classify.ollama import OllamaModerator
 from app.classify.prompt import prompt_fingerprint
 from app.classify.quality import QUALITY_POLICY, paired_comparison
@@ -17,8 +18,6 @@ from app.config import get_settings
 from app.db.models import Job, Setting
 from app.jobs.handlers import Deps
 from app.jobs.queue import ClaimedJob, DeferredError, ensure_owned
-
-RESULT_KEY = "internal.learning_evaluation"
 
 
 async def evaluate_community(
@@ -138,43 +137,53 @@ async def evaluate_community(
 
 async def evaluate_job(job: ClaimedJob, deps: Deps) -> None:
     cfg = get_settings()
+    async with deps.session_factory() as db:
+        current = await db.get(Setting, RESULT_KEY)
+        if (
+            current is not None
+            and current.value.get("evaluation_id") == str(job.id)
+            and not current.value.get("pending")
+        ):
+            # A crash after saving the final report but before the worker ACK must
+            # not restart the benchmark after its checkpoint has been discarded.
+            return
+        configuration = await configuration_fingerprint(db)
+    checkpoint = job.payload.get("evaluation_checkpoint", {})
+    timeout = min(float(cfg.job_timeout_seconds), 570.0)
     if cfg.classification_provider != "ollama":
         report = {"error": "Learning evaluation requires Ollama.", "weights_updated": False}
-    else:
-        if job.payload.get("source") == "held_out_human_reviews":
-            from app.classify.benchmark_learning import evaluate
+    elif job.payload.get("source") == "held_out_human_reviews":
+        from app.classify.benchmark_learning import evaluate
 
-            report = await evaluate(200, emit=False)
-        else:
-            fingerprint = hashlib.sha256(
-                (
-                    cfg.ollama_model
-                    + cfg.ollama_base_url
-                    + str(public_manifest())
-                    + prompt_fingerprint()
-                    + QUALITY_POLICY
-                ).encode()
-            ).hexdigest()
-            checkpoint = job.payload.get("evaluation_checkpoint", {})
-            if checkpoint.get("fingerprint") != fingerprint:
-                checkpoint = {"fingerprint": fingerprint}
-            timeout = min(float(cfg.job_timeout_seconds), 570.0)
-            report = await evaluate_community(
-                cfg.ollama_model,
-                cfg.ollama_base_url,
-                checkpoint=checkpoint,
-                request_timeout=max(0.1, min(120.0, (timeout - 10) / 2)),
-            )
-            job.payload["evaluation_checkpoint"] = checkpoint
+        report = await evaluate(
+            200,
+            emit=False,
+            checkpoint=checkpoint,
+            request_timeout=max(0.1, min(120.0, (timeout - 20) / 3)),
+        )
+    else:
+        if checkpoint.get("fingerprint") != configuration:
+            checkpoint = {"fingerprint": configuration}
+        report = await evaluate_community(
+            cfg.ollama_model,
+            cfg.ollama_base_url,
+            checkpoint=checkpoint,
+            request_timeout=max(0.1, min(120.0, (timeout - 10) / 2)),
+        )
+    report.setdefault("configuration_sha256", configuration)
+    report["evaluation_id"] = str(job.id)
+    report.setdefault("checked_at", datetime.now(UTC).isoformat())
     async with deps.session_factory() as db:
         await ensure_owned(db, job)
-        row = await db.get(Setting, RESULT_KEY)
-        if row is None:
-            db.add(Setting(key=RESULT_KEY, value=report))
-        else:
-            row.value = report
+        await save_report(db, report)
         stored = await db.get(Job, job.id)
         if stored is not None:
+            # Only in-flight checkpoints retain hashed per-case evidence. Completed
+            # jobs keep aggregate reports in history, with no source identifiers.
+            if report.get("pending"):
+                job.payload["evaluation_checkpoint"] = checkpoint
+            else:
+                job.payload.pop("evaluation_checkpoint", None)
             stored.payload = dict(job.payload)
         await db.commit()
     if report.get("pending"):

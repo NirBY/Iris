@@ -7,21 +7,30 @@ import json
 import re
 import time
 from dataclasses import replace
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
 
+from app.classify.evaluation_state import configuration_fingerprint, fingerprint
 from app.classify.learning import content_hash, eligible, select_examples
 from app.classify.ollama import OllamaModerator
 from app.classify.pipeline import run_pipeline
 from app.classify.prompt import prompt_fingerprint
 from app.classify.quality import QUALITY_POLICY
-from app.classify.stages import StageContext
+from app.classify.stages import StageContext, context_messages, message_body
 from app.classify.thresholds import effective_thresholds
 from app.config import get_settings
 from app.db.engine import make_engine, make_session_factory
-from app.db.models import Chat, LearningExample, Message, ReviewFeedback
+from app.db.models import (
+    Chat,
+    LearningExample,
+    Message,
+    MessageReceipt,
+    ReviewDataIssue,
+    ReviewFeedback,
+    SkippedGroup,
+)
 from app.jobs.queue import PermanentError, TransientError
 from app.settings_store import get_setting, reload_runtime_settings
 
@@ -45,7 +54,27 @@ def summarize(rows: list[dict[str, Any]], field: str) -> dict[str, Any]:
     }
 
 
-async def evaluate(limit: int, strategy: str | None = None, *, emit: bool = True) -> dict[str, Any]:
+def source_signature(message: Message) -> list[Any]:
+    return [
+        message.id,
+        message.chat_id,
+        content_hash(message),
+        message.type,
+        message.sent_at,
+        message.edited_at,
+        message.revoked_at,
+        message.redacted,
+    ]
+
+
+async def evaluate(
+    limit: int,
+    strategy: str | None = None,
+    *,
+    emit: bool = True,
+    checkpoint: dict[str, Any] | None = None,
+    request_timeout: float = 30,
+) -> dict[str, Any]:
     engine = make_engine()
     factory = make_session_factory(engine)
     client = None
@@ -75,112 +104,171 @@ async def evaluate(limit: int, strategy: str | None = None, *, emit: bool = True
                     await get_setting(db, "classification.context_window_size")
                 ),
                 context_max_age=timedelta(
-                    hours=int(await get_setting(db, "classification.context_max_age_hours")),
+                    hours=int(await get_setting(db, "classification.context_max_age_hours"))
                 ),
             )
-            evaluated: list[dict[str, Any]] = []
-            skipped = failures = 0
-            fallbacks = 0
-            matched = 0
+            issues = set(await db.scalars(select(ReviewDataIssue.message_id)))
+            skipped_groups = set(
+                (await db.execute(select(SkippedGroup.chat_id, SkippedGroup.instance_id))).all()
+            )
+            receipts: dict[int, set[int]] = {}
+            for mid, iid in await db.execute(
+                select(MessageReceipt.message_id, MessageReceipt.instance_id).where(
+                    MessageReceipt.message_id.in_(select(LearningExample.message_id))
+                )
+            ):
+                receipts.setdefault(mid, set()).add(iid)
+            cases = []
+            for message, feedback, example in rows:
+                if (
+                    not eligible(message)
+                    or message.id in issues
+                    or feedback.verdict not in {"safe", "harmful"}
+                    or content_hash(message) != example.content_hash
+                    or feedback.verdict != example.verdict
+                    or (
+                        feedback.content_hash is not None
+                        and feedback.content_hash != example.content_hash
+                    )
+                    or (message.edited_at is not None and message.edited_at > feedback.reviewed_at)
+                    or any(
+                        (message.chat_id, iid) in skipped_groups
+                        for iid in receipts.get(message.id, set())
+                    )
+                ):
+                    continue
+                cases.append((message, feedback, example))
+            # Snapshot all potential training sources and context, not just the current
+            # target. A revoked example/changed label must invalidate earlier pairs too.
+            evidence = []
+            for example, message, feedback in await db.execute(
+                select(LearningExample, Message, ReviewFeedback)
+                .join(Message, Message.id == LearningExample.message_id)
+                .join(ReviewFeedback, ReviewFeedback.message_id == Message.id)
+                .order_by(Message.id)
+            ):
+                evidence.append(
+                    [
+                        source_signature(message),
+                        example.enabled,
+                        example.content_hash,
+                        example.verdict,
+                        example.created_at,
+                        feedback.verdict,
+                        feedback.reviewed_at,
+                        feedback.content_hash,
+                        feedback.categories,
+                        feedback.explanation,
+                    ]
+                )
+            contexts = [
+                [source_signature(m) for m in await context_messages(message, ctx)]
+                for message, _, _ in cases
+            ]
+            configuration = await configuration_fingerprint(db)
+            signature = fingerprint(
+                [
+                    configuration,
+                    strategy,
+                    evidence,
+                    contexts,
+                    [m.id for m, _, _ in cases],
+                    sorted(issues),
+                    sorted(skipped_groups),
+                    {mid: sorted(ids) for mid, ids in receipts.items()},
+                ]
+            )
+            state: dict[str, Any] = checkpoint if checkpoint is not None else {}
+            if state.get("fingerprint") != signature:
+                state.clear()
+                state.update(fingerprint=signature, rows=[], attempts={}, errors={})
+            evaluated = state["rows"]
+            attempts, errors = state["attempts"], state["errors"]
+            completed = {r["case_id"] for r in evaluated}
+            keyed = [(fingerprint([m.id, e.content_hash]), m, f) for m, f, e in cases]
+            todo = [
+                (key, m, f)
+                for key, m, f in keyed
+                if key not in completed and attempts.get(key, 0) < 3
+            ]
+            if checkpoint is not None:
+                todo = sorted(todo, key=lambda row: attempts.get(row[0], 0))[:1]
             started = time.monotonic()
-            # Leave room for both final requests and committing the report before
-            # the worker's timeout (and its stale lease when heartbeat is disabled).
             worker_budget = min(
                 cfg.job_timeout_seconds, 570 if not cfg.job_heartbeat_seconds else 3600
             )
-            evaluation_budget = max(0, min(600, worker_budget - 75))
-            for message, feedback, example in rows:
-                if time.monotonic() - started >= evaluation_budget:
-                    failures += 1
+            budget = max(0, min(600, worker_budget - 75))
+            for key, message, feedback in todo:
+                if checkpoint is None and time.monotonic() - started >= budget:
                     break
-                if (
-                    not eligible(message)
-                    or content_hash(message) != example.content_hash
-                    or feedback.verdict != example.verdict
-                    or (message.edited_at is not None and message.edited_at > feedback.reviewed_at)
-                ):
-                    skipped += 1
-                    continue
-                selection = await select_examples(
-                    db,
-                    message,
-                    exclude_chats=excluded,
-                    embedder=client,
-                    strategy=strategy,
-                )
-                examples = selection.examples
-                if await get_setting(db, "classification.community_learning"):
-                    from app.classify.community import guidance
-                    from app.classify.stages import message_body
-
-                    examples = [*examples, *guidance(message_body(message))]
-                fallbacks += selection.metadata["fallback"] is not None
+                stage = "retrieval"
+                attempts[key] = attempts.get(key, 0) + 1
                 try:
-                    baseline = await asyncio.wait_for(run_pipeline(message, ctx), 30)
+                    selection = await asyncio.wait_for(
+                        select_examples(
+                            db,
+                            message,
+                            exclude_chats=excluded,
+                            embedder=client,
+                            strategy=strategy,
+                        ),
+                        request_timeout,
+                    )
+                    examples = selection.examples
+                    if await get_setting(db, "classification.community_learning"):
+                        from app.classify.community import guidance
+
+                        examples = [*examples, *guidance(message_body(message))]
+                    stage = "baseline"
+                    baseline = await asyncio.wait_for(run_pipeline(message, ctx), request_timeout)
                     candidate = baseline
                     if examples:
-                        matched += 1
+                        stage = "candidate"
                         candidate = await asyncio.wait_for(
-                            run_pipeline(message, replace(ctx, learning_examples=examples)), 30
+                            run_pipeline(message, replace(ctx, learning_examples=examples)),
+                            request_timeout,
                         )
-                except (PermanentError, TransientError, TimeoutError):
-                    failures += 1
+                except (PermanentError, TransientError, TimeoutError) as exc:
+                    error = stage + ":" + type(exc).__name__
+                    errors[error] = errors.get(error, 0) + 1
                     continue
                 evaluated.append(
                     {
-                        "conversation": message.chat_id,
+                        "case_id": key,
+                        "conversation": fingerprint(message.chat_id),
                         "human": feedback.verdict,
                         "baseline": baseline.verdict,
                         "candidate": candidate.verdict,
                         "language": "he"
-                        if re.search(r"[\u0590-\u05ff]", message.text or "")
+                        if re.search(r"[\u0590-\u05ff]", message_body(message))
                         else "en",
+                        "matched": bool(examples),
+                        "fallback": selection.metadata["fallback"] is not None,
                     }
                 )
-            if emit:
-                print(
-                    json.dumps(
-                        {
-                            "split": "sha256(chat ID) modulo 5: 0=test; all test chats excluded",
-                            "model": cfg.ollama_model,
-                            "evaluated": len(evaluated),
-                            "skipped": skipped,
-                            "failures": failures,
-                            "retrieval": strategy
-                            or await get_setting(db, "classification.learning_retrieval"),
-                            "embedding_model": await get_setting(
-                                db, "classification.learning_embedding_model"
-                            ),
-                            "embedding_fallbacks": fallbacks,
-                            "retrieval_matches": matched,
-                            "baseline": summarize(evaluated, "baseline"),
-                            "candidate": summarize(evaluated, "candidate"),
-                            "limitations": (
-                                "Reviewed text only; not population accuracy. "
-                                "Targets without retrieval matches use baseline for candidate. "
-                                "Human labels are overall verdicts, not category labels. "
-                                "No message content exported."
-                            ),
-                        },
-                        indent=2,
-                    )
-                )
+            completed = {r["case_id"] for r in evaluated}
+            pending = sum(key not in completed and attempts.get(key, 0) < 3 for key, _, _ in keyed)
+            failures = len(cases) - len(evaluated) - pending
             from app.classify.quality import metrics, paired_comparison, promotion_gate
 
             report = {
                 "source": "held_out_human_reviews",
                 "quality_policy": QUALITY_POLICY,
                 "prompt_sha256": prompt_fingerprint(),
+                "configuration_sha256": configuration,
                 "model": cfg.ollama_model,
+                "checked_at": datetime.now(UTC).isoformat(),
                 "evaluated": len(evaluated),
-                "expected": len(rows) - skipped,
-                "pending": max(0, len(rows) - skipped - failures - len(evaluated)),
+                "expected": len(cases),
+                "skipped": len(rows) - len(cases),
+                "pending": pending,
                 "failures": failures,
+                "request_errors": errors,
                 "baseline": metrics(evaluated, "baseline"),
                 "candidate": metrics(evaluated, "candidate"),
                 "paired": paired_comparison(evaluated, unit="conversation"),
-                "retrieval_matches": matched,
-                "embedding_fallbacks": fallbacks,
+                "retrieval_matches": sum(r["matched"] for r in evaluated),
+                "embedding_fallbacks": sum(r["fallback"] for r in evaluated),
                 "split": "Whole conversations held out; no messages or identifiers exported",
                 "languages": {
                     lang: {
@@ -193,6 +281,8 @@ async def evaluate(limit: int, strategy: str | None = None, *, emit: bool = True
                 "user_data_exported": False,
             }
             report["promotion"] = promotion_gate(report)
+            if emit:
+                print(json.dumps(report, indent=2))
             return report
     finally:
         if client is not None:

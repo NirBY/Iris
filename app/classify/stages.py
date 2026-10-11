@@ -140,27 +140,7 @@ class ContextStage:
     needs_inconclusive = True
 
     async def run(self, message: Message, ctx: StageContext) -> StageResult | None:
-        cutoff = message.sent_at - ctx.context_max_age
-        previous = list(
-            reversed(
-                (
-                    await ctx.db.execute(
-                        select(Message)
-                        .where(
-                            Message.chat_id == message.chat_id,
-                            Message.id != message.id,
-                            Message.revoked_at.is_(None),
-                            Message.sent_at >= cutoff,
-                            Message.sent_at <= message.sent_at,
-                        )
-                        .order_by(Message.sent_at.desc(), Message.id.desc())
-                        .limit(ctx.context_window_size)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-        )
+        previous = await context_messages(message, ctx)
         if not previous:
             return None  # nothing new to learn from: the verdict stays inconclusive
         text = build_context_input(previous, message)
@@ -168,3 +148,28 @@ class ContextStage:
             text, ctx.image_data_url
         )  # the image rides along with the context
         return await _moderate(self.name, kind, payload, ctx, [m.id for m in previous], message.id)
+
+
+async def context_messages(message: Message, ctx: StageContext) -> list[Message]:
+    cutoff = message.sent_at - ctx.context_max_age
+    previous = list(
+        reversed(
+            (
+                await ctx.db.execute(
+                    select(Message)
+                    .where(
+                        Message.chat_id == message.chat_id,
+                        Message.id != message.id,
+                        Message.revoked_at.is_(None),
+                        Message.sent_at >= cutoff,
+                        Message.sent_at <= message.sent_at,
+                    )
+                    .order_by(Message.sent_at.desc(), Message.id.desc())
+                    .limit(ctx.context_window_size)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    )
+    return previous

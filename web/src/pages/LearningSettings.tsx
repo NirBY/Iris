@@ -29,35 +29,51 @@ type Runs = {
   summary: { sampled_runs: number; reviewed_messages: number; baseline: Metric; candidate: Metric }
   items: Run[]
 }
+type EvaluationReport = {
+  evaluation_id?: string
+  checked_at?: string
+  pending?: number
+  skipped?: number
+  source?: string
+  evaluated?: number
+  expected?: number
+  failures?: number
+  baseline?: Metric
+  candidate?: Metric
+  paired?: { unit: string; improved: number; regressed: number; one_sided_p: number }
+  promotion?: { eligible: boolean; reasons: string[] }
+  error?: string
+}
+type ReportEntry = { result: EvaluationReport; stale: boolean }
 type Evaluation = {
   running: boolean
   stale?: boolean
   community_pack?: { version: string; sha256: string }
-  result?: {
-    source?: string
-    evaluated?: number
-    expected?: number
-    failures?: number
-    baseline?: Metric
-    candidate?: Metric
-    paired?: { unit: string; improved: number; regressed: number; one_sided_p: number }
-    promotion?: { eligible: boolean; reasons: string[] }
-    error?: string
-  } | null
+  result?: EvaluationReport | null
+  history?: ReportEntry[]
 }
 
 export function LearningSettings() {
   const [importCursor, setImportCursor] = useState(0)
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null)
   const qc = useQueryClient()
   const evaluation = useQuery({
     queryKey: ['learning', 'evaluation'],
     queryFn: () => api<Evaluation>('/api/learning/evaluation'),
     refetchInterval: 5000,
   })
+  const selected = evaluation.data?.history?.find(
+    (entry) => entry.result.evaluation_id === selectedReportId,
+  )
+  const result = selected?.result ?? evaluation.data?.result
+  const reportStale = selected?.stale ?? evaluation.data?.stale
   const evaluate = useMutation({
     mutationFn: (source: string) =>
       api(`/api/learning/evaluation?source=${source}`, { method: 'POST' }),
-    onSuccess: () => void evaluation.refetch(),
+    onSuccess: () => {
+      setSelectedReportId(null)
+      void evaluation.refetch()
+    },
     onError: (error) => toast.error(error.message),
   })
   const examples = useQuery({
@@ -150,50 +166,59 @@ export function LearningSettings() {
         {evaluation.isError && (
           <QueryError what="learning evaluation" onRetry={() => void evaluation.refetch()} />
         )}
-        {evaluation.data?.result && (
+        {result && (
           <div className="mt-3 flex flex-col gap-2">
-            {evaluation.data.stale && (
+            {reportStale && (
               <p role="status" className="text-warning">
                 {t(
-                  'This report uses an older reference pack or evaluation policy. Run a new evaluation.',
+                  'The model settings, reference pack or evaluation policy have changed. Run a new evaluation.',
                 )}
               </p>
             )}
             <p>
-              {t(
-                evaluation.data.result.source === 'synthetic'
-                  ? 'Synthetic benchmark'
-                  : 'Held-out local reviews',
-              )}
-              : {evaluation.data.result.evaluated ?? 0}
-              {evaluation.data.result.expected !== undefined &&
-                ` / ${evaluation.data.result.expected}`}{' '}
-              · {t('Failed checks')}: {evaluation.data.result.failures ?? 0}
+              {t(result.source === 'synthetic' ? 'Synthetic benchmark' : 'Held-out local reviews')}:{' '}
+              {result.evaluated ?? 0}
+              {result.expected !== undefined && ` / ${result.expected}`} · {t('Failed checks')}:{' '}
+              {result.failures ?? 0}
             </p>
-            {evaluation.data.result.error && <p role="alert">{t(evaluation.data.result.error)}</p>}
-            {evaluation.data.result.paired?.unit === 'conversation' && (
+            {result.pending !== undefined && result.pending > 0 && (
+              <p role="status">
+                {t('{value0} checks remaining. Progress is saved automatically.', {
+                  value0: result.pending,
+                })}
+              </p>
+            )}
+            {!!result.skipped && (
+              <p>
+                {t('{value0} reviews excluded because their source or label is unavailable.', {
+                  value0: result.skipped,
+                })}
+              </p>
+            )}
+            {result.error && <p role="alert">{t(result.error)}</p>}
+            {result.paired?.unit === 'conversation' && (
               <p className="text-sm text-muted-foreground">
                 {t(
                   '{value0} conversations improved; {value1} regressed. Paired test p: {value2}.',
                   {
-                    value0: evaluation.data.result.paired.improved,
-                    value1: evaluation.data.result.paired.regressed,
-                    value2: evaluation.data.result.paired.one_sided_p.toFixed(4),
+                    value0: result.paired.improved,
+                    value1: result.paired.regressed,
+                    value2: result.paired.one_sided_p.toFixed(4),
                   },
                 )}
               </p>
             )}
-            {evaluation.data.result.promotion && (
+            {result.promotion && (
               <p className="text-warning">
                 {t('Automatic promotion is disabled. Review the evidence before enabling Active.')}
               </p>
             )}
-            {evaluation.data.result.promotion?.reasons.map((reason) => (
+            {result.promotion?.reasons.map((reason) => (
               <p key={reason} className="text-muted-foreground">
                 {t(reason)}
               </p>
             ))}
-            {evaluation.data.result.baseline && evaluation.data.result.candidate && (
+            {result.baseline && result.candidate && (
               <table className="w-full text-sm">
                 <thead>
                   <tr>
@@ -207,13 +232,9 @@ export function LearningSettings() {
                   {(['baseline', 'candidate'] as const).map((name) => (
                     <tr key={name}>
                       <td>{t(name === 'baseline' ? 'Current classifier' : 'With examples')}</td>
-                      <td className="text-center">
-                        {evaluation.data!.result![name]!.false_positive}
-                      </td>
-                      <td className="text-center">
-                        {evaluation.data!.result![name]!.false_negative}
-                      </td>
-                      <td className="text-center">{evaluation.data!.result![name]!.review}</td>
+                      <td className="text-center">{result[name]!.false_positive}</td>
+                      <td className="text-center">{result[name]!.false_negative}</td>
+                      <td className="text-center">{result[name]!.review}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -222,6 +243,52 @@ export function LearningSettings() {
           </div>
         )}
       </div>
+      {!!evaluation.data?.history?.length && (
+        <details className="rounded-lg border p-4 text-sm">
+          <summary className="cursor-pointer font-semibold">
+            {t('Previous evaluation reports')}
+          </summary>
+          <p className="mt-2 text-muted-foreground">
+            {t(
+              'The latest ten completed reports stay local. Historical results do not authorize model promotion.',
+            )}
+          </p>
+          <div className="mt-3 flex flex-col items-start gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setSelectedReportId(null)}
+              disabled={!selected}
+            >
+              {t('Show current evaluation')}
+            </Button>
+            {evaluation.data.history.map((entry) => (
+              <Button
+                key={entry.result.evaluation_id}
+                variant="outline"
+                className="h-auto max-w-full whitespace-normal text-start"
+                onClick={() => setSelectedReportId(entry.result.evaluation_id ?? null)}
+                aria-pressed={entry.result.evaluation_id === selectedReportId}
+              >
+                {t(
+                  entry.result.source === 'synthetic'
+                    ? 'Synthetic benchmark'
+                    : 'Held-out local reviews',
+                )}
+                {' · '}
+                <bdi>
+                  {entry.result.checked_at
+                    ? new Date(entry.result.checked_at).toLocaleString()
+                    : t('Previous report')}
+                </bdi>
+                {' · '}
+                {entry.result.evaluated ?? 0}
+                {' / '}
+                {entry.result.expected ?? 0}
+              </Button>
+            ))}
+          </div>
+        </details>
+      )}
       {examples.isError && (
         <QueryError what="learning examples" onRetry={() => void examples.refetch()} />
       )}
@@ -243,7 +310,7 @@ export function LearningSettings() {
                   {t('Message #')}
                   {e.message_id}
                 </Link>{' '}
-                · {e.verdict} ·{' '}
+                · {t(e.verdict)} ·{' '}
                 {t(e.source_valid ? 'source available' : 'source changed or unavailable')}
               </span>
               <Button

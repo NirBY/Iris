@@ -47,7 +47,7 @@ test('an old reference-pack result remains visible with a stale-result notice', 
   })
   expect(
     await screen.findByText(
-      'This report uses an older reference pack or evaluation policy. Run a new evaluation.',
+      'The model settings, reference pack or evaluation policy have changed. Run a new evaluation.',
     ),
   ).toBeVisible()
   expect(screen.getByText(/12 \/ 12/)).toBeVisible()
@@ -114,4 +114,49 @@ test('historical imports advance their cursor on the next batch', async () => {
       calls.some((c) => c.method === 'POST' && c.url === '/api/learning/examples/import?after=99'),
     ).toBe(true),
   )
+})
+
+test('saved progress stays visible while an administrator inspects historical reports', async () => {
+  renderWithApp(<LearningSettings />, {
+    '/api/learning/evaluation': {
+      running: true,
+      result: {
+        evaluation_id: 'current',
+        source: 'held_out_human_reviews',
+        evaluated: 1,
+        expected: 3,
+        pending: 2,
+      },
+      history: [
+        {
+          stale: true,
+          result: {
+            evaluation_id: 'old',
+            source: 'synthetic',
+            checked_at: '2026-10-01T12:00:00Z',
+            evaluated: 28,
+            expected: 28,
+          },
+        },
+      ],
+    },
+    '/api/learning/examples': { items: [] },
+    '/api/learning/runs': {
+      summary: { sampled_runs: 0, reviewed_messages: 0, baseline: {}, candidate: {} },
+      items: [],
+    },
+  })
+  expect(
+    await screen.findByText('2 checks remaining. Progress is saved automatically.'),
+  ).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Evaluate held-out local reviews' })).toBeDisabled()
+  await userEvent.click(screen.getByText('Previous evaluation reports'))
+  await userEvent.click(screen.getByRole('button', { name: /Synthetic benchmark/ }))
+  expect(
+    screen.getByText(
+      'The model settings, reference pack or evaluation policy have changed. Run a new evaluation.',
+    ),
+  ).toBeVisible()
+  await userEvent.click(screen.getByRole('button', { name: 'Show current evaluation' }))
+  expect(screen.getByText('2 checks remaining. Progress is saved automatically.')).toBeVisible()
 })

@@ -1,5 +1,17 @@
 /** UI translations; message content, credentials, API values and URLs are never translated. */
 export const hebrew: Record<string, string> = {
+  'The model settings, reference pack or evaluation policy have changed. Run a new evaluation.':
+    'הגדרות המודל, חבילת הדוגמאות או מדיניות הבדיקה השתנו. יש להריץ בדיקה חדשה.',
+  '{value0} checks remaining. Progress is saved automatically.':
+    'נותרו {value0} בדיקות. ההתקדמות נשמרת אוטומטית.',
+  '{value0} reviews excluded because their source or label is unavailable.':
+    '{value0} ביקורות הוחרגו כי המקור או התיוג שלהן אינו זמין.',
+  'Previous evaluation reports': 'דוחות בדיקה קודמים',
+  'The latest ten completed reports stay local. Historical results do not authorize model promotion.':
+    'עשרת הדוחות האחרונים שהושלמו נשמרים מקומית. תוצאות היסטוריות אינן מהוות אישור להפעלת מודל.',
+  'Show current evaluation': 'הצגת הבדיקה הנוכחית',
+  'Previous report': 'דוח קודם',
+
   'This report uses an older reference pack or evaluation policy. Run a new evaluation.':
     'הדוח מבוסס על חבילת דוגמאות או מדיניות בדיקה ישנה. יש להריץ בדיקה חדשה.',
   'Quiet hours': 'שעות שקטות',

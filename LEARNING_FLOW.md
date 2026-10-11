@@ -104,7 +104,7 @@ base weights and a chat template are required. The script saves an adapter; it d
 merge weights, convert to GGUF, publish artifacts or replace the running model.
 
 Every training artifact remains marked `publishable_weights=false`. Preparation or training
-on the initial 12 examples is experimental and does not demonstrate improved accuracy.
+on the synthetic reference pack is experimental and does not demonstrate improved accuracy.
 Weights can also disclose training information; removing names alone does not make real
 data safe to publish. Validation rejects any dataset that differs from the reviewed
 synthetic repository pack, even if its checksums and privacy declaration have been rewritten.
@@ -134,7 +134,7 @@ and [privacy attacks on model updates](https://www.nist.gov/blogs/cybersecurity-
 
 ## Resumable evaluation and offline training verification
 
-Synthetic evaluation processes one case per queue claim, saves completed results locally, and resumes without repeating completed pairs. Each case has at most three attempts. Reports include expected, evaluated and pending counts, plus failure types without provider response bodies. Pending or failed evaluations cannot pass the promotion gate. Changing the model, endpoint or synthetic pack resets its checkpoint. Private benchmarks reserve time to save their report before the worker deadline.
+Synthetic evaluation processes one case per queue claim, saves completed results locally, and resumes without repeating completed pairs. Each case has at most three attempts. Reports include expected, evaluated and pending counts, plus failure types without provider response bodies. Pending or failed evaluations cannot pass the promotion gate. Changing the model, endpoint or synthetic pack resets its checkpoint. Private benchmarks also process one case per queue claim, retry each pair at most three times, and save progress before yielding to other work.
 
 Run `python scripts/smoke_learning_training.py` in the optional training environment to exercise the complete adapter path with a tiny, randomly initialized local model. It uses only the repository's synthetic data and disables network model access. The adapter manifest records dependency versions, training and validation losses and the adapter checksum. This smoke test checks compatibility and weight updates; it does not demonstrate useful classification accuracy or justify production deployment. All model publication gates remain in place.
 
@@ -173,3 +173,31 @@ python scripts/evaluate_learning_adapter.py --dataset .local/learning-training -
 The evaluator verifies the adapter checksum and its training plan, then runs the base and adapter on the independent split with deterministic, bounded generation. It accepts only complete JSON probability scores for all categories. Invalid output counts as a failed evaluation, never a safe verdict. Its local report contains aggregate verdict/category/language metrics and checksums; generated strings are not saved. Synthetic results cannot authorize production promotion or publication, regardless of scores. Real held-out review evidence and manual privacy/license approval remain necessary.
 
 The offline smoke workflow now verifies nonzero adapter weight updates and exercises output evaluation with a tiny random base. Its results validate the tooling, not classifier quality. No model is installed automatically, no private conversations enter this public training path, and sharing remains explicitly opt-in.
+
+
+## Durable private evaluation and report history
+
+Both synthetic and held-out local evaluations save progress after each paired
+comparison. A worker restart resumes the saved checkpoint; completed pairs are
+not requested again. Retrieval and each classification have bounded deadlines.
+Failed pairs are retried up to three times; incomplete or failed reports cannot
+pass the quality gate. Running a benchmark does not change examples, decisions,
+weights, sharing consent or learning mode.
+
+Private checkpoints are invalidated when model/provider settings, thresholds,
+context settings, retrieval settings, the reference pack or evaluation policy
+change. The private evaluator also checks source content, reviewed labels,
+source exclusions, child associations and context messages before resuming.
+Changed evidence restarts the comparison instead of mixing incompatible pairs.
+Missing-data reports, mismatched review hashes and excluded groups are omitted.
+The model configuration fingerprint identifies the configured model name and
+endpoint, not the underlying weights behind a mutable Ollama tag. Use versioned
+model names and rerun evaluation after replacing weights under an existing tag.
+
+Checkpoints store only hashed case/conversation keys and verdicts, never message
+text, contact details or model response bodies. Completed jobs discard their
+checkpoint. The latest ten completed aggregate reports remain local, including
+failed reports. In-progress results do not displace completed history. Settings
+shows progress and lets administrators select earlier reports; changed model
+settings or policies mark those reports stale. Historical evidence is for audit
+and comparison, not automatic promotion or proof of current accuracy.

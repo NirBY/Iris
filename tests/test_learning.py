@@ -541,3 +541,135 @@ async def test_benchmark_evaluates_same_targets_without_matches_and_makes_no_wri
     assert len(route.calls) == 2
     assert await db.scalar(select(func.count()).select_from(LearningExample)) == before
     assert await db.scalar(select(LearningRun)) is None
+
+
+@respx.mock
+async def test_private_checkpoint_resumes_and_invalidates_changed_evidence(db, monkeypatch):
+    from app.classify.benchmark_learning import evaluate
+
+    source, target = await samples(db)
+    chat = await db.get(Chat, source.chat_id)
+    chat.wa_chat_id = next(f"hold{i}@g.us" for i in range(100) if in_test_split(f"hold{i}@g.us"))
+    db.add(ReviewFeedback(message_id=target.id, verdict="safe"))
+    await capture(db, target, "safe")
+    await set_setting(db, "runtime.ollama_base_url", "http://ollama")
+    await db.commit()
+    cfg_url = str(db.bind.url)
+    monkeypatch.setattr("app.classify.benchmark_learning.make_engine", lambda: make_engine(cfg_url))
+    route = respx.post("http://ollama/api/chat").mock(return_value=response(0))
+    checkpoint = {}
+    first = await evaluate(200, emit=False, checkpoint=checkpoint)
+    assert first["evaluated"] == 1 and first["pending"] == 1
+    # JSON round trip simulates a persisted job reclaimed by another worker.
+    checkpoint = json.loads(json.dumps(checkpoint))
+    second = await evaluate(200, emit=False, checkpoint=checkpoint)
+    assert second["evaluated"] == 2 and second["pending"] == 0
+    await evaluate(200, emit=False, checkpoint=checkpoint)
+    assert len(route.calls) == 2
+    assert source.text not in json.dumps(checkpoint)
+    assert chat.wa_chat_id not in json.dumps(checkpoint)
+    assert "case_id" not in json.dumps(second) and "conversation" not in second
+    # A changed threshold resets all completed pairs.
+    await set_setting(db, "classification.context_window_size", 5)
+    await db.commit()
+    third = await evaluate(200, emit=False, checkpoint=checkpoint)
+    assert third["evaluated"] == 1 and len(route.calls) == 3
+    assert first["configuration_sha256"] != third["configuration_sha256"]
+    # A source edit must discard its old label and every result using that evidence.
+    source.text = "edited private text"
+    await db.commit()
+    fourth = await evaluate(200, emit=False, checkpoint=checkpoint)
+    assert fourth["expected"] == 1 and fourth["skipped"] == 1
+    assert fourth["evaluated"] == 1 and len(route.calls) == 4
+    # Explicit source exclusion also removes a completed result.
+    example = await db.get(LearningExample, target.id)
+    example.enabled = False
+    await db.commit()
+    empty = await evaluate(200, emit=False, checkpoint=checkpoint)
+    assert empty["evaluated"] == 0 and not empty["promotion"]["eligible"]
+    assert checkpoint["rows"] == []
+
+
+@respx.mock
+async def test_private_checkpoint_bounds_retries_and_excludes_missing_data(db, monkeypatch):
+    from app.classify.benchmark_learning import evaluate
+
+    source, target = await samples(db)
+    chat = await db.get(Chat, source.chat_id)
+    chat.wa_chat_id = next(f"hold{i}@g.us" for i in range(100) if in_test_split(f"hold{i}@g.us"))
+    await set_setting(db, "runtime.ollama_base_url", "http://ollama")
+    await db.commit()
+    cfg_url = str(db.bind.url)
+    monkeypatch.setattr("app.classify.benchmark_learning.make_engine", lambda: make_engine(cfg_url))
+    route = respx.post("http://ollama/api/chat").mock(
+        return_value=httpx.Response(503, text="private body")
+    )
+    checkpoint = {}
+    for attempt in range(3):
+        report = await evaluate(200, emit=False, checkpoint=checkpoint)
+        assert report["pending"] == (1 if attempt < 2 else 0)
+    assert report["failures"] == 1 and not report["promotion"]["eligible"]
+    assert "private body" not in json.dumps(report)
+    await evaluate(200, emit=False, checkpoint=checkpoint)
+    assert len(route.calls) == 3
+    db.add(ReviewDataIssue(message_id=source.id, issue="missing_data"))
+    await db.commit()
+    report = await evaluate(200, emit=False, checkpoint=checkpoint)
+    assert report["expected"] == 0 and report["skipped"] == 1
+    assert report["failures"] == 0 and checkpoint["attempts"] == {}
+
+
+@respx.mock
+async def test_private_evaluation_job_saves_progress_and_removes_completed_checkpoint(
+    db, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from app.classify.evaluation import evaluate_job
+    from app.classify.evaluation_state import HISTORY_KEY
+    from app.db.models import Job, Setting
+    from app.jobs import queue
+    from app.jobs.worker import run_one
+    from app.settings_store import reload_runtime_settings
+
+    source, target = await samples(db)
+    chat = await db.get(Chat, source.chat_id)
+    chat.wa_chat_id = next(f"hold{i}@g.us" for i in range(100) if in_test_split(f"hold{i}@g.us"))
+    db.add(ReviewFeedback(message_id=target.id, verdict="safe"))
+    await capture(db, target, "safe")
+    await set_setting(db, "runtime.ollama_base_url", "http://ollama")
+    await set_setting(db, "runtime.classification_provider", "ollama")
+    await db.commit()
+    await reload_runtime_settings(db)
+    cfg_url = str(db.bind.url)
+    monkeypatch.setattr("app.classify.benchmark_learning.make_engine", lambda: make_engine(cfg_url))
+    route = respx.post("http://ollama/api/chat").mock(return_value=response(0))
+    factory = make_session_factory(db.bind)
+    async with factory() as session:
+        jid = await queue.enqueue(
+            session, "evaluate_learning", {"source": "held_out_human_reviews"}, max_attempts=1
+        )
+    for step in range(2):
+        claimed = await queue.claim(factory)
+        assert claimed is not None and claimed.id == jid
+        state = await run_one(
+            claimed, SimpleNamespace(session_factory=factory), {"evaluate_learning": evaluate_job}
+        )
+        assert state == ("queued" if step == 0 else "done")
+        async with factory() as session:
+            stored = await session.get(Job, jid)
+            if step == 0:
+                assert (
+                    stored.attempts == 0
+                    and len(stored.payload["evaluation_checkpoint"]["rows"]) == 1
+                )
+                stored.run_after = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
+                await session.commit()
+            else:
+                assert "evaluation_checkpoint" not in stored.payload
+                history = await session.get(Setting, HISTORY_KEY)
+                assert len(history.value) == 1 and history.value[0]["evaluated"] == 2
+
+    # Crash between final report commit and queue acknowledgement: no new inference.
+    await evaluate_job(claimed, SimpleNamespace(session_factory=factory))
+    assert len(route.calls) == 2
