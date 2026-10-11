@@ -20,6 +20,10 @@ const WHAT: Record<string, string> = {
   deliver_alert: 'Sending an alert',
   notify_change: 'Telling you a message changed',
   test_alert: 'Sending a test alert',
+  prepare_alert: 'Preparing an alert',
+  evaluate_learning: 'Evaluating learning',
+  provider_notice: 'Sending a provider notice',
+  run_schedule: 'Running a scheduled task',
 }
 
 export function Jobs() {
@@ -72,7 +76,7 @@ export function Jobs() {
                         : 'warning'
                   }
                 >
-                  <CircleAlert /> {j.status}
+                  <CircleAlert /> {t(j.status)}
                 </Badge>
                 <span className="text-xs text-muted-foreground">
                   {t('attempt')} {j.attempts} {t('of')} {j.max_attempts},{' '}
@@ -87,7 +91,7 @@ export function Jobs() {
                       : 'break-words text-sm text-danger'
                   }
                 >
-                  {j.last_error}
+                  {t(j.last_error)}
                 </span>
               )}
               {j.status === 'queued' && j.run_after && (

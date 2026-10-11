@@ -49,6 +49,15 @@ export const hebrew: Record<string, string> = {
   'Candidate precision and harmful detection must both reach 95 percent.':
     'הדיוק וזיהוי התוכן המזיק של הגרסה המוצעת צריכים להגיע שניהם ל־95 אחוזים.',
   'Learning evaluation requires Ollama.': 'הערכת למידה דורשת חיבור Ollama.',
+  'Preparing an alert': 'הכנת התראה',
+  'Evaluating learning': 'הערכת הלמידה',
+  'Sending a provider notice': 'שליחת התראה על ספק',
+  'Running a scheduled task': 'ביצוע משימה מתוזמנת',
+  cancelled: 'בוטל',
+  'OpenWA media recovery temporarily unavailable': 'שחזור המדיה מ־OpenWA אינו זמין זמנית.',
+  'OpenWA media download failed: OpenWA returned empty media':
+    'הורדת המדיה מ־OpenWA נכשלה: התקבלה תשובה ללא תוכן.',
+  'OpenWA media download failed: HTTP {value0}': 'הורדת המדיה מ־OpenWA נכשלה: שגיאת HTTP {value0}.',
   'Both models must evaluate the same paired human labels.':
     'שני המודלים צריכים להיבדק מול אותן החלטות אנושיות.',
   'All eligible evaluation cases must be completed.': 'יש להשלים את כל מקרי הבדיקה המתאימים.',

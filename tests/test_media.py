@@ -142,6 +142,21 @@ def test_fixtures_are_small() -> None:
     assert sum(f.stat().st_size for f in FIX.iterdir()) < 100_000 and os.listdir(FIX)
 
 
+@respx.mock
+async def test_empty_success_response_is_retryable_and_leaves_no_file(tmp_path: Path) -> None:
+    respx.get(url__regex=MEDIA_URL).mock(
+        return_value=httpx.Response(200, headers={"content-type": "image/png"})
+    )
+    dest = tmp_path / "empty"
+    client = _client()
+    try:
+        with pytest.raises(TransientError, match="empty media"):
+            await download(client, "s1", "chat@lid", "true_chat@lid_ABC", dest)
+    finally:
+        await client.aclose()
+    assert not dest.exists()
+
+
 @pytest.mark.parametrize(
     "content",
     [
