@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - run: uv venv --python 3.12 .venv
-      - run: uv pip sync requirements.lock --python .venv/bin/python
+      - run: uv pip sync requirements.txt --python .venv/bin/python
       - run: .venv/bin/python -m pytest tests -q --junitxml=.local/test-results/native-api.xml
       - name: Save companion test results
         if: always()

@@ -20,6 +20,7 @@ def validate() -> None:
         ("github-actions", "/"),
         ("docker", "/"),
         ("pip", "/scripts"),
+        ("pip", "/docker-compose/local/macos"),
     }
     assert {(u["package-ecosystem"], u["directory"]) for u in updates} == expected
     ci = load("workflows/ci.yml")

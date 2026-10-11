@@ -32,6 +32,15 @@ updates:
       interval: weekly
       day: monday
   - package-ecosystem: pip
+    directory: /docker-compose/local/macos
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      companion-compatible:
+        update-types: [minor, patch]
+  - package-ecosystem: pip
     directory: /scripts
     schedule:
       interval: weekly

@@ -103,13 +103,13 @@ Extract the sanitized installation bundle. In Terminal, change into the extracte
 API_ROOT="$HOME/Library/Application Support/MilaAPI"
 mkdir -p "$API_ROOT"
 chmod 700 "$API_ROOT"
-cp app.py pytest.ini requirements.lock configure.py verify.py LICENSE LICENSES.md "$API_ROOT/"
+cp app.py pytest.ini requirements.txt configure.py verify.py LICENSE LICENSES.md "$API_ROOT/"
 mkdir -p "$API_ROOT/tests"
 cp tests/test_api.py "$API_ROOT/tests/"
 /opt/homebrew/bin/python3.12 -m venv "$API_ROOT/.venv"
 /opt/homebrew/bin/uv pip install \
   --python "$API_ROOT/.venv/bin/python" \
-  -r "$API_ROOT/requirements.lock"
+  -r "$API_ROOT/requirements.txt"
 ```
 
 The bundle contains the actual companion code, not just configuration for a nonexistent Mila server. The dependency lock includes the verification and test tools.
@@ -310,7 +310,7 @@ The API does not log transcripts or API keys. Diagnostic logs still belong in a 
 
 ## License files and bounded logs
 
-The companion source files are [app.py](app.py), [configure.py](configure.py), [verify.py](verify.py), [tests/test_api.py](tests/test_api.py) and [requirements.lock](requirements.lock). Keep [LICENSE](LICENSE) and [LICENSES.md](LICENSES.md) alongside them.
+The companion source files are [app.py](app.py), [configure.py](configure.py), [verify.py](verify.py), [tests/test_api.py](tests/test_api.py) and [requirements.txt](requirements.txt). Keep [LICENSE](LICENSE) and [LICENSES.md](LICENSES.md) alongside them.
 
 The updated API rotates `logs/api.log` at 10 MiB, retaining five older files. launchd redirects bootstrap stdout/stderr to `/dev/null`; if startup fails before logging initializes, stop the agent and run the API in Terminal using its private `MILA_API_CONFIG` to diagnose it, then restart the agent. The API does not log transcripts or credentials.
 

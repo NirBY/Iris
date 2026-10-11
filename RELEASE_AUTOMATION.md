@@ -1,7 +1,8 @@
 # Dependency updates and verified releases
 
 Dependabot checks the backend (`uv.lock`), frontend (`package-lock.json`),
-GitHub Actions, Docker base images and isolated training requirements every
+GitHub Actions, Docker base images, native transcription companion packages
+and isolated training requirements every
 Monday. Compatible minor/patch updates are grouped; major application updates
 remain separate PRs. Updates are reviewed through pull requests, not automatically
 merged. This uses [GitHub's supported ecosystems](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories)
