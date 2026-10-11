@@ -12,6 +12,51 @@ from app.schedules import check_connections, due_schedules, prune_history, track
 from tests.test_alerts import SEND_URL, run_all, setup
 
 
+@respx.mock
+async def test_connection_probes_release_sqlite_writer_before_next_phone(app_client, monkeypatch):
+    from app.config import get_settings
+    from app.db.models import Setting
+    from app.monitoring import session_details
+    from app.openwa.client import WEBHOOK_EVENTS
+    from app.settings_store import set_setting
+
+    deps, token, _ = await setup(app_client)
+    async with deps.session_factory() as db:
+        if db.get_bind().dialect.name != "sqlite":
+            await deps.providers.aclose()
+            pytest.skip("SQLite single-writer regression")
+        await set_setting(db, "schedules.config", {"connection_notifications": {"enabled": False}})
+        await db.commit()
+    probes = []
+
+    async def probe(instance, key):
+        probes.append(instance.id)
+        session_details[instance.id] = ("ready", datetime.now(UTC))
+        if len(probes) == 2:
+            # A webhook/job must still be able to write while the next phone is probed.
+            async with deps.session_factory() as concurrent:
+                concurrent.add(Setting(key="internal.concurrent_probe", value={"ok": True}))
+                await concurrent.commit()
+
+    monkeypatch.setattr("app.monitoring.probe_instance", probe)
+    respx.get("https://wa.x/api/sessions/s/webhooks").respond(
+        200,
+        json={
+            "data": [
+                {
+                    "url": f"{get_settings().webhook_url_base}/webhooks/{token}",
+                    "events": list(WEBHOOK_EVENTS),
+                }
+            ]
+        },
+    )
+    try:
+        await check_connections(deps)
+        assert len(probes) == 2
+    finally:
+        await deps.providers.aclose()
+
+
 async def test_schedule_catalog_and_manual_run_record_history(app_client: Any) -> None:
     c = app_client
     deps, _, _ = await setup(c)

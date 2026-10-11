@@ -97,6 +97,22 @@ async def test_recovery_enforces_cap_before_writing(tmp_path: Path) -> None:
         await c.aclose()
 
 
+async def test_browser_timeout_is_retryable_and_does_not_expose_provider_details(tmp_path):
+    def timeout(request):
+        raise httpx.ReadTimeout("sensitive-provider-diagnostic", request=request)
+
+    client = OpenWAClient("https://wa.x", "secret", httpx.MockTransport(timeout))
+    try:
+        with pytest.raises(OpenWAError) as failure:
+            await client.recover_media("s", "chat", "target", tmp_path / "out", 100)
+        assert failure.value.status is None
+        assert "timed out" in failure.value.message
+        assert "sensitive-provider-diagnostic" not in failure.value.message
+        assert not (tmp_path / "out").exists()
+    finally:
+        await client.aclose()
+
+
 @respx.mock
 @pytest.mark.parametrize("failures", [0, 1])
 async def test_worker_classifies_recovered_picture(app_client: Any, failures: int) -> None:

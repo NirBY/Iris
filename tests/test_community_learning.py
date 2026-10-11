@@ -23,7 +23,7 @@ def test_public_pack_has_independent_languages_and_splits():
 
 
 def test_training_rejects_private_content_even_with_forged_checksum(tmp_path):
-    prepare(tmp_path, "local-base", "pinned-revision")
+    prepare(tmp_path, "test/model", "0" * 40)
     assert validate(tmp_path)["publishable_weights"] is False
     file = tmp_path / "train.jsonl"
     records = [json.loads(line) for line in file.read_text(encoding="utf-8").splitlines()]
@@ -65,10 +65,12 @@ async def test_evaluation_is_aggregate_only_and_never_promotes_synthetic():
         )
     )
     report = await evaluate_community("model", "http://ollama")
-    assert report["evaluated"] == 12 and report["failures"] == 0
-    assert len(route.calls) == 24
-    assert report["languages"]["he"]["candidate"]["samples"] == 6
-    assert report["candidate"]["false_negative"] == 8
+    assert report["evaluated"] == len(load_pack()["evaluation"]) and report["failures"] == 0
+    assert len(route.calls) == 2 * len(load_pack()["evaluation"])
+    assert report["languages"]["he"]["candidate"]["samples"] == len(load_pack()["evaluation"]) // 2
+    assert report["candidate"]["false_negative"] == sum(
+        e["verdict"] == "harmful" for e in load_pack()["evaluation"]
+    )
     assert report["promotion"]["eligible"] is False
     assert not any(e["content"] in json.dumps(report) for e in load_pack()["evaluation"])
 
@@ -81,15 +83,15 @@ async def test_checkpoint_finishes_all_cases_without_repeating_completed_pairs()
         )
     )
     checkpoint = {}
-    for completed in range(1, 13):
+    for completed in range(1, len(load_pack()["evaluation"]) + 1):
         report = await evaluate_community("model", "http://ollama", checkpoint=checkpoint)
         assert report["evaluated"] == completed
-        assert report["pending"] == 12 - completed
-    assert len(route.calls) == 24
+        assert report["pending"] == len(load_pack()["evaluation"]) - completed
+    assert len(route.calls) == 2 * len(load_pack()["evaluation"])
     assert report["failures"] == 0
     assert not report["promotion"]["eligible"]
     await evaluate_community("model", "http://ollama", checkpoint=checkpoint)
-    assert len(route.calls) == 24
+    assert len(route.calls) == 2 * len(load_pack()["evaluation"])
 
 
 @respx.mock
@@ -98,12 +100,12 @@ async def test_checkpoint_bounds_retries_and_reports_only_safe_error_types():
         return_value=httpx.Response(503, text="private provider diagnostic")
     )
     checkpoint = {}
-    for _ in range(36):
+    for _ in range(3 * len(load_pack()["evaluation"])):
         report = await evaluate_community("model", "http://ollama", checkpoint=checkpoint)
-    assert report["pending"] == 0 and report["failures"] == 12
-    assert len(route.calls) == 36
+    assert report["pending"] == 0 and report["failures"] == len(load_pack()["evaluation"])
+    assert len(route.calls) == 3 * len(load_pack()["evaluation"])
     assert "private provider diagnostic" not in json.dumps(report)
-    assert sum(report["request_errors"].values()) == 36
+    assert sum(report["request_errors"].values()) == 3 * len(load_pack()["evaluation"])
 
 
 @respx.mock
@@ -133,22 +135,22 @@ async def test_evaluation_job_resumes_durably_without_consuming_retries(app_clie
     factory = app_client.app.state.session_factory
     async with factory() as db:
         jid = await queue.enqueue(db, "evaluate_learning", {"source": "synthetic"}, max_attempts=1)
-    for case in range(12):
+    for case in range(len(load_pack()["evaluation"])):
         claimed = await queue.claim(factory)
         assert claimed is not None and claimed.id == jid
         state = await run_one(
             claimed, SimpleNamespace(session_factory=factory), {"evaluate_learning": evaluate_job}
         )
-        assert state == ("done" if case == 11 else "queued")
+        assert state == ("done" if case == len(load_pack()["evaluation"]) - 1 else "queued")
         async with factory() as db:
             result = await db.get(Setting, RESULT_KEY)
             assert result.value["evaluated"] == case + 1
             stored = await db.get(Job, jid)
-            if case < 11:
+            if case < len(load_pack()["evaluation"]) - 1:
                 assert stored.attempts == 0
                 stored.run_after = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=1)
                 await db.commit()
-    assert len(route.calls) == 24
+    assert len(route.calls) == 2 * len(load_pack()["evaluation"])
 
 
 async def test_evaluation_queue_validates_source_and_reuses_pending_job(app_client):
@@ -161,6 +163,28 @@ async def test_evaluation_queue_validates_source_and_reuses_pending_job(app_clie
     assert (
         await app_client.post("/api/learning/evaluation?source=private_export")
     ).status_code == 422
+
+
+async def test_old_pack_result_is_marked_stale_without_discarding_history(app_client):
+    from app.classify.evaluation import RESULT_KEY
+    from app.db.models import Setting
+
+    factory = app_client.app.state.session_factory
+    async with factory() as db:
+        db.add(
+            Setting(
+                key=RESULT_KEY,
+                value={"source": "synthetic", "pack": {"sha256": "old"}, "evaluated": 12},
+            )
+        )
+        await db.commit()
+    status = (await app_client.get("/api/learning/evaluation")).json()
+    assert status["stale"] and status["result"]["evaluated"] == 12
+    async with factory() as db:
+        row = await db.get(Setting, RESULT_KEY)
+        row.value = {**row.value, "pack": public_manifest()}
+        await db.commit()
+    assert not (await app_client.get("/api/learning/evaluation")).json()["stale"]
 
 
 async def test_sharing_requires_explicit_revocable_account_consent(app_client):

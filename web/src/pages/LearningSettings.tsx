@@ -31,6 +31,7 @@ type Runs = {
 }
 type Evaluation = {
   running: boolean
+  stale?: boolean
   community_pack?: { version: string; sha256: string }
   result?: {
     source?: string
@@ -150,6 +151,11 @@ export function LearningSettings() {
         )}
         {evaluation.data?.result && (
           <div className="mt-3 flex flex-col gap-2">
+            {evaluation.data.stale && (
+              <p role="status" className="text-warning">
+                {t('This report uses an older reference pack. Run a new evaluation.')}
+              </p>
+            )}
             <p>
               {t(
                 evaluation.data.result.source === 'synthetic'

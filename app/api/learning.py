@@ -23,15 +23,22 @@ DB = Annotated[AsyncSession, Depends(get_db)]
 @router.get("/evaluation")
 async def evaluation_status(db: DB) -> dict[str, Any]:
     result = await db.get(Setting, RESULT_KEY)
+    pack = public_manifest()
+    value = result.value if result else None
     running = await db.scalar(
         select(Job.id)
         .where(Job.type == "evaluate_learning", Job.status.in_(("queued", "running")))
         .limit(1)
     )
     return {
-        "result": result.value if result else None,
+        "result": value,
+        "stale": bool(
+            value
+            and value.get("source") == "synthetic"
+            and value.get("pack", {}).get("sha256") != pack["sha256"]
+        ),
         "running": bool(running),
-        "community_pack": public_manifest(),
+        "community_pack": pack,
         "community_enabled": await get_setting(db, "classification.community_learning"),
     }
 

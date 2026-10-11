@@ -447,6 +447,9 @@ async def check_connections(deps: "Deps", now: datetime | None = None) -> dict[s
                     },
                     max_attempts=3,
                 )
+            # The next phone probe can take many seconds. Release SQLite's writer
+            # after each phone so webhooks, job claims and other schedules can proceed.
+            await db.commit()
         await db.commit()
         return {
             "checked_children": count,

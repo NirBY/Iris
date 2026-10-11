@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.classify.community import load_pack, public_manifest
-from scripts.prepare_learning_model import records_for
+from scripts.prepare_learning_model import model_identity, records_for
 
 
 def validate(directory: Path) -> dict:
@@ -20,6 +20,10 @@ def validate(directory: Path) -> dict:
         raise ValueError("This public-model pipeline accepts only the synthetic learning pack")
     if manifest["pack"] != public_manifest():
         raise ValueError("Training pack does not match the reviewed repository pack")
+    if manifest.get("base_identity") != model_identity(
+        manifest["base_model"], manifest["base_revision"]
+    ):
+        raise ValueError("Base model or tokenizer changed after dataset preparation")
     if set(manifest["datasets"]) != {"train.jsonl", "validation.jsonl"}:
         raise ValueError("Both independent dataset splits are required")
     seen = set()

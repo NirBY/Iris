@@ -3,6 +3,30 @@ import userEvent from '@testing-library/user-event'
 import { LearningSettings } from '../../src/pages/LearningSettings'
 import { renderWithApp } from '../test-utils'
 
+test('an old reference-pack result remains visible with a stale-result notice', async () => {
+  renderWithApp(<LearningSettings />, {
+    '/api/learning/evaluation': {
+      running: false,
+      stale: true,
+      result: { source: 'synthetic', evaluated: 12, expected: 12, failures: 0 },
+    },
+    '/api/learning/examples': { items: [] },
+    '/api/learning/runs': {
+      summary: {
+        sampled_runs: 0,
+        reviewed_messages: 0,
+        baseline: { false_positive: 0, false_negative: 0, review: 0 },
+        candidate: { false_positive: 0, false_negative: 0, review: 0 },
+      },
+      items: [],
+    },
+  })
+  expect(
+    await screen.findByText('This report uses an older reference pack. Run a new evaluation.'),
+  ).toBeVisible()
+  expect(screen.getByText(/12 \/ 12/)).toBeVisible()
+})
+
 test('admin can exclude a source and inspect baseline versus candidate evidence', async () => {
   const calls = renderWithApp(<LearningSettings />, {
     '/api/learning/examples': {

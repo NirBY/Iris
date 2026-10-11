@@ -1,5 +1,7 @@
 /** UI translations; message content, credentials, API values and URLs are never translated. */
 export const hebrew: Record<string, string> = {
+  'This report uses an older reference pack. Run a new evaluation.':
+    'הדוח מבוסס על חבילת דוגמאות ישנה. יש להריץ בדיקה חדשה.',
   'Quiet hours': 'שעות שקטות',
   'Parent notifications': 'התראות להורים',
   'Enable quiet hours': 'הפעלת שעות שקטות',

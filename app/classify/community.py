@@ -45,6 +45,16 @@ def load_pack() -> dict[str, Any]:
 def guidance(text: str) -> list[dict[str, Any]]:
     """Balanced, bounded references in the target language; independent of private retrieval."""
     language = "he" if re.search(r"[\u0590-\u05ff]", text) else "en"
+    tokens = set(re.findall(r"[^\W\d_]+", text.lower()))
+    choices = [e for e in load_pack()["examples"] if e["language"] == language]
+    # Keep the prompt bounded as the reference pack grows. Include both harmful
+    # and harmless contexts; deterministic lexical ranking selects relevant examples.
+    ranked = sorted(
+        choices,
+        key=lambda e: (-len(tokens & set(re.findall(r"[^\W\d_]+", e["content"].lower()))), e["id"]),
+    )
+    selected = [e for e in ranked if e["verdict"] == "harmful"][:3]
+    selected += [e for e in ranked if e["verdict"] == "safe"][:3]
     return [
         {
             "community_id": e["id"],
@@ -53,8 +63,7 @@ def guidance(text: str) -> list[dict[str, Any]]:
             "human_categories": e["categories"],
             "human_explanation": e.get("explanation"),
         }
-        for e in load_pack()["examples"]
-        if e["language"] == language
+        for e in selected
     ]
 
 

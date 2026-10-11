@@ -19,6 +19,7 @@ def smoke(root: Path) -> None:
     from transformers import LlamaConfig, LlamaForCausalLM, PreTrainedTokenizerFast
 
     from app.classify.community import load_pack
+    from scripts.evaluate_learning_adapter import evaluate
     from scripts.prepare_learning_model import prepare, records_for
     from scripts.train_learning_adapter import train
 
@@ -64,6 +65,15 @@ def smoke(root: Path) -> None:
     prepare(root / "dataset", str(base), "offline-random-smoke-v1")
     train(root / "dataset", root / "adapter")
     assert (root / "adapter" / "adapter_model.safetensors").stat().st_size > 0
+    from safetensors.torch import load_file
+
+    weights = load_file(root / "adapter" / "adapter_model.safetensors")
+    updates = [v for k, v in weights.items() if "lora_B" in k]
+    assert updates and all(v.count_nonzero().item() > 0 for v in updates)
+    report = evaluate(root / "dataset", root / "adapter", max_new_tokens=256)
+    assert report["expected"] == len(records_for(load_pack(), "evaluation"))
+    assert not report["promotion"]["eligible"] and not report["publishable_weights"]
+    print("Generated-output evaluation completed; publication remains blocked.")
     print("Offline training smoke passed. Random demonstration weights; not a production model.")
 
 

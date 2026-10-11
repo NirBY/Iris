@@ -3,12 +3,46 @@
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.classify.community import load_pack, public_manifest
 from app.classify.thresholds import DEFAULT_THRESHOLDS
+
+
+def model_identity(base_model: str, revision: str) -> dict:
+    directory = Path(base_model)
+    if directory.is_dir():
+        names = {
+            "config.json",
+            "generation_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            "tokenizer.model",
+            "vocab.json",
+            "merges.txt",
+            "added_tokens.json",
+        }
+        files = {}
+        for file in sorted(directory.rglob("*")):
+            if file.is_file() and (
+                file.name in names
+                or file.suffix == ".safetensors"
+                or file.name.endswith(".safetensors.index.json")
+            ):
+                with file.open("rb") as stream:
+                    files[file.relative_to(directory).as_posix()] = hashlib.file_digest(
+                        stream, "sha256"
+                    ).hexdigest()
+        if "config.json" not in files or not revision.strip():
+            raise ValueError("Local models require config.json and a revision label")
+        return {"kind": "local", "files": files}
+    if not re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", revision):
+        raise ValueError("Remote models require a full pinned commit, not a branch or tag")
+    return {"kind": "remote", "commit": revision.lower()}
 
 
 def records_for(pack: dict, source: str) -> list[dict]:
@@ -38,6 +72,7 @@ def records_for(pack: dict, source: str) -> list[dict]:
 
 
 def prepare(output: Path, base_model: str, revision: str) -> dict:
+    identity = model_identity(base_model, revision)
     pack = load_pack()
     output.mkdir(parents=True, exist_ok=True)
     files = {}
@@ -53,6 +88,7 @@ def prepare(output: Path, base_model: str, revision: str) -> dict:
         "pack": public_manifest(),
         "base_model": base_model,
         "base_revision": revision,
+        "base_identity": identity,
         "datasets": files,
         "contains_user_data": False,
         "privacy": "Synthetic inputs only; no access to Iris database or user exports.",

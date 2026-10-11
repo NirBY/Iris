@@ -137,3 +137,19 @@ and [privacy attacks on model updates](https://www.nist.gov/blogs/cybersecurity-
 Synthetic evaluation processes one case per queue claim, saves completed results locally, and resumes without repeating completed pairs. Each case has at most three attempts. Reports include expected, evaluated and pending counts, plus failure types without provider response bodies. Pending or failed evaluations cannot pass the promotion gate. Changing the model, endpoint or synthetic pack resets its checkpoint. Private benchmarks reserve time to save their report before the worker deadline.
 
 Run `python scripts/smoke_learning_training.py` in the optional training environment to exercise the complete adapter path with a tiny, randomly initialized local model. It uses only the repository's synthetic data and disables network model access. The adapter manifest records dependency versions, training and validation losses and the adapter checksum. This smoke test checks compatibility and weight updates; it does not demonstrate useful classification accuracy or justify production deployment. All model publication gates remain in place.
+
+## Category coverage and adapter output validation
+
+Reference pack 2026.10.2 contains 28 training examples and 28 independent evaluation cases. Every content category is represented in both Hebrew and English, including sexual content involving minors, self-harm instruction requests, violent crime and graphic violence. Additional harmless education, prevention and reporting contexts check false alerts. Guidance remains bounded to six language-matched examples, balanced between harmful and harmless contexts. A report from an earlier pack is marked stale in Iris.
+
+Remote training bases require a full immutable commit hash. Local base weights, configuration and tokenizer files are checksummed during preparation and checked again before training and evaluation; changed files invalidate the plan.
+
+After training, run the generated-output comparison:
+
+```powershell
+python scripts/evaluate_learning_adapter.py --dataset .local/learning-training --adapter .local/learning-adapter
+```
+
+The evaluator verifies the adapter checksum and its training plan, then runs the base and adapter on the independent split with deterministic, bounded generation. It accepts only complete JSON probability scores for all categories. Invalid output counts as a failed evaluation, never a safe verdict. Its local report contains aggregate verdict/category/language metrics and checksums; generated strings are not saved. Synthetic results cannot authorize production promotion or publication, regardless of scores. Real held-out review evidence and manual privacy/license approval remain necessary.
+
+The offline smoke workflow now verifies nonzero adapter weight updates and exercises output evaluation with a tiny random base. Its results validate the tooling, not classifier quality. No model is installed automatically, no private conversations enter this public training path, and sharing remains explicitly opt-in.
