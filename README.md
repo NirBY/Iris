@@ -728,6 +728,9 @@ and MySQL; frontend tests run with Vitest on Node 22. CI stores JUnit test repor
 artifacts, including failed runs. The native transcription companion has its own tests under
 `docker-compose/local/macos/tests/` and a path-filtered workflow.
 
+See [dependency updates and verified releases](RELEASE_AUTOMATION.md) for automatic
+upgrade PRs, weekly verification, synthetic training checks and tag-triggered releases.
+
 Local deployment scripts, private settings and audit outputs belong to the parent workspace,
 outside this Git repository. Temporary test runs and generated reports belong under ignored
 `.local/` directories. Default test runs use isolated databases and mocked providers; tests that
