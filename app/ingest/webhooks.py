@@ -266,6 +266,10 @@ async def receive(
     inst.last_webhook_at = datetime.now(UTC)
     if sig is not None:
         await save_webhook_status(db, inst.id, "registered", None)
+    else:
+        # Scope queries autoflush last_webhook_at. Release that write before
+        # waiting for the ingestion lock, whose owner may also need SQLite's writer.
+        await db.commit()
     if change is not None:
         async with _STORE_LOCK:
             if (

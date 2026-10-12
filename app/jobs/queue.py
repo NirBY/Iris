@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import get_settings
 from app.db.models import Alert, Job, Message
+from app.db.retry import retry_sqlite_busy
 from app.events import bus
 from app.metrics import ALERTS
 
@@ -59,6 +60,7 @@ class DeferredError(Exception):
         self.reason = reason
 
 
+@retry_sqlite_busy
 async def defer(
     factory: async_sessionmaker[AsyncSession],
     job: "ClaimedJob",
@@ -166,6 +168,7 @@ async def heartbeat(factory: async_sessionmaker[AsyncSession], job: ClaimedJob) 
         await db.commit()
 
 
+@retry_sqlite_busy
 async def ack(
     factory: async_sessionmaker[AsyncSession], job_id: int, attempt: int | None = None
 ) -> None:
@@ -183,6 +186,7 @@ def backoff_for(attempt: int, retry_after: float | None = None) -> timedelta:
     return timedelta(seconds=max(base, min(retry_after or 0, 3600)))
 
 
+@retry_sqlite_busy
 async def fail(
     factory: async_sessionmaker[AsyncSession],
     job: ClaimedJob,
