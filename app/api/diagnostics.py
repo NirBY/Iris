@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Job, LearningExample, Message, ReviewFeedback
 from app.deps import get_db
-from app.review_queue import ai_pending
+from app.review_queue import ai_pending, unavailable_content
 from app.security.auth import admin_user
 
 router = APIRouter(
@@ -87,8 +87,25 @@ async def summary(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, Any
             )
         ).all()
     )
+    unavailable = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(Message)
+            .where(
+                Message.verdict == "review",
+                ~ai_pending(),
+                unavailable_content(),
+                ~select(ReviewFeedback.message_id)
+                .where(ReviewFeedback.message_id == Message.id)
+                .exists(),
+            )
+        )
+        or 0
+    )
     return {
         "pending_processing": pending,
+        "manual_review": sum(categories.values()) - unavailable,
+        "unavailable_content": unavailable,
         "unresolved_review": {
             "total": sum(categories.values()),
             "by_reason": categories,

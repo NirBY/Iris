@@ -23,6 +23,8 @@ def fingerprint(value: Any) -> str:
 
 
 async def configuration_fingerprint(db: AsyncSession) -> str:
+    from app.classify.learning import RETRIEVAL_VERSION, SEMANTIC_VERSION
+
     cfg = get_settings()
     settings = {
         key: await get_setting(db, "classification." + key)
@@ -44,6 +46,7 @@ async def configuration_fingerprint(db: AsyncSession) -> str:
         prompt=prompt_fingerprint(),
         policy=QUALITY_POLICY,
         pack=public_manifest()["sha256"],
+        retrieval_versions=[RETRIEVAL_VERSION, SEMANTIC_VERSION],
     )
     # Provider addresses and settings are hashed, never exposed in reports.
     return fingerprint(settings)

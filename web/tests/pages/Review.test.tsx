@@ -266,7 +266,7 @@ test('a saved missing-data response stays visible while a final decision is stil
   expect(await screen.findByRole('status')).toHaveTextContent(
     'saved separately from safety decisions',
   )
-  expect(screen.getByRole('button', { name: 'Missing data reported' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Content unavailable' })).toBeDisabled()
   expect(screen.getByRole('button', { name: /Mark safe/ })).toBeEnabled()
   expect(screen.getByRole('button', { name: /Mark harmful/ })).toBeEnabled()
 })
@@ -275,7 +275,7 @@ test('ignored view can be selected separately from the active queue', async () =
   const calls = renderWithApp(<Review />, {
     '/api/review': { items: [], total: 0, page: 1, page_size: 25 },
   })
-  await userEvent.click(await screen.findByRole('button', { name: 'Ignored: missing data' }))
-  expect(await screen.findByText('No missing-data reports')).toBeInTheDocument()
+  await userEvent.click(await screen.findByRole('button', { name: 'Unavailable content' }))
+  expect(await screen.findByText('No unavailable content')).toBeInTheDocument()
   expect(calls.some((c) => c.url.includes('view=missing_data'))).toBe(true)
 })

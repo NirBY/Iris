@@ -144,7 +144,7 @@ export function Review() {
           variant={view === 'missing_data' ? 'primary' : 'outline'}
           onClick={() => update({ view: 'missing_data' })}
         >
-          {t('Ignored: missing data')}
+          {t('Unavailable content')}
         </Button>
         <Button
           variant={view === 'responses' ? 'primary' : 'outline'}
@@ -153,14 +153,23 @@ export function Review() {
           {t('Parent responses & notes')}
         </Button>
       </div>
+      {view === 'missing_data' && (
+        <p className="text-sm text-muted-foreground">
+          {t(
+            'Unavailable content is kept here for recovery. These messages have not been marked safe.',
+          )}
+        </p>
+      )}
       {data && (
         <p className="text-sm text-muted-foreground">
           {data.total}{' '}
-          {view === 'responses'
-            ? 'with parent responses'
-            : view === 'missing_data'
-              ? 'ignored for missing data'
-              : 'awaiting review'}
+          {t(
+            view === 'responses'
+              ? 'with parent responses'
+              : view === 'missing_data'
+                ? 'with unavailable content'
+                : 'awaiting review',
+          )}
           ; {data.reviewed_total ?? 0}{' '}
           {t('judged. Human labels are review records, not proof of AI accuracy.')}
         </p>
@@ -171,10 +180,12 @@ export function Review() {
         <div className="rounded-lg border bg-surface">
           <EmptyState
             icon={ListChecks}
-            title={view === 'missing_data' ? t('No missing-data reports') : t('Nothing to review')}
+            title={view === 'missing_data' ? t('No unavailable content') : t('Nothing to review')}
           >
             {view === 'missing_data'
-              ? t('Items ignored because data is missing appear here for later design review.')
+              ? t(
+                  'Unavailable content is kept here for recovery. These messages have not been marked safe.',
+                )
               : t('When Iris cannot tell whether a message is harmful, it waits here for you.')}
           </EmptyState>
         </div>
@@ -313,7 +324,7 @@ export function Review() {
                         variant="outline"
                         size="sm"
                         aria-label={
-                          missingData ? t('Missing data reported') : t('Ignore — missing data')
+                          missingData ? t('Content unavailable') : t('Ignore — missing data')
                         }
                         title={t(
                           'Ignore this item and save a missing-data report without judging safety.',

@@ -127,7 +127,47 @@ async def test_explicit_details_reach_examples_only_for_exact_reviewed_content(d
     assert found[0]["human_explanation"] == "איום ישיר"
     feedback.content_hash = "stale"
     await db.commit()
-    assert "human_explanation" not in (await retrieve(db, target))[0]
+    assert await retrieve(db, target) == []
+
+
+@pytest.mark.parametrize("strategy", ["lexical", "semantic"])
+@pytest.mark.parametrize("invalid", ["review_hash", "edit_after_review"])
+async def test_stale_labels_never_reach_retrieval_or_embeddings(db, strategy, invalid):
+    from unittest.mock import AsyncMock
+
+    from app.classify.learning import content_hash
+
+    source, target = await samples(db)
+    feedback = await db.get(ReviewFeedback, source.id)
+    feedback.content_hash = content_hash(source)
+    feedback.reviewed_at = T0
+    if invalid == "review_hash":
+        feedback.content_hash = "different-reviewed-content"
+    else:
+        source.edited_at = T0 + timedelta(hours=1)
+    await db.commit()
+    embedder = AsyncMock()
+    embedder.embed.return_value = [[1.0, 0.0], [1.0, 0.0]]
+    await set_setting(db, "classification.learning_embedding_model", "embed-model")
+    selection = await select_examples(db, target, strategy=strategy, embedder=embedder)
+    assert selection.examples == []
+    assert selection.metadata["candidates"] == 0
+    embedder.embed.assert_not_awaited()
+    # A fresh, matching human review restores eligibility without changing the source.
+    feedback.content_hash = content_hash(source)
+    feedback.reviewed_at = T0 + timedelta(hours=2)
+    await db.commit()
+    selection = await select_examples(db, target, strategy=strategy, embedder=embedder)
+    assert [row["message_id"] for row in selection.examples] == [source.id]
+
+
+async def test_retrieval_revision_invalidates_evaluation_configuration(db, monkeypatch):
+    from app.classify import learning
+    from app.classify.evaluation_state import configuration_fingerprint
+
+    before = await configuration_fingerprint(db)
+    monkeypatch.setattr(learning, "RETRIEVAL_VERSION", "future-lexical-rules")
+    assert await configuration_fingerprint(db) != before
 
 
 @pytest.mark.parametrize("change", ["edit", "redact", "revoke", "disable", "missing", "skip"])

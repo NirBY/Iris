@@ -12,6 +12,12 @@ verdict is not pending AI work. Counts do not establish holdout eligibility or
 model accuracy. Message text, phone numbers, credentials and raw errors are not
 included.
 
+`manual_review` counts actionable reviews; `unavailable_content` counts items
+kept in the separate recovery view. `unresolved_review` includes both groups.
+Confirmed missing-media and empty unknown-message failures move to the recovery
+view automatically, without changing safety verdicts or creating human labels.
+If reprocessing recovers the content, normal review routing resumes.
+
 ## Optional MCP bridge
 
 The read-only bridge uses the [official Python MCP SDK](https://py.sdk.modelcontextprotocol.io/v1/)

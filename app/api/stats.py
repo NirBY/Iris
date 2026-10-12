@@ -33,14 +33,13 @@ from app.db.models import (
     MediaWarningDismissal,
     Message,
     MessageReceipt,
-    ReviewDataIssue,
     ScheduleRun,
     StoredMedia,
     User,
 )
 from app.deps import get_db
 from app.resources import container_resources
-from app.review_queue import ai_pending
+from app.review_queue import ai_pending, unavailable_content
 from app.security.auth import admin_user, current_user
 from app.settings_store import get_setting
 
@@ -225,11 +224,7 @@ async def stats(db: DB, user: Annotated[User | None, Depends(current_user)] = No
             db,
             select(func.count())
             .select_from(Message)
-            .where(
-                (Message.verdict == "review")
-                & ~ai_pending()
-                & ~Message.id.in_(select(ReviewDataIssue.message_id))
-            ),
+            .where((Message.verdict == "review") & ~ai_pending() & ~unavailable_content()),
         ),
         iris_review_queue=await _count(
             db,

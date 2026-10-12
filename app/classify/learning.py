@@ -7,7 +7,7 @@ import unicodedata
 from dataclasses import dataclass, replace
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classify.ollama import OllamaModerator
@@ -28,8 +28,8 @@ from app.settings_store import get_setting
 MAX_EXAMPLE_CHARS = 1200
 MAX_CANDIDATES = 200
 MAX_EXAMPLES = 4
-RETRIEVAL_VERSION = "lexical-v2"
-SEMANTIC_VERSION = "semantic-v1"
+RETRIEVAL_VERSION = "lexical-v3"
+SEMANTIC_VERSION = "semantic-v2"
 TEXT_TYPES = {"text", "chat"}
 
 
@@ -120,6 +120,11 @@ async def select_examples(
             LearningExample.enabled.is_(True),
             LearningExample.verdict.in_(("safe", "harmful")),
             LearningExample.verdict == ReviewFeedback.verdict,
+            or_(
+                ReviewFeedback.content_hash.is_(None),
+                ReviewFeedback.content_hash == LearningExample.content_hash,
+            ),
+            or_(Message.edited_at.is_(None), Message.edited_at <= ReviewFeedback.reviewed_at),
             Message.id != target.id,
             Message.redacted.is_(False),
             Message.revoked_at.is_(None),

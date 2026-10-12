@@ -1,5 +1,29 @@
 # Iris learning flow and logic
 
+## Reducing avoidable review work
+
+Classification requires readable evidence. Odd-sized animated WebP stickers are
+converted in RGB before padding, preserving their canvas and frame offsets so
+the configured local vision model can inspect them instead of receiving a decode
+failure. The existing first-frame analysis limit still applies to animations.
+
+Confirmed unavailable-media and empty unknown-message failures go to the separate
+**Unavailable content** recovery view automatically. Their verdict remains
+`review`; no human feedback or training label is fabricated. Inconclusive scores,
+documents, video visuals and decoder errors remain actionable reviews. A recovered
+message returns to normal routing after reprocessing. This reduces queue noise,
+not the number of safety concerns by assuming unseen content is safe.
+
+## Review provenance
+
+Local retrieval rejects examples whose human-review content hash differs from
+the captured example, or whose message was edited after the human review.
+These checks run before the candidate limit and before any semantic embedding.
+Legacy reviews without a hash still require unchanged captured content and a
+review no older than the last edit. Retrieval revisions are included in evaluation
+fingerprints, so prior results and checkpoints cannot silently authorize changed
+retrieval rules. This applies equally to lexical and semantic learning.
+
 Adapter evaluation checks both `adapter_model.safetensors` and `adapter_config.json`
 against the training manifest before loading and after inference. Older adapters
 without both checksums must be retrained; do not manufacture a manifest for them.

@@ -106,6 +106,9 @@ async def image_to_jpeg(src: Path, dst: Path, max_dim: int = 2000) -> None:
     filters = []
     if geometry:
         width, height, x, y = geometry
+        # Subsampled YUV rounds odd pad dimensions down, sometimes below the
+        # decoded frame size. RGB preserves the WebP canvas and frame offsets.
+        filters.append("format=rgba")
         filters.append(f"pad={width}:{height}:{x}:{y}:color=white")
     filters.append(
         f"scale='min({max_dim},iw)':'min({max_dim},ih)':force_original_aspect_ratio=decrease"

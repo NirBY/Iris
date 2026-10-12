@@ -359,4 +359,12 @@ export const hebrewFeedback: Record<string, string> = {
   children: 'ילדים',
   models: 'מודלים',
   fine: 'תקין',
+  'Unavailable content': 'תוכן לא זמין',
+  'Content unavailable': 'התוכן אינו זמין',
+  'with unavailable content': 'עם תוכן לא זמין',
+  'No unavailable content': 'אין תוכן לא זמין',
+  'with parent responses': 'עם תגובות הורים',
+  'awaiting review': 'ממתינות לבדיקה',
+  'Unavailable content is kept here for recovery. These messages have not been marked safe.':
+    'תוכן לא זמין נשמר כאן לשחזור. הודעות אלה לא סומנו כבטוחות.',
 }

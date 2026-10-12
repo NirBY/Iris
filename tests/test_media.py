@@ -1,3 +1,4 @@
+import asyncio
 import os
 import subprocess
 from pathlib import Path
@@ -72,6 +73,71 @@ async def test_animated_webp_is_unwrapped_for_first_frame_conversion(tmp_path: P
     await ffmpeg.image_to_jpeg(src, dst)
     assert dst.read_bytes().startswith(b"\xff\xd8\xff")
     assert not dst.with_suffix(".first-frame.webp").exists()
+
+
+@pytest.mark.parametrize("offset", [0, 2])
+async def test_odd_sized_lossy_sticker_canvas_decodes_without_cropping(
+    tmp_path: Path, offset: int
+) -> None:
+    static = tmp_path / "odd.webp"
+    await asyncio.to_thread(
+        subprocess.run,
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(FIX / "image.png"),
+            "-vf",
+            "scale=65:65,format=yuv420p",
+            "-frames:v",
+            "1",
+            "-c:v",
+            "libwebp",
+            str(static),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return tag + len(data).to_bytes(4, "little") + data + b"\x00" * (len(data) % 2)
+
+    canvas = 65 + offset
+    vp8x = bytes([2, 0, 0, 0]) + (canvas - 1).to_bytes(3, "little") * 2
+    frame = (
+        (offset // 2).to_bytes(3, "little") * 2
+        + (64).to_bytes(3, "little") * 2
+        + (100).to_bytes(3, "little")
+        + b"\x00"
+        + static.read_bytes()[12:]
+    )
+    payload = b"WEBP" + chunk(b"VP8X", vp8x) + chunk(b"ANIM", b"\x00" * 6) + chunk(b"ANMF", frame)
+    src, dst = tmp_path / "odd-animated.webp", tmp_path / "result.jpg"
+    src.write_bytes(b"RIFF" + len(payload).to_bytes(4, "little") + payload)
+    await ffmpeg.image_to_jpeg(src, dst)
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "csv=p=0",
+            str(dst),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    dimensions = result.stdout.strip()
+    assert dimensions == f"{canvas},{canvas}"
 
 
 def test_incomplete_animated_webp_is_not_passed_to_decoder(tmp_path: Path) -> None:

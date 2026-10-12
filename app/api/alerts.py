@@ -39,7 +39,7 @@ from app.db.models import (
 )
 from app.deps import get_db
 from app.jobs.queue import enqueue
-from app.review_queue import ai_pending
+from app.review_queue import ai_pending, unavailable_content
 from app.security.auth import current_user, parent_user
 from app.settings_store import get_setting
 
@@ -463,7 +463,7 @@ async def review_queue(
 ) -> ReviewPage:
     from app.db.models import Chat
 
-    reported = exists().where(ReviewDataIssue.message_id == Message.id)
+    reported = unavailable_content()
     cond = (
         ai_pending()
         if view == "ai"
