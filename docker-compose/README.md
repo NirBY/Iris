@@ -34,6 +34,7 @@ Compose refuses to start and says which value is missing if a required one is em
 | `DB_PASSWORD` | MySQL, PostgreSQL | The database password. Use letters and digits only: it goes into a connection URL as is. |
 | `OPENWA_IMAGE` | OpenWA | Required tested immutable image digest. Automatic Watchtower updates are disabled. |
 | `OPENWA_PORT`, `TZ` | OpenWA | Port on localhost (default 2785) and time zone for its logs. |
+| `OPENWA_AUTH_TIMEOUT_MS` | OpenWA | Browser authentication timeout in milliseconds (default 180000). On the supported gateway, the overall engine-start deadline is this value plus 30 seconds; the browser protocol timeout alone does not extend it. |
 
 ## Which database?
 

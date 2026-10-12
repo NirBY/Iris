@@ -23,6 +23,8 @@ services:
       MEDIA_DOWNLOAD_TIMEOUT_MS: "${OPENWA_MEDIA_DOWNLOAD_TIMEOUT_MS:-60000}"
       INBOUND_MEDIA_CONCURRENCY: "${OPENWA_MEDIA_CONCURRENCY:-2}"
       PUPPETEER_PROTOCOL_TIMEOUT_MS: "${OPENWA_PROTOCOL_TIMEOUT_MS:-120000}"
+      # The overall startup deadline also depends on this value, not the protocol timeout.
+      WWEBJS_AUTH_TIMEOUT_MS: "${OPENWA_AUTH_TIMEOUT_MS:-180000}"
       TZ: ${TZ:-UTC}
       # Plain HTTP on localhost would otherwise render a blank dashboard. Remove this line when a
       # TLS proxy is in front.
