@@ -7,7 +7,8 @@ from typing import Any
 
 from app.classify.community import guidance, load_pack, public_manifest
 from app.classify.evaluation_state import RESULT_KEY as RESULT_KEY
-from app.classify.evaluation_state import configuration_fingerprint, save_report
+from app.classify.evaluation_state import configuration_fingerprint, identity_models, save_report
+from app.classify.model_identity import resolve_identity
 from app.classify.ollama import OllamaModerator
 from app.classify.prompt import prompt_fingerprint
 from app.classify.quality import QUALITY_POLICY, paired_comparison
@@ -17,7 +18,8 @@ from app.classify.thresholds import DEFAULT_THRESHOLDS, band_for
 from app.config import get_settings
 from app.db.models import Job, Setting
 from app.jobs.handlers import Deps
-from app.jobs.queue import ClaimedJob, DeferredError, ensure_owned
+from app.jobs.queue import ClaimedJob, DeferredError, TransientError, ensure_owned
+from app.settings_store import reload_runtime_settings
 
 
 async def evaluate_community(
@@ -136,7 +138,6 @@ async def evaluate_community(
 
 
 async def evaluate_job(job: ClaimedJob, deps: Deps) -> None:
-    cfg = get_settings()
     async with deps.session_factory() as db:
         current = await db.get(Setting, RESULT_KEY)
         if (
@@ -147,8 +148,16 @@ async def evaluate_job(job: ClaimedJob, deps: Deps) -> None:
             # A crash after saving the final report but before the worker ACK must
             # not restart the benchmark after its checkpoint has been discarded.
             return
+        await reload_runtime_settings(db)
+        cfg = get_settings()
         configuration = await configuration_fingerprint(db)
+        models = await identity_models(db, cfg.ollama_model)
     checkpoint = job.payload.get("evaluation_checkpoint", {})
+    identity = None
+    if cfg.classification_provider == "ollama":
+        identity = await resolve_identity(cfg.ollama_base_url, models)
+        if job.payload.get("model_identity") != identity:
+            checkpoint = {}
     timeout = min(float(cfg.job_timeout_seconds), 570.0)
     if cfg.classification_provider != "ollama":
         report = {"error": "Learning evaluation requires Ollama.", "weights_updated": False}
@@ -170,10 +179,21 @@ async def evaluate_job(job: ClaimedJob, deps: Deps) -> None:
             checkpoint=checkpoint,
             request_timeout=max(0.1, min(120.0, (timeout - 10) / 2)),
         )
+    if identity is not None:
+        if await resolve_identity(cfg.ollama_base_url, models) != identity:
+            raise TransientError("Ollama model changed during evaluation. Retry evaluation.")
+        job.payload["model_identity"] = identity
+        report["model_identity"] = identity
+        report["promotion"] = promotion_gate(report)
     report.setdefault("configuration_sha256", configuration)
     report["evaluation_id"] = str(job.id)
     report.setdefault("checked_at", datetime.now(UTC).isoformat())
     async with deps.session_factory() as db:
+        if (
+            await configuration_fingerprint(db) != configuration
+            or report.get("configuration_sha256") != configuration
+        ):
+            raise TransientError("Learning settings changed during evaluation. Retry evaluation.")
         await ensure_owned(db, job)
         await save_report(db, report)
         stored = await db.get(Job, job.id)

@@ -1,6 +1,8 @@
 """The shared production/training prompt; no HTTP or training dependencies."""
 
 import hashlib
+import re
+from typing import Any
 
 from app.classify.thresholds import DEFAULT_THRESHOLDS
 
@@ -22,3 +24,12 @@ def moderation_prompt() -> str:
 
 def prompt_fingerprint() -> str:
     return hashlib.sha256(moderation_prompt().encode()).hexdigest()
+
+
+def valid_identity(value: Any) -> bool:
+    return bool(
+        isinstance(value, dict)
+        and "classifier" in value
+        and set(value) <= {"classifier", "embedding"}
+        and all(isinstance(d, str) and re.fullmatch(r"[0-9a-f]{64}", d) for d in value.values())
+    )

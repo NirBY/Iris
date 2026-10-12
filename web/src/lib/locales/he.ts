@@ -1,5 +1,24 @@
 /** UI translations; message content, credentials, API values and URLs are never translated. */
 export const hebrew: Record<string, string> = {
+  'Learning evaluation failed. Check Jobs and retry.':
+    'בדיקת הלמידה נכשלה. יש לבדוק את המשימות ולנסות שוב.',
+
+  'Learning settings changed during evaluation. Retry evaluation.':
+    'הגדרות הלמידה השתנו במהלך הבדיקה. יש להריץ את הבדיקה שוב.',
+
+  'The model settings, model version or evaluation policy have changed. Run a new evaluation.':
+    'הגדרות המודל, גרסת המודל או מדיניות הבדיקה השתנו. יש להריץ בדיקה חדשה.',
+  'Model identity could not be verified. Previous results are not current.':
+    'לא ניתן לאמת את זהות המודל. התוצאות הקודמות אינן עדכניות.',
+  'Model version': 'גרסת המודל',
+  'Embedding model version': 'גרסת מודל ההטמעה',
+  'Verified model digests are required before promotion.':
+    'נדרש אימות של גרסאות המודלים לפני אישור הפעלה.',
+  'Ollama model identity is unavailable. Check the provider and retry evaluation.':
+    'זהות מודל Ollama אינה זמינה. יש לבדוק את הספק ולנסות להריץ את הבדיקה שוב.',
+  'Ollama model changed during evaluation. Retry evaluation.':
+    'מודל Ollama השתנה במהלך הבדיקה. יש להריץ את הבדיקה שוב.',
+
   'The model settings, reference pack or evaluation policy have changed. Run a new evaluation.':
     'הגדרות המודל, חבילת הדוגמאות או מדיניות הבדיקה השתנו. יש להריץ בדיקה חדשה.',
   '{value0} checks remaining. Progress is saved automatically.':

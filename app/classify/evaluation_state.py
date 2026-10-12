@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classify.community import public_manifest
-from app.classify.prompt import prompt_fingerprint
+from app.classify.prompt import prompt_fingerprint, valid_identity
 from app.classify.quality import QUALITY_POLICY
 from app.config import get_settings
 from app.db.models import Setting
@@ -49,12 +49,18 @@ async def configuration_fingerprint(db: AsyncSession) -> str:
     return fingerprint(settings)
 
 
-def stale(report: dict[str, Any] | None, configuration: str) -> bool:
+def stale(
+    report: dict[str, Any] | None,
+    configuration: str,
+    identity: dict[str, str] | None = None,
+) -> bool:
     return bool(
         report
         and report.get("source") in {"synthetic", "held_out_human_reviews"}
         and (
-            report.get("configuration_sha256") != configuration
+            not valid_identity(identity)
+            or report.get("model_identity") != identity
+            or report.get("configuration_sha256") != configuration
             or report.get("quality_policy") != QUALITY_POLICY
             or report.get("prompt_sha256") != prompt_fingerprint()
         )
@@ -80,3 +86,11 @@ async def save_report(db: AsyncSession, report: dict[str, Any]) -> None:
         db.add(Setting(key=RESULT_KEY, value=report))
     else:
         current.value = report
+
+
+async def identity_models(db: AsyncSession, model: str) -> dict[str, str]:
+    models = {"classifier": model}
+    embedding = await get_setting(db, "classification.learning_embedding_model")
+    if embedding and await get_setting(db, "classification.learning_retrieval") == "semantic":
+        models["embedding"] = str(embedding)
+    return models

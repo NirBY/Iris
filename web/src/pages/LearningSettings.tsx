@@ -30,6 +30,7 @@ type Runs = {
   items: Run[]
 }
 type EvaluationReport = {
+  model_identity?: { classifier: string; embedding?: string }
   evaluation_id?: string
   checked_at?: string
   pending?: number
@@ -46,6 +47,8 @@ type EvaluationReport = {
 }
 type ReportEntry = { result: EvaluationReport; stale: boolean }
 type Evaluation = {
+  failed?: boolean
+  model_identity_status?: string
   running: boolean
   stale?: boolean
   community_pack?: { version: string; sha256: string }
@@ -163,15 +166,45 @@ export function LearningSettings() {
         {evaluation.data?.running && (
           <p role="status">{t('Learning evaluation is running in the background.')}</p>
         )}
+        {evaluation.data?.failed && (
+          <p role="alert">
+            {t('Learning evaluation failed. Check Jobs and retry.')}{' '}
+            <Link className="underline" to="/jobs">
+              {t('Jobs')}
+            </Link>
+          </p>
+        )}
         {evaluation.isError && (
           <QueryError what="learning evaluation" onRetry={() => void evaluation.refetch()} />
         )}
         {result && (
           <div className="mt-3 flex flex-col gap-2">
+            {evaluation.data?.model_identity_status === 'unavailable' && (
+              <p role="status" className="text-warning">
+                {t('Model identity could not be verified. Previous results are not current.')}
+              </p>
+            )}
+            {result.model_identity && (
+              <p>
+                {t('Model version')}:{' '}
+                <bdi title={result.model_identity.classifier}>
+                  {result.model_identity.classifier.slice(0, 12)}
+                </bdi>
+                {result.model_identity.embedding && (
+                  <>
+                    {' '}
+                    · {t('Embedding model version')}:{' '}
+                    <bdi title={result.model_identity.embedding}>
+                      {result.model_identity.embedding.slice(0, 12)}
+                    </bdi>
+                  </>
+                )}
+              </p>
+            )}
             {reportStale && (
               <p role="status" className="text-warning">
                 {t(
-                  'The model settings, reference pack or evaluation policy have changed. Run a new evaluation.',
+                  'The model settings, model version or evaluation policy have changed. Run a new evaluation.',
                 )}
               </p>
             )}

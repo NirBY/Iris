@@ -21,6 +21,7 @@ def rows():
 def report(data):
     return {
         "source": "held_out_human_reviews",
+        "model_identity": {"classifier": "a" * 64},
         "expected": len(data),
         "evaluated": len(data),
         "failures": 0,
@@ -111,3 +112,12 @@ def test_unknown_human_or_model_verdict_is_never_assumed_safe():
         metrics([{"human": "review", "candidate": "safe"}], "candidate")
     with pytest.raises(ValueError):
         metrics([{"human": "safe", "candidate": "unknown"}], "candidate")
+
+
+@pytest.mark.parametrize("identity", [None, {}, {"classifier": "model-name"}, {"classifier": True}])
+def test_promotion_requires_valid_model_provenance(identity):
+    result = report(improved())
+    result["model_identity"] = identity
+    gate = promotion_gate(result)
+    assert not gate["eligible"]
+    assert "Verified model digests are required before promotion." in gate["reasons"]

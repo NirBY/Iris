@@ -643,6 +643,13 @@ async def test_private_evaluation_job_saves_progress_and_removes_completed_check
     await reload_runtime_settings(db)
     cfg_url = str(db.bind.url)
     monkeypatch.setattr("app.classify.benchmark_learning.make_engine", lambda: make_engine(cfg_url))
+    from app.config import get_settings
+
+    respx.get("http://ollama/api/tags").mock(
+        return_value=httpx.Response(
+            200, json={"models": [{"name": get_settings().ollama_model, "digest": "a" * 64}]}
+        )
+    )
     route = respx.post("http://ollama/api/chat").mock(return_value=response(0))
     factory = make_session_factory(db.bind)
     async with factory() as session:

@@ -9,8 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classify.community import public_manifest
 from app.classify.evaluation import RESULT_KEY
-from app.classify.evaluation_state import HISTORY_KEY, configuration_fingerprint, stale
+from app.classify.evaluation_state import (
+    HISTORY_KEY,
+    configuration_fingerprint,
+    identity_models,
+    stale,
+)
 from app.classify.learning import capture, content_hash, eligible
+from app.classify.model_identity import ModelIdentityError, resolve_identity
+from app.config import get_settings
 from app.db.models import Job, LearningExample, LearningRun, Message, ReviewFeedback, Setting
 from app.deps import get_db
 from app.jobs.queue import enqueue
@@ -31,16 +38,36 @@ async def evaluation_status(db: DB) -> dict[str, Any]:
         .where(Job.type == "evaluate_learning", Job.status.in_(("queued", "running")))
         .limit(1)
     )
+    latest_job = await db.scalar(
+        select(Job).where(Job.type == "evaluate_learning").order_by(Job.id.desc()).limit(1)
+    )
     configuration = await configuration_fingerprint(db)
     history = await db.get(Setting, HISTORY_KEY)
+    cfg = get_settings()
+    identity = None
+    identity_status = "unavailable"
+    if value or (history and history.value):
+        provider = (
+            await get_setting(db, "runtime.classification_provider") or cfg.classification_provider
+        )
+        if provider == "ollama":
+            model = await get_setting(db, "runtime.ollama_model") or cfg.ollama_model
+            endpoint = await get_setting(db, "runtime.ollama_base_url") or cfg.ollama_base_url
+            try:
+                identity = await resolve_identity(endpoint, await identity_models(db, model))
+                identity_status = "verified"
+            except ModelIdentityError:
+                pass
     return {
+        "model_identity_status": identity_status,
         "result": value,
-        "stale": stale(value, configuration),
+        "stale": stale(value, configuration, identity),
         "history": [
-            {"result": report, "stale": stale(report, configuration)}
+            {"result": report, "stale": stale(report, configuration, identity)}
             for report in (history.value if history else [])
         ],
         "running": bool(running),
+        "failed": bool(latest_job and latest_job.status in {"failed", "dead"}),
         "community_pack": pack,
         "community_enabled": await get_setting(db, "classification.community_learning"),
     }
@@ -57,7 +84,7 @@ async def start_evaluation(
     )
     if running:
         return {"job_id": running}
-    job = await enqueue(db, "evaluate_learning", {"source": source}, max_attempts=1)
+    job = await enqueue(db, "evaluate_learning", {"source": source}, max_attempts=3)
     await db.commit()
     return {"job_id": job}
 

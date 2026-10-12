@@ -47,7 +47,7 @@ test('an old reference-pack result remains visible with a stale-result notice', 
   })
   expect(
     await screen.findByText(
-      'The model settings, reference pack or evaluation policy have changed. Run a new evaluation.',
+      'The model settings, model version or evaluation policy have changed. Run a new evaluation.',
     ),
   ).toBeVisible()
   expect(screen.getByText(/12 \/ 12/)).toBeVisible()
@@ -154,9 +154,41 @@ test('saved progress stays visible while an administrator inspects historical re
   await userEvent.click(screen.getByRole('button', { name: /Synthetic benchmark/ }))
   expect(
     screen.getByText(
-      'The model settings, reference pack or evaluation policy have changed. Run a new evaluation.',
+      'The model settings, model version or evaluation policy have changed. Run a new evaluation.',
     ),
   ).toBeVisible()
   await userEvent.click(screen.getByRole('button', { name: 'Show current evaluation' }))
   expect(screen.getByText('2 checks remaining. Progress is saved automatically.')).toBeVisible()
+})
+
+test('model version remains visible when the provider identity cannot be verified', async () => {
+  renderWithApp(<LearningSettings />, {
+    '/api/learning/evaluation': {
+      running: false,
+      stale: true,
+      model_identity_status: 'unavailable',
+      failed: true,
+      result: {
+        source: 'synthetic',
+        evaluated: 28,
+        model_identity: { classifier: 'a'.repeat(64), embedding: 'b'.repeat(64) },
+      },
+    },
+    '/api/learning/examples': { items: [] },
+    '/api/learning/runs': {
+      summary: { sampled_runs: 0, reviewed_messages: 0, baseline: {}, candidate: {} },
+      items: [],
+    },
+  })
+  expect(
+    await screen.findByText(
+      'Model identity could not be verified. Previous results are not current.',
+    ),
+  ).toBeVisible()
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'Learning evaluation failed. Check Jobs and retry.',
+  )
+  expect(screen.getByRole('link', { name: 'Jobs' })).toHaveAttribute('href', '/jobs')
+  expect(screen.getByTitle('a'.repeat(64))).toHaveTextContent('a'.repeat(12))
+  expect(screen.getByTitle('b'.repeat(64))).toHaveTextContent('b'.repeat(12))
 })

@@ -52,6 +52,7 @@ def test_gate_rejects_synthetic_small_regressed_and_equal_candidates():
     ]
     report = {
         "source": "held_out_human_reviews",
+        "model_identity": {"classifier": "a" * 64},
         "baseline": metrics(rows, "baseline"),
         "candidate": metrics(rows, "candidate"),
         "failures": 0,
@@ -148,6 +149,11 @@ async def test_evaluation_job_resumes_durably_without_consuming_retries(app_clie
             job_timeout_seconds=900,
         ),
     )
+    respx.get("http://ollama/api/tags").mock(
+        return_value=httpx.Response(
+            200, json={"models": [{"name": "model:latest", "digest": "a" * 64}]}
+        )
+    )
     route = respx.post("http://ollama/api/chat").mock(
         return_value=httpx.Response(
             200, json={"message": {"content": json.dumps(dict.fromkeys(DEFAULT_THRESHOLDS, 0))}}
@@ -187,12 +193,21 @@ async def test_evaluation_queue_validates_source_and_reuses_pending_job(app_clie
 
 
 @pytest.mark.parametrize("source", ["synthetic", "held_out_human_reviews"])
-async def test_old_pack_result_is_marked_stale_without_discarding_history(app_client, source):
+async def test_old_pack_result_is_marked_stale_without_discarding_history(
+    app_client, source, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
     from app.classify.evaluation import RESULT_KEY
     from app.db.models import Setting
+    from app.settings_store import set_setting
 
+    monkeypatch.setattr(
+        "app.api.learning.resolve_identity", AsyncMock(return_value={"classifier": "a" * 64})
+    )
     factory = app_client.app.state.session_factory
     async with factory() as db:
+        await set_setting(db, "runtime.classification_provider", "ollama")
         db.add(
             Setting(
                 key=RESULT_KEY,
@@ -206,6 +221,7 @@ async def test_old_pack_result_is_marked_stale_without_discarding_history(app_cl
         row = await db.get(Setting, RESULT_KEY)
         row.value = {
             **row.value,
+            "model_identity": {"classifier": "a" * 64},
             "configuration_sha256": await configuration_fingerprint(db),
             "pack": public_manifest(),
             "quality_policy": QUALITY_POLICY,
@@ -236,18 +252,27 @@ async def test_sharing_requires_explicit_revocable_account_consent(app_client):
     assert revoked.json()["enabled"] is False
 
 
-async def test_report_history_is_bounded_and_does_not_archive_partial_progress(app_client):
+async def test_report_history_is_bounded_and_does_not_archive_partial_progress(
+    app_client, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
     from app.classify.evaluation_state import HISTORY_KEY, save_report
     from app.db.models import Setting
     from app.settings_store import set_setting
 
+    monkeypatch.setattr(
+        "app.api.learning.resolve_identity", AsyncMock(return_value={"classifier": "a" * 64})
+    )
     factory = app_client.app.state.session_factory
     async with factory() as db:
+        await set_setting(db, "runtime.classification_provider", "ollama")
         configuration = await configuration_fingerprint(db)
         for i in range(12):
             report = {
                 "evaluation_id": str(i),
                 "source": "held_out_human_reviews",
+                "model_identity": {"classifier": "a" * 64},
                 "configuration_sha256": configuration,
                 "quality_policy": QUALITY_POLICY,
                 "prompt_sha256": prompt_fingerprint(),

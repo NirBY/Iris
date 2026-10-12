@@ -190,9 +190,14 @@ change. The private evaluator also checks source content, reviewed labels,
 source exclusions, child associations and context messages before resuming.
 Changed evidence restarts the comparison instead of mixing incompatible pairs.
 Missing-data reports, mismatched review hashes and excluded groups are omitted.
-The model configuration fingerprint identifies the configured model name and
-endpoint, not the underlying weights behind a mutable Ollama tag. Use versioned
-model names and rerun evaluation after replacing weights under an existing tag.
+Queued evaluations resolve the installed Ollama model digest before and after
+each pair. Changing weights under an existing tag resets the checkpoint; a
+change during inference discards that pair. The configured semantic embedding
+model is pinned the same way. Concurrent setting changes discard the pair too.
+Provider metadata failures receive at most three queue attempts and never count
+as a verified model version. Old reports without verified digests are stale.
+The read-only command-line benchmark does not verify provider digests and cannot
+qualify for promotion; use the queued Settings evaluation for verified evidence.
 
 Checkpoints store only hashed case/conversation keys and verdicts, never message
 text, contact details or model response bodies. Completed jobs discard their
@@ -201,3 +206,19 @@ failed reports. In-progress results do not displace completed history. Settings
 shows progress and lets administrators select earlier reports; changed model
 settings or policies mark those reports stale. Historical evidence is for audit
 and comparison, not automatic promotion or proof of current accuracy.
+
+
+## Installed model provenance
+
+Evaluation reports record only the classifier/embedding SHA-256 digests returned
+by Ollama's [installed-model API](https://docs.ollama.com/api/tags), together with
+the configuration and prompt fingerprints. The Settings status check compares
+those digests with the currently installed models. Changed or unavailable
+identities mark reports stale while preserving their historical metrics; the UI
+shows compact model version hashes in English and Hebrew. No model is downloaded,
+loaded for inference or replaced by the metadata check.
+
+This relies on the configured provider's metadata and before/after checks, not
+remote attestation or an immutable serving lock. It cannot detect a model changed
+and restored between checks. Verified provenance is required by the quality gate,
+but does not itself establish accuracy or authorize promotion/publication.

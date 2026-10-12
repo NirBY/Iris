@@ -3,7 +3,9 @@
 import math
 from typing import Any
 
-QUALITY_POLICY = "conversation-paired-v1"
+from app.classify.prompt import valid_identity
+
+QUALITY_POLICY = "model-provenance-v2"
 
 
 def metrics(rows: list[dict[str, Any]], field: str) -> dict[str, Any]:
@@ -68,6 +70,8 @@ def promotion_gate(report: dict[str, Any]) -> dict[str, Any]:
     reasons = []
     if report.get("source") != "held_out_human_reviews":
         reasons.append("Synthetic checks cannot justify production promotion.")
+    if not valid_identity(report.get("model_identity")):
+        reasons.append("Verified model digests are required before promotion.")
     baseline, candidate = report["baseline"], report["candidate"]
     if any(baseline[key] != candidate[key] for key in ("samples", "harmful", "safe")):
         reasons.append("Both models must evaluate the same paired human labels.")
