@@ -1,5 +1,12 @@
 # Iris learning flow and logic
 
+Adapter evaluation checks both `adapter_model.safetensors` and `adapter_config.json`
+against the training manifest before loading and after inference. Older adapters
+without both checksums must be retrained; do not manufacture a manifest for them.
+Importing existing human reviews rejects labels bound to a different content hash.
+See [API integrations](API_INTEGRATIONS.md) for aggregate learning and review
+diagnostics through Swagger/OpenAPI and the optional read-only MCP bridge.
+
 Iris learns from feedback by supplying reviewed examples as context to Ollama.
 Updating model weights is a separate, explicit workflow outside the application.
 There is no claim that the model is smarter than users: evaluations compare harm

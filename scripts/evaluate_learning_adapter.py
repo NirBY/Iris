@@ -1,7 +1,6 @@
 """Compare a local adapter with its pinned base using synthetic cases; never publish weights."""
 
 import argparse
-import hashlib
 import json
 import math
 import sys
@@ -13,7 +12,7 @@ from app.classify.community import load_pack, public_manifest
 from app.classify.prompt import prompt_fingerprint
 from app.classify.quality import QUALITY_POLICY, metrics, paired_comparison, promotion_gate
 from app.classify.thresholds import DEFAULT_THRESHOLDS, band_for
-from scripts.train_learning_adapter import validate
+from scripts.train_learning_adapter import validate, verify_adapter
 
 
 def parse_scores(text: str) -> dict[str, float]:
@@ -119,10 +118,7 @@ def evaluate(
     ):
         if trained.get(key) != manifest[key]:
             raise ValueError("Adapter does not match this reviewed training plan")
-    with (adapter / "adapter_model.safetensors").open("rb") as stream:
-        digest = hashlib.file_digest(stream, "sha256").hexdigest()
-    if trained.get("adapter_sha256") != digest or trained.get("training_complete") is not True:
-        raise ValueError("Adapter weights changed or training is incomplete")
+    identity = verify_adapter(adapter, trained)
 
     import torch
     from peft import PeftModel
@@ -171,7 +167,10 @@ def evaluate(
     baseline = predict(model)
     candidate = predict(PeftModel.from_pretrained(model, adapter, local_files_only=True))
     report = summarize_predictions(baseline, candidate)
-    report["adapter_sha256"] = digest
+    # Do not report a valid comparison if files changed during model loading/inference.
+    verify_adapter(adapter, trained)
+    report["adapter_sha256"] = identity["adapter_model.safetensors"]
+    report["adapter_files"] = identity
     report["max_new_tokens"] = max_new_tokens
     (adapter / "evaluation-report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report

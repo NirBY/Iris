@@ -10,7 +10,23 @@ from app.classify.prompt import moderation_prompt, prompt_fingerprint
 from app.classify.thresholds import DEFAULT_THRESHOLDS
 from scripts.evaluate_learning_adapter import parse_scores, summarize_predictions
 from scripts.prepare_learning_model import prepare, records_for
-from scripts.train_learning_adapter import validate
+from scripts.train_learning_adapter import adapter_identity, validate, verify_adapter
+
+
+@pytest.mark.parametrize("changed", ["adapter_config.json", "adapter_model.safetensors"])
+def test_adapter_configuration_and_weights_are_bound_to_evaluation(tmp_path, changed):
+    (tmp_path / "adapter_config.json").write_text('{"r":8}')
+    (tmp_path / "adapter_model.safetensors").write_bytes(b"weights")
+    files = adapter_identity(tmp_path)
+    manifest = {
+        "adapter_files": files,
+        "adapter_sha256": files["adapter_model.safetensors"],
+        "training_complete": True,
+    }
+    assert verify_adapter(tmp_path, manifest) == files
+    (tmp_path / changed).write_bytes(b"changed")
+    with pytest.raises(ValueError, match="weights/configuration changed"):
+        verify_adapter(tmp_path, manifest)
 
 
 def test_training_uses_the_exact_production_prompt_and_pins_it(tmp_path):

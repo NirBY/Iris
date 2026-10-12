@@ -118,6 +118,8 @@ async def import_reviews(db: DB, after: int = Query(0, ge=0)) -> dict[str, int]:
             continue
         if message.edited_at is not None and message.edited_at > feedback.reviewed_at:
             continue
+        if feedback.content_hash is not None and feedback.content_hash != content_hash(message):
+            continue
         await capture(db, message, feedback.verdict)
         await db.flush()
         imported += await db.get(LearningExample, message.id) is not None

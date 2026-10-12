@@ -20,6 +20,7 @@ from app.api import (
     auth,
     classify,
     database,
+    diagnostics,
     instances,
     jobs,
     learning,
@@ -197,6 +198,7 @@ def create_app() -> FastAPI:
     app.include_router(classify.router)
     app.include_router(learning.router)
     app.include_router(database.router)
+    app.include_router(diagnostics.router)
     app.include_router(media.router)
     app.include_router(events_api.router)
     app.include_router(operations.router)

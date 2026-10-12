@@ -34,6 +34,7 @@ def validate() -> None:
         "image",
         "compose",
         "learning-training",
+        "mcp",
     } <= ci["jobs"].keys()
     assert "workflow_call" in load("workflows/native-transcription.yml")["on"]
     release = load("workflows/docker.yml")

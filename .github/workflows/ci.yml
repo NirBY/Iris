@@ -17,6 +17,16 @@ permissions:
   contents: read
 
 jobs:
+  mcp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - run: uv venv --python 3.12 .local/mcp-venv
+      - run: uv pip install --python .local/mcp-venv/bin/python -r scripts/mcp-requirements.txt pytest pytest-asyncio respx
+      - run: .local/mcp-venv/bin/python -m pytest scripts/test_mcp_bridge.py
+
   learning-training:
     runs-on: ubuntu-latest
     timeout-minutes: 20

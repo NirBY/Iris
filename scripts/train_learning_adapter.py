@@ -12,6 +12,25 @@ from app.classify.prompt import prompt_fingerprint
 from scripts.prepare_learning_model import model_identity, records_for
 
 
+def adapter_identity(directory: Path) -> dict[str, str]:
+    """Pin both the learned weights and configuration used to interpret them."""
+    return {
+        name: hashlib.sha256((directory / name).read_bytes()).hexdigest()
+        for name in ("adapter_model.safetensors", "adapter_config.json")
+    }
+
+
+def verify_adapter(directory: Path, manifest: dict) -> dict[str, str]:
+    identity = adapter_identity(directory)
+    if (
+        manifest.get("adapter_files") != identity
+        or manifest.get("adapter_sha256") != identity["adapter_model.safetensors"]
+        or manifest.get("training_complete") is not True
+    ):
+        raise ValueError("Adapter weights/configuration changed or training is incomplete")
+    return identity
+
+
 def validate(directory: Path) -> dict:
     manifest = json.loads((directory / "training-manifest.json").read_text(encoding="utf-8"))
     if (
@@ -146,6 +165,7 @@ def train(directory: Path, output: Path, *, allow_download: bool = False) -> Non
         adapter_sha256=hashlib.sha256(
             (output / "adapter_model.safetensors").read_bytes()
         ).hexdigest(),
+        adapter_files=adapter_identity(output),
     )
     (output / "training-manifest.json").write_text(json.dumps(manifest, indent=2))
 
