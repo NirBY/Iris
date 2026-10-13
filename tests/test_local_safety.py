@@ -447,14 +447,15 @@ async def test_video_transcript_does_not_clear_unchecked_visuals(
     enable(monkeypatch, local=True)
     deps, token = await setup(app_client)
 
-    async def transcribe(db: Any, deps: Any, tmp: Any, message: Message, job: Any = None) -> None:
+    async def prepare(db: Any, job: Any, deps: Any, message: Message, tmp: Any) -> Any:
         assert tmp.is_relative_to(get_settings().data_dir)
         message.transcript = "harmless speech"
+        return handlers.Prepared(problem=PermanentError("video visuals require manual review"))
 
     async def moderate(self: Any, model: str, body: str) -> ModerationResult:
         return ModerationResult({"violence": 0.0}, False, {})
 
-    monkeypatch.setattr(handlers, "_transcribe", transcribe)
+    monkeypatch.setattr(handlers, "_video_prepare", prepare)
     monkeypatch.setattr(OllamaModerator, "moderate", moderate)
     body = json.loads(fx("voice_sent"))
     body["data"]["type"] = "video"

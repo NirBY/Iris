@@ -5,7 +5,7 @@ from typing import Any
 
 from app.classify.prompt import valid_identity
 
-QUALITY_POLICY = "model-provenance-v2"
+QUALITY_POLICY = "review-workload-v3"
 
 
 def metrics(rows: list[dict[str, Any]], field: str) -> dict[str, Any]:
@@ -126,9 +126,11 @@ def promotion_gate(report: dict[str, Any]) -> dict[str, Any]:
         reasons.append("The candidate introduces additional missed harm or false alerts.")
     if (candidate["precision"] or 0) < 0.95 or (candidate["harmful_detection_rate"] or 0) < 0.95:
         reasons.append("Candidate precision and harmful detection must both reach 95 percent.")
-    if candidate["false_positive"] >= baseline["false_positive"] and (
-        candidate["harmful_detection_rate"] or 0
-    ) <= (baseline["harmful_detection_rate"] or 0):
+    if (
+        candidate["false_positive"] >= baseline["false_positive"]
+        and (candidate["harmful_detection_rate"] or 0) <= (baseline["harmful_detection_rate"] or 0)
+        and candidate["safe_review"] >= baseline["safe_review"]
+    ):
         reasons.append("The candidate must demonstrate improvement over the baseline.")
     return {
         "eligible": not reasons,

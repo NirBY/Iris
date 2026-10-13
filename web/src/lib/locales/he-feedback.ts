@@ -361,6 +361,15 @@ export const hebrewFeedback: Record<string, string> = {
   fine: 'תקין',
   'Unavailable content': 'תוכן לא זמין',
   'Content unavailable': 'התוכן אינו זמין',
+  'Sampled video frames': 'פריימים שנדגמו מהסרטון',
+  'Video duration or visual stream is unavailable; manual review required':
+    'משך הסרטון או התמונה אינם זמינים; נדרשת בדיקה ידנית',
+  'Video exceeds the 30-second local visual analysis limit; manual review required':
+    'הסרטון ארוך ממגבלת 30 השניות לבדיקה חזותית מקומית; נדרשת בדיקה ידנית',
+  'Video sample could not be decoded; manual review required':
+    'לא ניתן לפענח דגימה מהסרטון; נדרשת בדיקה ידנית',
+  'Local AI checked sampled frames with the available caption and speech. Sampling does not inspect every frame.':
+    'הבינה המקומית בדקה פריימים שנדגמו יחד עם הכיתוב והדיבור הזמינים. הדגימה אינה בודקת כל פריים.',
   'with unavailable content': 'עם תוכן לא זמין',
   'No unavailable content': 'אין תוכן לא זמין',
   'with parent responses': 'עם תגובות הורים',

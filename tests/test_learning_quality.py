@@ -76,6 +76,16 @@ def test_review_workload_is_not_hidden_as_reduced_false_alerts():
     assert "The candidate increases manual review workload." in promotion_gate(result)["reasons"]
 
 
+def test_verified_reduction_of_safe_reviews_is_a_real_improvement():
+    data = rows()
+    for row in data[50:55]:
+        row["baseline"] = "review"
+    assert promotion_gate(report(data))["eligible"]
+    # Clearing a harmful review into safe must never count as a workload win.
+    data[0]["baseline"], data[0]["candidate"] = "review", "safe"
+    assert not promotion_gate(report(data))["eligible"]
+
+
 def test_language_regression_is_blocked_despite_better_overall_result():
     data = rows()
     for i, r in enumerate(data):

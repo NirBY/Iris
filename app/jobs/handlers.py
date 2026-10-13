@@ -3,9 +3,11 @@
 import asyncio
 import base64
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import delete, select
@@ -74,13 +76,20 @@ async def _image_data_url(db: AsyncSession, message: Message, deps: Deps, tmp: P
 
 
 async def _transcribe(
-    db: AsyncSession, deps: Deps, tmp: Path, message: Message, job: ClaimedJob | None = None
+    db: AsyncSession,
+    deps: Deps,
+    tmp: Path,
+    message: Message,
+    job: ClaimedJob | None = None,
+    *,
+    original: Path | None = None,
 ) -> None:
     """Fill message.transcript from audio/voice/video; Skip when there is no speech."""
     if message.transcript:  # a retry must not pay for transcription twice
         return
-    raw, mp3 = tmp / "media.bin", tmp / "audio.mp3"
-    await _fetch(db, message, deps, raw)
+    raw, mp3 = original or tmp / "media.bin", tmp / "audio.mp3"
+    if original is None:
+        await _fetch(db, message, deps, raw)
     info = await ffmpeg.probe(raw)
     if not info.has_audio:
         raise Skip("video has no audio track")
@@ -109,9 +118,48 @@ async def _transcribe(
 
 @dataclass
 class Prepared:
-    image: str | None = None
+    image: str | list[str] | None = None
     # Why the media could not be examined (the caption may still be). Never silently "safe".
     problem: Exception | None = None
+    media_analysis: dict[str, Any] | None = None
+
+
+async def _video_prepare(
+    db: AsyncSession, job: ClaimedJob, deps: Deps, message: Message, tmp: Path
+) -> Prepared:
+    raw = tmp / "media.bin"
+    await _fetch(db, message, deps, raw)
+    try:
+        info, frames, timestamps = await ffmpeg.video_frames(raw, tmp)
+    except PermanentError as visual_error:
+        # A long/undecodable clip may still contain harmful speech. Keep the
+        # existing transcription path, but never clear its unchecked visuals.
+        with suppress(Skip, MediaSkipped, PermanentError):
+            await _transcribe(db, deps, tmp, message, job, original=raw)
+        return Prepared(problem=visual_error)
+    images = [
+        "data:image/jpeg;base64," + base64.b64encode(await asyncio.to_thread(p.read_bytes)).decode()
+        for p in frames
+    ]
+    prepared = Prepared(
+        image=images,
+        media_analysis={
+            "method": "sampled_video_v1",
+            "duration_seconds": info.duration,
+            "frame_timestamps": timestamps,
+            "has_audio": info.has_audio,
+            "audio_checked": not info.has_audio,
+        },
+    )
+    if info.has_audio:
+        try:
+            await _transcribe(db, deps, tmp, message, job, original=raw)
+            assert prepared.media_analysis is not None
+            prepared.media_analysis["audio_checked"] = True
+        except (Skip, MediaSkipped, PermanentError) as exc:
+            # Sampled visuals can still flag harm; missing speech cannot clear a clip.
+            prepared.problem = exc
+    return prepared
 
 
 async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Message) -> Prepared:
@@ -135,6 +183,12 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
         async with job_tmpdir(deps.data_dir, job.id) as tmp:
             if message.type in ("image", "sticker"):
                 return Prepared(image=await _image_data_url(db, message, deps, tmp))
+            if (
+                message.type == "video"
+                and cfg.local_safety_mode
+                and cfg.classification_provider == "ollama"
+            ):
+                return await _video_prepare(db, job, deps, message, tmp)
             await _transcribe(db, deps, tmp, message, job)
             if cfg.local_safety_mode and message.type == "video":
                 return Prepared(problem=PermanentError("video visuals require manual review"))
@@ -264,6 +318,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                 hours=int(await get_setting(db, "classification.context_max_age_hours"))
             ),
             image_data_url=prepared.image,
+            media_analysis=prepared.media_analysis,
         )
         try:
             outcome = await run_pipeline(message, ctx)

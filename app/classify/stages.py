@@ -33,8 +33,9 @@ class StageContext:
     context_window_size: int
     context_max_age: timedelta
     # JPEG data URL of the message's image/sticker, when it has one.
-    image_data_url: str | None = None
+    image_data_url: str | list[str] | None = None
     learning_examples: list[dict[str, Any]] | None = None
+    media_analysis: dict[str, Any] | None = None
 
 
 @dataclass
@@ -70,10 +71,22 @@ def _image_part(data_url: str) -> dict[str, Any]:
     return {"type": "image_url", "image_url": {"url": data_url}}
 
 
-def build_input(text: str, image_data_url: str | None) -> tuple[str, str | list[dict[str, Any]]]:
+def build_input(
+    text: str, image_data_url: str | list[str] | None
+) -> tuple[str, str | list[dict[str, Any]]]:
     """Moderation input and its kind: text, image, or text+image."""
     if image_data_url is None:
         return "text", text
+    if isinstance(image_data_url, list):
+        if not image_data_url:
+            raise ValueError("Video analysis requires at least one decoded frame")
+        return "video_frames", [
+            {
+                "type": "text",
+                "text": "Chronological sampled video frames. Caption and transcript:\n" + text,
+            },
+            *[_image_part(url) for url in image_data_url],
+        ]
     if not text:
         return "image", [_image_part(image_data_url)]
     return "text+image", [{"type": "text", "text": text}, _image_part(image_data_url)]
@@ -93,11 +106,14 @@ async def _moderate(
     else:
         res = await ctx.moderator.moderate(ctx.model, payload)
     band, high, low = band_for(res.scores, ctx.thresholds)
+    scores = res.stored_scores()
+    if ctx.media_analysis and input_kind == "video_frames":
+        scores["_meta"]["media_analysis"] = ctx.media_analysis
     return StageResult(
         stage=stage,
         input_kind=input_kind,
         model=res.model or ctx.model,
-        scores=res.stored_scores(),
+        scores=scores,
         band=band,
         high_categories=high,
         flagged_categories=low,

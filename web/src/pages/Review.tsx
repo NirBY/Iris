@@ -252,7 +252,7 @@ export function Review() {
                   </section>
                 )}
                 {m.review_reason && (
-                  <p className="text-sm text-muted-foreground">{m.review_reason}</p>
+                  <p className="text-sm text-muted-foreground">{t(m.review_reason)}</p>
                 )}
                 {feedback && (
                   <section className="rounded-md bg-surface-2 p-3 text-sm">

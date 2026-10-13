@@ -2,6 +2,21 @@
 
 ## Reducing avoidable review work
 
+Local Ollama vision now checks up to six chronological frames across clips of at
+most 30 seconds, including the beginning and end. The same request includes the
+caption and available speech transcript. Silent clips can be classified from
+visual evidence; an unreadable frame, failed speech check, unknown duration or
+longer clip cannot be automatically cleared by this path. Sampling is not an
+exhaustive frame-by-frame inspection. Classification traces record duration,
+sample timestamps and audio-check status, and the UI labels the sampled check.
+Video verdicts remain AI decisions, never human training labels.
+
+The evaluation gate also recognizes a statistically supported reduction in
+reviews of human-labelled safe messages as an improvement. Existing minimum
+sample sizes, language checks, precision/recall and non-regression requirements
+still apply; reduced workload never compensates for missed harm. The policy
+revision invalidates earlier reports, and promotion remains explicit.
+
 Classification requires readable evidence. Odd-sized animated WebP stickers are
 converted in RGB before padding, preserving their canvas and frame offsets so
 the configured local vision model can inspect them instead of receiving a decode

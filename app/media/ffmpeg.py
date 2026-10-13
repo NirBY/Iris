@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from app.jobs.queue import PermanentError
 _TIMEOUT = 120.0
 _MAX_CONCURRENT = 2  # decoders are CPU/memory heavy: never more than this at once
 _slots: asyncio.Semaphore | None = None
+MAX_VIDEO_ANALYSIS_SECONDS = 30
+MAX_VIDEO_FRAMES = 6
 # Only local files/pipes: a crafted playlist or concat file must not make ffmpeg fetch URLs.
 _SAFE_INPUT = ("-protocol_whitelist", "file,pipe")
 
@@ -96,6 +99,40 @@ async def extract_audio(src: Path, dst: Path) -> None:
         "ffmpeg", "-nostdin", "-y", "-loglevel", "error", *_SAFE_INPUT, "-i", str(src),
         "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libmp3lame", "-b:a", "64k", str(dst),
     )  # fmt: skip
+
+
+async def video_frames(src: Path, directory: Path) -> tuple[MediaInfo, list[Path], list[float]]:
+    """Bounded chronological samples, including the beginning and end of a short clip.
+
+    Sampling is not an exhaustive frame-by-frame check. Unknown/long durations and
+    incomplete decodes remain reviewable instead of silently analysing a prefix.
+    """
+    info = await probe(src)
+    duration = info.duration
+    if not info.has_video or duration is None or not math.isfinite(duration) or duration <= 0:
+        raise PermanentError(
+            "Video duration or visual stream is unavailable; manual review required"
+        )
+    if duration > MAX_VIDEO_ANALYSIS_SECONDS:
+        raise PermanentError(
+            "Video exceeds the 30-second local visual analysis limit; manual review required"
+        )
+    count = min(MAX_VIDEO_FRAMES, max(2, math.ceil(duration)))
+    timestamps = [round(max(0.0, duration - 0.1) * i / max(1, count - 1), 3) for i in range(count)]
+    frames = []
+    for index, timestamp in enumerate(timestamps):
+        dst = directory / f"video-frame-{index}.jpg"
+        await asyncio.to_thread(dst.unlink, missing_ok=True)
+        await _run(
+            "ffmpeg", "-nostdin", "-y", "-loglevel", "error", *_SAFE_INPUT,
+            "-ss", str(timestamp), "-i", str(src), "-frames:v", "1", "-vf",
+            "scale='min(640,iw)':'min(640,ih)':force_original_aspect_ratio=decrease",
+            "-q:v", "3", str(dst),
+        )  # fmt: skip
+        if not dst.is_file() or not dst.stat().st_size:
+            raise PermanentError("Video sample could not be decoded; manual review required")
+        frames.append(dst)
+    return info, frames, timestamps
 
 
 async def image_to_jpeg(src: Path, dst: Path, max_dim: int = 2000) -> None:
