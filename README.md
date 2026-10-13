@@ -1,6 +1,6 @@
 # Iris
 
-For Swagger/OpenAPI access and the optional read-only MCP bridge, see
+For Swagger/OpenAPI access and the optional MCP diagnostics/review bridge, see
 [API integrations](API_INTEGRATIONS.md).
 
 Iris is a self-hosted safety monitor for kids' WhatsApp. It watches the chats and groups of one or more

@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from sqlalchemy import event
+from sqlalchemy import event, select
 from sqlalchemy.orm import ORMExecuteState, Session
 
 from app.events import bus
@@ -31,7 +31,7 @@ _installed = False
 
 
 def _clear_withheld_feedback(session: Session, _ctx: Any, _instances: Any) -> None:
-    from app.db.models import Message, ReviewFeedback
+    from app.db.models import Message, ReviewFeedback, ReviewResponse
 
     for message in list(session.dirty):
         if isinstance(message, Message) and (message.redacted or message.revoked_at):
@@ -39,6 +39,24 @@ def _clear_withheld_feedback(session: Session, _ctx: Any, _instances: Any) -> No
             if feedback:
                 feedback.explanation = None
                 feedback.categories = None
+            # Bot explanations may quote source content; withholding must remove those copies.
+            responses = list(
+                session.scalars(
+                    select(ReviewResponse).where(
+                        ReviewResponse.message_id == message.id,
+                        ReviewResponse.actor.startswith("MCP bot: "),
+                    )
+                )
+            )
+            responses.extend(
+                r
+                for r in session.new
+                if isinstance(r, ReviewResponse)
+                and r.message_id == message.id
+                and r.actor.startswith("MCP bot: ")
+            )
+            for response in responses:
+                response.note = "Bot review: content withheld"
             for pending in list(session.new):
                 if isinstance(pending, ReviewFeedback) and pending.message_id == message.id:
                     pending.explanation = None

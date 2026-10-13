@@ -18,6 +18,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from app.api import (
     alerts,
     auth,
+    bot_review,
     classify,
     database,
     diagnostics,
@@ -199,6 +200,7 @@ def create_app() -> FastAPI:
     app.include_router(learning.router)
     app.include_router(database.router)
     app.include_router(diagnostics.router)
+    app.include_router(bot_review.router)
     app.include_router(media.router)
     app.include_router(events_api.router)
     app.include_router(operations.router)

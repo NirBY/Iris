@@ -610,7 +610,12 @@ async def resolve_review(
     await db.refresh(m)
     if await db.scalar(select(Message.id).where(Message.id == m.id, ai_pending())):
         raise HTTPException(409, "AI is checking this message; skip AI before deciding")
-    if m.verdict != "review" and await db.get(ReviewFeedback, m.id) is None:
+    bot_reviewed = await db.scalar(
+        select(Classification.id)
+        .where(Classification.message_id == m.id, Classification.stage == "bot_review")
+        .limit(1)
+    )
+    if m.verdict != "review" and await db.get(ReviewFeedback, m.id) is None and not bot_reviewed:
         raise HTTPException(status_code=409, detail="Message is not awaiting review")
     import secrets
 

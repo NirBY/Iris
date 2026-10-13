@@ -59,6 +59,50 @@ async def test_no_redirects_or_error_body_disclosure(tmp_path):
 
 
 @pytest.mark.asyncio
+@respx.mock
+async def test_scoped_review_tools_send_bearer_and_expected_revision(tmp_path):
+    token = tmp_path / "review-token"
+    token.write_text("scoped-token")
+    server = create_server(IrisReader("https://iris.test", token, review_access=True))
+    tools = {tool.name: tool for tool in await server.list_tools()}
+    assert len(tools) == 5
+    assert tools["iris_read_review"].annotations.readOnlyHint
+    assert not tools["iris_decide_review"].annotations.readOnlyHint
+    route = respx.get("https://iris.test/api/bot/reviews/17").respond(
+        200, json={"id": 17, "revision": "a" * 64, "text": "Hello"}
+    )
+    result = await server.call_tool("iris_read_review", {"message_id": 17})
+    assert "Hello" in str(result)
+    assert route.calls.last.request.headers["authorization"] == "Bearer scoped-token"
+    assert "cookie" not in route.calls.last.request.headers
+    write = respx.post("https://iris.test/api/bot/reviews/17").respond(
+        200, json={"ok": True, "training_label_created": False}
+    )
+    await server.call_tool(
+        "iris_decide_review",
+        {
+            "message_id": 17,
+            "revision": "a" * 64,
+            "action": "safe",
+            "reason": "Greeting",
+        },
+    )
+    import json
+
+    assert json.loads(write.calls.last.request.content) == {
+        "revision": "a" * 64,
+        "action": "safe",
+        "reason": "Greeting",
+        "categories": [],
+    }
+    reader = IrisReader("https://iris.test", token, review_access=True)
+    with pytest.raises(ValueError):
+        await reader.review(-1)
+    with pytest.raises(ValueError):
+        await reader.reviews(0, 1000, "actionable")
+
+
+@pytest.mark.asyncio
 async def test_real_stdio_protocol_lists_tools_and_enforces_authentication(tmp_path):
     import json
     import threading

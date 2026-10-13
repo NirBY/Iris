@@ -50,6 +50,7 @@ _CONTENT = {
     "payload",
     "webhook_token",
     "explanation",
+    "note",
 }
 
 
