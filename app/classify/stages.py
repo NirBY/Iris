@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Protocol
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classify.moderation import ModerationResult
@@ -134,17 +134,20 @@ class ModerationStage:
         return await _moderate(self.name, kind, payload, ctx, target_id=message.id)
 
 
-def _line(m: Message) -> str:
+def _line(m: Message, *, target: bool = False) -> str:
     sender = m.sender_name or "?"
     body = "[redacted]" if m.redacted else (message_body(m) or f"[{m.type}]")
     return json.dumps(
-        {"sender": sender[:255], "content": body[:MAX_LINE_CHARS]}, ensure_ascii=False
+        {"sender": sender[:255], "content": body if target else body[:MAX_LINE_CHARS]},
+        ensure_ascii=False,
     )
 
 
 def build_context_input(previous: list[Message], target: Message) -> str:
     """Oldest first, target last and marked `>>>`. Oldest lines are dropped to fit the budget."""
-    final = f">>> {_line(target)}"
+    # Never hide the target's tail: the initial stage already accepts the complete body.
+    # The context budget limits preceding messages, not evidence in the target itself.
+    final = f">>> {_line(target, target=True)}"
     lines = [_line(m) for m in previous]
     while lines and len("\n".join([*lines, final])) > MAX_CONTEXT_CHARS:
         lines.pop(0)
@@ -175,7 +178,10 @@ async def context_messages(message: Message, ctx: StageContext) -> list[Message]
                     select(Message)
                     .where(
                         Message.chat_id == message.chat_id,
-                        Message.id != message.id,
+                        or_(
+                            Message.sent_at < message.sent_at,
+                            (Message.sent_at == message.sent_at) & (Message.id < message.id),
+                        ),
                         Message.revoked_at.is_(None),
                         Message.sent_at >= cutoff,
                         Message.sent_at <= message.sent_at,

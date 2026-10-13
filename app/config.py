@@ -77,6 +77,8 @@ class Settings(BaseSettings):
     classification_provider: Literal["openai", "ollama"] = "openai"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3.5:9b-q8_0"
+    ollama_context_tokens: int = Field(default=32768, ge=8192, le=32768)
+    ollama_output_tokens: int = Field(default=1024, ge=512, le=4096)
     whisper_url: str | None = None
     transcription_provider: Literal["openai", "cloudflare", "local_whisper"] | None = None
     whisper_api_key: str | None = None

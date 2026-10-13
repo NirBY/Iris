@@ -82,7 +82,12 @@ async def evaluate(
         async with factory() as db:
             await reload_runtime_settings(db)
             cfg = get_settings()
-            client = OllamaModerator(cfg.ollama_base_url, cfg.ollama_model)
+            client = OllamaModerator(
+                cfg.ollama_base_url,
+                cfg.ollama_model,
+                context_tokens=cfg.ollama_context_tokens,
+                output_tokens=cfg.ollama_output_tokens,
+            )
             chats = list((await db.execute(select(Chat.id, Chat.wa_chat_id))).all())
             excluded = {cid for cid, wa_id in chats if test_chat(wa_id)}
             rows = (

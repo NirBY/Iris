@@ -7,13 +7,41 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.classify.moderation import ModerationResult
 from app.classify.pipeline import run_pipeline
-from app.classify.stages import MAX_CONTEXT_CHARS, StageContext, build_context_input
+from app.classify.stages import (
+    MAX_CONTEXT_CHARS,
+    StageContext,
+    build_context_input,
+    context_messages,
+)
 from app.classify.thresholds import DEFAULT_THRESHOLDS
 from app.db.engine import make_engine, make_session_factory
 from app.db.migrate import upgrade_head
 from app.db.models import Chat, Message
 
 T0 = datetime(2026, 10, 6, 12, 0, tzinfo=UTC)
+
+
+def test_context_keeps_target_tail_even_when_target_exceeds_context_budget():
+    target = Message(type="text", text="ordinary filler " * 900 + "THREAT AT THE END")
+    preceding = Message(type="text", text="earlier harmless chat")
+    payload = build_context_input([preceding], target)
+    assert "THREAT AT THE END" in payload
+    assert target.text in payload
+    assert "earlier harmless chat" not in payload
+
+
+async def test_context_tie_break_never_reads_later_messages(db):
+    before, target, later = await chat_with(
+        db,
+        [
+            ("a", "earlier", 0),
+            ("b", "target", 0),
+            ("c", "later", 0),
+        ],
+    )
+    ctx = StageContext(db, FakeModerator(), "test", DEFAULT_THRESHOLDS, 10, timedelta(hours=1))
+    rows = await context_messages(target, ctx)
+    assert [m.id for m in rows] == [before.id]
 
 
 class FakeModerator:

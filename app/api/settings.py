@@ -314,6 +314,8 @@ class TestRequest(BaseModel):
     api_token: str | None = None
     model: str | None = None
     base_url: str | None = None
+    context_tokens: int | None = Field(default=None, ge=8192, le=32768, strict=True)
+    output_tokens: int | None = Field(default=None, ge=512, le=4096, strict=True)
     endpoint: str | None = None
     media: "MediaTest | None" = None
 
@@ -420,7 +422,12 @@ async def test_provider(
                 )
                 if not model:
                     return TestResult(ok=False, detail="Enter an installed embedding model name")
-            local = OllamaModerator(url, model)
+            local = OllamaModerator(
+                url,
+                model,
+                context_tokens=body.context_tokens or cfg.ollama_context_tokens,
+                output_tokens=body.output_tokens or cfg.ollama_output_tokens,
+            )
             try:
                 if target == "ollama_embedding":
                     vectors = await local.embed(model, ["שלום, זו בדיקה", "Hello, this is a test"])

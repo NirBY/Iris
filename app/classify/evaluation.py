@@ -29,7 +29,13 @@ async def evaluate_community(
     checkpoint: dict[str, Any] | None = None,
     request_timeout: float = 30,
 ) -> dict[str, Any]:
-    client = OllamaModerator(base_url, model)
+    cfg = get_settings()
+    client = OllamaModerator(
+        base_url,
+        model,
+        context_tokens=cfg.ollama_context_tokens,
+        output_tokens=cfg.ollama_output_tokens,
+    )
     rows: list[dict[str, Any]] = [] if checkpoint is None else checkpoint.setdefault("rows", [])
     failures = 0
     started = time.monotonic()

@@ -92,7 +92,12 @@ async def classify_test(
     if _rate_limited(len(inputs)):
         raise HTTPException(429, "Too many checks. Wait a few minutes and try again.")
     client = (
-        OllamaModerator(cfg.ollama_base_url, cfg.ollama_model)
+        OllamaModerator(
+            cfg.ollama_base_url,
+            cfg.ollama_model,
+            context_tokens=cfg.ollama_context_tokens,
+            output_tokens=cfg.ollama_output_tokens,
+        )
         if cfg.classification_provider == "ollama"
         else ModerationClient(key or "")
     )

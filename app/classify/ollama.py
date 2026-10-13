@@ -14,10 +14,49 @@ from app.classify.thresholds import DEFAULT_THRESHOLDS
 from app.jobs.queue import PermanentError, TransientError
 from app.transcription.base import raise_for_status
 
+INFERENCE_POLICY = "bounded-context-v1"
+MAX_CONTEXT_TOKENS = 32768
+OUTPUT_TOKENS = 1024
+
+
+def inference_options(
+    messages: list[dict[str, Any]],
+    images: int,
+    context_tokens: int = MAX_CONTEXT_TOKENS,
+    output_tokens: int = OUTPUT_TOKENS,
+) -> dict[str, int | float]:
+    """Reserve output space; never rely on a small server default for visual inputs.
+
+    UTF-8 bytes conservatively bound text tokens. Prepared images receive a bounded
+    visual allowance; very large requests fail instead of knowingly dropping evidence.
+    """
+    text_bytes = sum(len(str(m.get("content", "")).encode("utf-8")) for m in messages)
+    needed = text_bytes + images * 4096 + output_tokens + 512
+    if needed > context_tokens:
+        raise PermanentError("Local classification input exceeds the supported context budget")
+    context = min(context_tokens, max(8192, math.ceil(needed / 4096) * 4096))
+    return {
+        "temperature": 0,
+        "num_ctx": context,
+        "num_predict": output_tokens,
+        # Repeated zero scores are expected; model defaults must not penalize them.
+        "presence_penalty": 0.0,
+        "repeat_penalty": 1.0,
+    }
+
 
 class OllamaModerator:
-    def __init__(self, base_url: str, model: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        *,
+        context_tokens: int = MAX_CONTEXT_TOKENS,
+        output_tokens: int = OUTPUT_TOKENS,
+    ) -> None:
         self.model = model
+        self.context_tokens = context_tokens
+        self.output_tokens = output_tokens
         self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=300)
 
     async def aclose(self) -> None:
@@ -126,6 +165,7 @@ class OllamaModerator:
                 }
             )
         messages.append({"role": "user", "content": text, **({"images": images} if images else {})})
+        options = inference_options(messages, len(images), self.context_tokens, self.output_tokens)
         try:
             if images:
                 metadata = await self._client.post("/api/show", json={"model": self.model})
@@ -145,7 +185,7 @@ class OllamaModerator:
                     "stream": False,
                     "think": False,
                     "format": schema,
-                    "options": {"temperature": 0},
+                    "options": options,
                     "messages": messages,
                 },
             )
@@ -153,7 +193,10 @@ class OllamaModerator:
             raise TransientError("Ollama unreachable") from exc
         raise_for_status("ollama", response)
         try:
-            scores = json.loads(response.json()["message"]["content"])
+            data = response.json()
+            if data.get("done_reason") == "length":
+                raise TransientError("Ollama classification reached its token/context limit")
+            scores = json.loads(data["message"]["content"])
             if not isinstance(scores, dict) or set(scores) != set(categories):
                 raise ValueError("Missing or unexpected categories")
             for score in scores.values():

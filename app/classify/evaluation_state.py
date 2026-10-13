@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classify.community import public_manifest
+from app.classify.ollama import INFERENCE_POLICY
 from app.classify.prompt import prompt_fingerprint, valid_identity
 from app.classify.quality import QUALITY_POLICY
 from app.config import get_settings
@@ -44,6 +45,11 @@ async def configuration_fingerprint(db: AsyncSession) -> str:
         model=await get_setting(db, "runtime.ollama_model") or cfg.ollama_model,
         endpoint=await get_setting(db, "runtime.ollama_base_url") or cfg.ollama_base_url,
         prompt=prompt_fingerprint(),
+        inference_policy=INFERENCE_POLICY,
+        context_tokens=await get_setting(db, "runtime.ollama_context_tokens")
+        or cfg.ollama_context_tokens,
+        output_tokens=await get_setting(db, "runtime.ollama_output_tokens")
+        or cfg.ollama_output_tokens,
         policy=QUALITY_POLICY,
         pack=public_manifest()["sha256"],
         retrieval_versions=[RETRIEVAL_VERSION, SEMANTIC_VERSION],

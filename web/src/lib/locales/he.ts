@@ -1,5 +1,9 @@
 /** UI translations; message content, credentials, API values and URLs are never translated. */
 export const hebrew: Record<string, string> = {
+  'Maximum context tokens': 'מגבלת טוקנים להקשר',
+  'Maximum output tokens': 'מגבלת טוקנים לתשובה',
+  'Defaults: 32768 context tokens and 1024 output tokens. Iris sizes each request within this context limit and reserves space for the full result. Higher limits use more memory; requests that do not fit remain for review. Save to apply to new checks.':
+    'ברירת המחדל: 32768 טוקנים להקשר ו־1024 טוקנים לתשובה. Iris מתאים את גודל הבקשה למגבלת ההקשר ושומר מקום לתוצאה מלאה. הגדלת המגבלות דורשת יותר זיכרון; בקשות שחורגות מהן נשארות לבדיקה. יש לשמור כדי להחיל על בדיקות חדשות.',
   'Learning evaluation failed. Check Jobs and retry.':
     'בדיקת הלמידה נכשלה. יש לבדוק את המשימות ולנסות שוב.',
 

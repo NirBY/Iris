@@ -7,6 +7,29 @@ Settings for Shadow comparisons, including targets without a private retrieval m
 The evaluation buttons queue aggregate-only synthetic or held-out conversation checks.
 Neither evaluation automatically enables Active or publishes weights.
 
+## Local inference settings
+
+Settings → Providers → AI providers → Ollama exposes **Maximum context tokens**
+(default 32768, allowed 8192–32768) and **Maximum output tokens**
+(default 1024, allowed 512–4096). Both text and image connection tests use the
+entered values before saving. Save applies the values to new checks and replaces
+the cached classifier client; already running requests finish with their original settings.
+Environment defaults are `IRIS_OLLAMA_CONTEXT_TOKENS` and `IRIS_OLLAMA_OUTPUT_TOKENS`.
+
+Iris estimates text size conservatively from UTF-8 bytes, adds a bounded visual
+allowance per prepared image, and reserves output space. The actual context grows
+per request up to the configured maximum. Higher budgets need more memory; choose
+limits supported by your model and host. Requests that do not fit, malformed category
+scores, and responses stopped at the generation limit are never accepted as safe.
+Numeric classification disables repetition penalties so repeated zero scores are valid.
+Changing either limit invalidates earlier learning evaluations.
+
+Classification guidance distinguishes credible threats and targeted abuse from ordinary
+disagreement, emojis, lawful payments, craft tools and nonsexual clothing discussion.
+The full target text is preserved when adding context. Preceding context excludes later
+messages even when they share a timestamp. These changes do not lower thresholds,
+alter model weights, turn bot decisions into human training labels or enable sharing.
+
 Ollama's weights stay unchanged. Iris improves the context supplied to Ollama using accepted
 human reviews. Retrieval defaults to bounded Unicode word matching for Hebrew and English.
 Optional semantic retrieval uses an installed embedding model through the configured Ollama server.

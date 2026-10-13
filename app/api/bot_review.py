@@ -9,7 +9,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import ColumnElement, select, update
+from sqlalchemy import ColumnElement, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classify.learning import content_hash
@@ -180,7 +180,10 @@ async def read_review(message_id: int, db: DB, user: Bot) -> dict[str, Any]:
                 select(Message)
                 .where(
                     Message.chat_id == m.chat_id,
-                    Message.id != m.id,
+                    or_(
+                        Message.sent_at < m.sent_at,
+                        (Message.sent_at == m.sent_at) & (Message.id < m.id),
+                    ),
                     Message.sent_at <= m.sent_at,
                     ~Message.redacted,
                     Message.revoked_at.is_(None),

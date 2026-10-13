@@ -178,6 +178,8 @@ test('saves edited local model and allows an explicit cloud provider switch', as
     'runtime.classification_provider': 'ollama',
     'runtime.ollama_base_url': 'http://mac.example:11434',
     'runtime.ollama_model': 'old-model',
+    'runtime.ollama_context_tokens': 32768,
+    'runtime.ollama_output_tokens': 1024,
     'runtime.transcription_provider': 'local_whisper',
     'runtime.whisper_url': 'http://mac.example:8081/v1/audio/transcriptions',
     'runtime.whisper_model': 'auto',
@@ -186,10 +188,19 @@ test('saves edited local model and allows an explicit cloud provider switch', as
   const model = await screen.findByLabelText('Ollama model')
   await userEvent.clear(model)
   await userEvent.type(model, 'new-model')
+  const budget = screen.getByLabelText('Maximum context tokens')
+  expect(budget).toHaveValue(32768)
+  await userEvent.clear(budget)
+  await userEvent.type(budget, '16384')
+  const output = screen.getByLabelText('Maximum output tokens')
+  await userEvent.clear(output)
+  await userEvent.type(output, '2048')
   await userEvent.click(screen.getByRole('button', { name: 'Test Ollama' }))
   const testCall = calls.find((c) => c.url === '/api/settings/test/ollama')
   expect(JSON.parse(testCall!.body!)).toMatchObject({
     model: 'new-model',
+    context_tokens: 16384,
+    output_tokens: 2048,
     base_url: 'http://mac.example:11434',
   })
   await userEvent.selectOptions(screen.getByLabelText('Classification provider'), 'openai')
@@ -198,6 +209,8 @@ test('saves edited local model and allows an explicit cloud provider switch', as
   const put = calls.find((c) => c.url === '/api/settings' && c.body)
   expect(JSON.parse(put!.body!).settings).toMatchObject({
     'runtime.ollama_model': 'new-model',
+    'runtime.ollama_context_tokens': 16384,
+    'runtime.ollama_output_tokens': 2048,
     'runtime.classification_provider': 'openai',
     'runtime.transcription_provider': 'cloudflare',
   })

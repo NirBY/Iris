@@ -59,6 +59,8 @@ interface Values {
   'runtime.transcription_provider'?: string
   'runtime.ollama_base_url'?: string
   'runtime.ollama_model'?: string
+  'runtime.ollama_context_tokens'?: number
+  'runtime.ollama_output_tokens'?: number
   'runtime.whisper_url'?: string | null
   'runtime.whisper_model'?: string
   'runtime.whisper_fallback_model'?: string | null
@@ -161,6 +163,8 @@ const SECRETS = [
   'alerts.telegram_bot_token',
 ]
 const NUMBERS = [
+  'runtime.ollama_context_tokens',
+  'runtime.ollama_output_tokens',
   'openwa.webhook_attempts',
   'openwa.recovery_hours',
   'runtime.workers',
@@ -184,6 +188,8 @@ const NUMBERS = [
   'media.recovery_wait_seconds',
 ]
 const NUMBER_LABELS: Record<string, string> = {
+  'runtime.ollama_context_tokens': 'Maximum context tokens',
+  'runtime.ollama_output_tokens': 'Maximum output tokens',
   'alerts.send_interval_seconds': 'Interval between sends',
   'alerts.send_hourly_limit': 'Hourly send limit',
   'alerts.send_daily_limit': 'Daily send limit',
@@ -768,6 +774,25 @@ export function Settings() {
                       }
                       onChange={set('runtime.ollama_model')}
                     />
+                    <div className="flex flex-wrap gap-4">
+                      {num(
+                        'runtime.ollama_context_tokens',
+                        translate('Maximum context tokens'),
+                        8192,
+                        32768,
+                      )}
+                      {num(
+                        'runtime.ollama_output_tokens',
+                        translate('Maximum output tokens'),
+                        512,
+                        4096,
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {translate(
+                        'Defaults: 32768 context tokens and 1024 output tokens. Iris sizes each request within this context limit and reserves space for the full result. Higher limits use more memory; requests that do not fit remain for review. Save to apply to new checks.',
+                      )}
+                    </p>
                     <p className="text-sm text-muted-foreground">
                       {translate(
                         'Local scores require calibration. Images and stickers are checked with their captions when the selected Ollama model supports vision. Missing media or failed checks still require review. Test Ollama checks text classification only.',
@@ -776,6 +801,8 @@ export function Settings() {
                     <TestButton
                       target="ollama"
                       body={{
+                        context_tokens: Number(get('runtime.ollama_context_tokens') || 32768),
+                        output_tokens: Number(get('runtime.ollama_output_tokens') || 1024),
                         base_url: get('runtime.ollama_base_url'),
                         model: get('runtime.ollama_model') || data.local_providers?.ollama_model,
                       }}
@@ -784,6 +811,8 @@ export function Settings() {
                     <TestButton
                       target="ollama_image"
                       body={{
+                        context_tokens: Number(get('runtime.ollama_context_tokens') || 32768),
+                        output_tokens: Number(get('runtime.ollama_output_tokens') || 1024),
                         base_url: get('runtime.ollama_base_url'),
                         model: get('runtime.ollama_model') || data.local_providers?.ollama_model,
                       }}
