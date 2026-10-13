@@ -77,6 +77,8 @@ def configure(monkeypatch):
             classification_provider="ollama",
             ollama_base_url="http://ollama",
             ollama_model="model",
+            ollama_context_tokens=16384,
+            ollama_output_tokens=2048,
             job_timeout_seconds=900,
         ),
     )
@@ -126,6 +128,9 @@ async def test_changed_model_resets_checkpoint_and_mid_pair_change_cannot_be_com
         assert len(job.payload["evaluation_checkpoint"]["rows"]) == 1
         assert "model changed" in job.last_error
     assert len(route.calls) == 6
+    assert all(
+        json.loads(call.request.content)["options"]["num_predict"] == 2048 for call in route.calls
+    )
 
 
 @respx.mock

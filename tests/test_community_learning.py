@@ -145,6 +145,8 @@ async def test_evaluation_job_resumes_durably_without_consuming_retries(app_clie
         lambda: SimpleNamespace(
             classification_provider="ollama",
             ollama_model="model",
+            ollama_context_tokens=16384,
+            ollama_output_tokens=2048,
             ollama_base_url="http://ollama",
             job_timeout_seconds=900,
         ),
