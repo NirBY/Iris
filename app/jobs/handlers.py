@@ -172,7 +172,7 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
         )
     if message.type == "document" and (
         not message.media
-        or message.media.get("mimetype", "application/pdf").split(";")[0].lower()
+        or str(message.media.get("mimetype") or "application/pdf").split(";")[0].strip().lower()
         not in {"application/pdf", "application/octet-stream"}
     ):
         return Prepared(

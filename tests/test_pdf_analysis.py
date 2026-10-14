@@ -165,7 +165,7 @@ async def test_worker_uses_document_body_and_retains_unchecked_visuals(
                 "instance_id": 1,
                 "message_ref": "pdf",
                 "chat_id": "synthetic-pdf",
-                "mimetype": "application/pdf",
+                "mimetype": None if local else "application/pdf",
             },
         )
         db.add(message)
