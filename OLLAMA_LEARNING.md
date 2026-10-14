@@ -170,6 +170,19 @@ verification metadata are in `.local/learning-install-20261010`.
 
 ## Next phases
 
+### Review workload and chronology (beta.67)
+
+Local example retrieval orders same-second messages by their database ID, matching
+the classifier's preceding-context rule. An earlier, unchanged human-reviewed example
+can contribute; a later message at the same timestamp cannot. Both lexical and semantic
+retrieval versions changed, so evaluations from the older selection rules are stale.
+
+Revoked and withheld messages belong to the unavailable-content queue across the UI,
+dashboard, diagnostics and MCP. Their review verdict and audit history remain intact;
+moving them does not create a safe verdict or a human training label. Missing media,
+unsupported attachments and inconclusive classifications must not be counted as successful
+model decisions. Inspect recoverability before retrying exhausted media jobs.
+
 1. Use the shipped optional category labels and explanations to gather reviewed examples;
    improve category definitions and curate contradictory examples.
 2. Evaluate the shipped optional semantic retrieval against word matching. Add versioned

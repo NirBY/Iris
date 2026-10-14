@@ -28,8 +28,8 @@ from app.settings_store import get_setting
 MAX_EXAMPLE_CHARS = 1200
 MAX_CANDIDATES = 200
 MAX_EXAMPLES = 4
-RETRIEVAL_VERSION = "lexical-v3"
-SEMANTIC_VERSION = "semantic-v2"
+RETRIEVAL_VERSION = "lexical-v4"
+SEMANTIC_VERSION = "semantic-v3"
 TEXT_TYPES = {"text", "chat"}
 
 
@@ -129,7 +129,10 @@ async def select_examples(
             Message.redacted.is_(False),
             Message.revoked_at.is_(None),
             Message.type.in_(TEXT_TYPES),
-            Message.sent_at < target.sent_at,
+            or_(
+                Message.sent_at < target.sent_at,
+                (Message.sent_at == target.sent_at) & (Message.id < target.id),
+            ),
             Message.id.in_(
                 select(MessageReceipt.message_id).where(
                     MessageReceipt.instance_id.in_(children),

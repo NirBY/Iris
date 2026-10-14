@@ -198,3 +198,26 @@ async def test_other_outcomes_preserve_provenance(app_client, action):
     if action == "missing_data":
         assert not (await app_client.get("/api/bot/reviews")).json()["items"]
         assert (await app_client.get("/api/bot/reviews?view=unavailable")).json()["items"]
+
+
+@pytest.mark.parametrize("hidden", ["revoked", "redacted"])
+async def test_hidden_content_leaves_actionable_queues_without_training_labels(app_client, hidden):
+    extra = {"revoked_at": datetime.now(UTC)} if hidden == "revoked" else {"redacted": True}
+    mid = await seed(app_client, "video", "Unavailable attachment", **extra)
+    await authorize(app_client)
+    assert (await app_client.get("/api/bot/reviews")).json()["items"] == []
+    unavailable = (await app_client.get("/api/bot/reviews?view=unavailable")).json()["items"]
+    assert [row["id"] for row in unavailable] == [mid]
+    detail = (await app_client.get(f"/api/bot/reviews/{mid}")).json()
+    assert detail["unavailable"] and not detail["safe_allowed"]
+    assert detail["text"] == "" and detail["context"] == []
+    assert (await app_client.get("/api/review")).json()["total"] == 0
+    assert (await app_client.get("/api/review?view=missing_data")).json()["total"] == 1
+    assert (await app_client.get("/api/stats")).json()["review_queue"] == 0
+    summary = (await app_client.get("/api/diagnostics/summary")).json()
+    assert summary["manual_review"] == 0 and summary["unavailable_content"] == 1
+    async with app_client.app.state.session_factory() as db:
+        assert (await db.get(Message, mid)).verdict == "review"
+        assert await db.get(ReviewFeedback, mid) is None
+        assert await db.get(LearningExample, mid) is None
+        assert await db.scalar(select(func.count()).select_from(ReviewResponse)) == 0

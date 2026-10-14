@@ -170,6 +170,28 @@ async def test_retrieval_revision_invalidates_evaluation_configuration(db, monke
     assert await configuration_fingerprint(db) != before
 
 
+@pytest.mark.parametrize("strategy", ["lexical", "semantic"])
+async def test_same_second_learning_uses_only_earlier_message_ids(db, strategy):
+    from unittest.mock import AsyncMock
+
+    source, target = await samples(db)
+    source.sent_at = target.sent_at
+    await db.commit()
+    embedder = AsyncMock()
+    embedder.embed.return_value = [[1.0, 0.0], [1.0, 0.0]]
+    await set_setting(db, "classification.learning_embedding_model", "embed-model")
+    selected = await select_examples(db, target, strategy=strategy, embedder=embedder)
+    assert [row["message_id"] for row in selected.examples] == [source.id]
+    # The reverse direction must never supply a later same-second message as an example.
+    db.add(ReviewFeedback(message_id=target.id, verdict="harmful"))
+    await capture(db, target, "harmful")
+    await db.commit()
+    embedder.reset_mock()
+    selected = await select_examples(db, source, strategy=strategy, embedder=embedder)
+    assert selected.examples == []
+    embedder.embed.assert_not_awaited()
+
+
 @pytest.mark.parametrize("change", ["edit", "redact", "revoke", "disable", "missing", "skip"])
 async def test_invalid_sources_are_excluded_immediately(db, change):
     source, target = await samples(db)

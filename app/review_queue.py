@@ -8,7 +8,7 @@ from app.db.models import Job, Message, ReviewDataIssue
 def unavailable_content() -> ColumnElement[bool]:
     """Route confirmed data failures separately; never create a human safety label.
 
-    Exact machine reasons only. Inconclusive scores, unsupported documents/video,
+    Hidden content and exact machine reasons only. Inconclusive scores, unsupported documents/video,
     decoder failures and arbitrary provider errors still require review or recovery.
     Coalesce is necessary so a missing reason remains in the normal review queue.
     """
@@ -17,6 +17,8 @@ def unavailable_content() -> ColumnElement[bool]:
     )
     return or_(
         reported,
+        Message.redacted.is_(True),
+        Message.revoked_at.is_not(None),
         func.coalesce(Message.review_reason, "").in_(
             (
                 "OpenWA has no stored media for this message (check its inbound media storage)",
