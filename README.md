@@ -30,6 +30,17 @@ Parents and admins can skip AI to move a message into human **Review**. Cancelli
 job lease, so a late AI result cannot overwrite a subsequent human decision. Human Review excludes
 AI work and shows Safe/Harmful actions only for unresolved decisions; response history is read-only.
 Review actions are visible directly, without an additional-options section.
+PDF documents now use the configured classifier to check locally extracted text.
+Analysis is limited to 10 MB, 20 pages and 24,000 characters. Encrypted, scanned,
+malformed or over-limit files remain in review. Images, drawings, annotations and
+forms are not assessed by text extraction: documents containing them cannot be
+cleared by this path, although readable text can still trigger a harmful verdict.
+Extraction runs in a separate process with a timeout and Linux memory/CPU limits.
+Extracted text is temporary; classification traces retain coverage metadata only.
+Document decisions are AI decisions, not human learning labels. Non-PDF formats
+still require review. Existing documents can be checked through **Recover media
+and recheck**; no backlog is automatically cleared.
+
 Filter reviews by uncertain classification, attachment checks or technical issues;
 counts cover the entire selected queue. Recoverable attachments offer **Recover media
 and recheck**, with a five-minute request cooldown. Deleted or withheld content cannot

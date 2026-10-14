@@ -33,6 +33,7 @@ from app.jobs.queue import ClaimedJob, LostLeaseError, PermanentError, Transient
 from app.media import ffmpeg
 from app.media.fetch import MAX_AUDIO_SECONDS, MediaSkipped, fetch_original, job_tmpdir
 from app.media.keep import keep_media
+from app.media.pdf import extract_pdf
 from app.media.records import mark_purge
 from app.metrics import MESSAGES, STAGE_SECONDS, TRANSCRIBED_AUDIO_SECONDS
 from app.providers import Providers
@@ -122,6 +123,7 @@ class Prepared:
     # Why the media could not be examined (the caption may still be). Never silently "safe".
     problem: Exception | None = None
     media_analysis: dict[str, Any] | None = None
+    document_text: str | None = None
 
 
 async def _video_prepare(
@@ -168,8 +170,14 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
         return Prepared(
             problem=PermanentError("Unknown message type; attachment cannot be analyzed")
         )
-    if message.type == "document":
-        return Prepared(problem=PermanentError("Document attachment requires manual review"))
+    if message.type == "document" and (
+        not message.media
+        or message.media.get("mimetype", "application/pdf").split(";")[0].lower()
+        not in {"application/pdf", "application/octet-stream"}
+    ):
+        return Prepared(
+            problem=PermanentError("Only PDF documents are supported for text analysis")
+        )
     if message.type == "poll" and not (message.diagnostics or {}).get("has_poll_options"):
         return Prepared(
             problem=PermanentError(
@@ -181,6 +189,24 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
     cfg = get_settings()
     try:
         async with job_tmpdir(deps.data_dir, job.id) as tmp:
+            if message.type == "document":
+                raw = tmp / "document.pdf"
+                await _fetch(db, message, deps, raw)
+                document = await extract_pdf(raw)
+                return Prepared(
+                    document_text=document["text"],
+                    media_analysis={
+                        "method": "pdf_text_v1",
+                        "pages": document["pages"],
+                        "complete": document["complete"],
+                    },
+                    problem=None
+                    if document["complete"]
+                    else PermanentError(
+                        "PDF contains unreadable pages or unchecked visual content; "
+                        "manual review required"
+                    ),
+                )
             if message.type in ("image", "sticker"):
                 return Prepared(image=await _image_data_url(db, message, deps, tmp))
             if (
@@ -194,7 +220,7 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
                 return Prepared(problem=PermanentError("video visuals require manual review"))
             return Prepared()
     except (Skip, MediaSkipped, PermanentError) as exc:
-        if cfg.local_safety_mode:
+        if cfg.local_safety_mode or message.type == "document":
             return Prepared(problem=exc)
         if not message.text:
             raise
@@ -303,7 +329,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         if (
             not api_key
             and cfg.classification_provider != "ollama"
-            and (message_body(message) or prepared.image)
+            and (message_body(message) or prepared.image or prepared.document_text)
         ):
             raise PermanentError("OpenAI API key is not configured")
         ctx = StageContext(
@@ -319,11 +345,12 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             ),
             image_data_url=prepared.image,
             media_analysis=prepared.media_analysis,
+            document_text=prepared.document_text,
         )
         try:
             outcome = await run_pipeline(message, ctx)
         except ValueError:
-            if cfg.local_safety_mode and (
+            if (cfg.local_safety_mode or message.type == "document") and (
                 prepared.problem is not None or message.type in ("other", "poll")
             ):
                 if prepared.problem is None:
@@ -366,7 +393,10 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                 )
                 if not (revision.text or "").strip():
                     continue
-                earlier = await run_pipeline(snapshot, replace(ctx, image_data_url=None))
+                earlier = await run_pipeline(
+                    snapshot,
+                    replace(ctx, image_data_url=None, document_text=None, media_analysis=None),
+                )
                 for result in earlier.results:
                     result.stage = "revision_" + result.stage
                 if _RANK[earlier.verdict] > _RANK[outcome.verdict]:
@@ -382,12 +412,20 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             if prepared.problem is not None and outcome.verdict != "harmful":
                 outcome.verdict = "review"
 
+        if message.type == "document" and prepared.problem and outcome.verdict != "harmful":
+            outcome.verdict = "review"
+
         # Compare only fully prepared text; media and preserved revisions keep their own checks.
         if prepared.problem is None and prepared.image is None:
             outcome = await compare(message, ctx, outcome)
         _persist(db, message, outcome)
         problem = prepared.problem
-        if problem is not None and outcome.verdict != "harmful" and not cfg.local_safety_mode:
+        if (
+            problem is not None
+            and outcome.verdict != "harmful"
+            and not cfg.local_safety_mode
+            and message.type != "document"
+        ):
             # Only the caption was examined: do not present the message as classified.
             message.verdict = None
             message.status = "failed" if isinstance(problem, PermanentError) else "skipped"

@@ -34,14 +34,25 @@ export function ClassificationCards({
             <p className="font-medium">{t(STAGE[c.stage] ?? c.stage)}</p>
             <Badge tone={BAND[c.band]?.tone ?? 'neutral'}>{BAND[c.band]?.label ?? c.band}</Badge>
             <span className="ms-auto text-xs text-muted-foreground">
-              {c.input_kind === 'video_frames' ? t('Sampled video frames') : c.input_kind},{' '}
-              {c.model}
+              {c.input_kind === 'video_frames'
+                ? t('Sampled video frames')
+                : c.input_kind === 'document_text'
+                  ? t('PDF text analysis')
+                  : c.input_kind}
+              , {c.model}
             </span>
           </div>
           {c.input_kind === 'video_frames' && (
             <p className="text-sm text-muted-foreground">
               {t(
                 'Local AI checked sampled frames with the available caption and speech. Sampling does not inspect every frame.',
+              )}
+            </p>
+          )}
+          {c.input_kind === 'document_text' && (
+            <p className="text-sm text-muted-foreground">
+              {t(
+                'PDF text was checked. Unreadable pages and unchecked visual content still require review.',
               )}
             </p>
           )}

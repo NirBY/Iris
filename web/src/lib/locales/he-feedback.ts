@@ -377,6 +377,22 @@ export const hebrewFeedback: Record<string, string> = {
   'Unavailable content': 'תוכן לא זמין',
   'Content unavailable': 'התוכן אינו זמין',
   'Sampled video frames': 'פריימים שנדגמו מהסרטון',
+  'PDF text analysis': 'בדיקת טקסט ב־PDF',
+  'PDF text was checked. Unreadable pages and unchecked visual content still require review.':
+    'הטקסט ב־PDF נבדק. עמודים לא קריאים ותוכן חזותי שלא נבדק עדיין מחייבים בדיקה ידנית.',
+  'PDF contains unreadable pages or unchecked visual content; manual review required':
+    'ה־PDF כולל עמודים לא קריאים או תוכן חזותי שלא נבדק; נדרשת בדיקה ידנית',
+  'PDF could not be read completely; manual review required':
+    'לא ניתן לקרוא את ה־PDF במלואו; נדרשת בדיקה ידנית',
+  'PDF analysis timed out; manual review required':
+    'בדיקת ה־PDF חרגה מהזמן המותר; נדרשת בדיקה ידנית',
+  'Encrypted PDF requires manual review': 'קובץ PDF מוצפן מחייב בדיקה ידנית',
+  'Only PDF documents are supported for text analysis':
+    'בדיקת טקסט במסמכים תומכת כרגע בקובצי PDF בלבד',
+  'PDF exceeds the 10 MB analysis limit': 'קובץ ה־PDF חורג ממגבלת הבדיקה של 10 מ״ב',
+  'PDF exceeds the 20-page analysis limit or has no pages':
+    'קובץ ה־PDF חורג ממגבלת 20 העמודים או שאין בו עמודים',
+  'PDF exceeds the 24000-character analysis limit': 'קובץ ה־PDF חורג ממגבלת הבדיקה של 24,000 תווים',
   'Video duration or visual stream is unavailable; manual review required':
     'משך הסרטון או התמונה אינם זמינים; נדרשת בדיקה ידנית',
   'Video exceeds the 30-second local visual analysis limit; manual review required':

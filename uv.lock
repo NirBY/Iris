@@ -384,6 +384,7 @@ dependencies = [
     { name = "loguru" },
     { name = "prometheus-client" },
     { name = "pydantic-settings" },
+    { name = "pypdf" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "tzdata" },
     { name = "uvicorn", extra = ["standard"] },
@@ -412,6 +413,7 @@ requires-dist = [
     { name = "loguru" },
     { name = "prometheus-client" },
     { name = "pydantic-settings" },
+    { name = "pypdf", specifier = ">=6.20.1,<7" },
     { name = "sqlalchemy", extras = ["asyncio"] },
     { name = "tzdata", specifier = ">=2026.5" },
     { name = "uvicorn", extras = ["standard"] },
@@ -669,6 +671,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b1/d4/c15b459e25a23767d2f4065ef40968920320f04e302889574310c21c96a3/pymysql-1.2.3.tar.gz", hash = "sha256:d5b288529782e536ae171866df3ca9dc4f6cbfb3cc2f18e6f837fbb90dbc262b", size = 50629, upload-time = "2026-09-17T12:22:49.146Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a9/4b/0a906d8184f011ff8dbd4722743783867589b33269d2c5fff238d636fdcb/pymysql-1.2.3-py3-none-any.whl", hash = "sha256:14f1c68e2ed859243ae5ca41ffbe677027fc46bc136a9f0be8a4e928e5e7415a", size = 46740, upload-time = "2026-09-17T12:22:47.826Z" },
+]
+
+[[package]]
+name = "pypdf"
+version = "6.20.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e2/c1/da25a099164cf4b210d63b957c902ad687139f4b8c12c20aec7953a4a266/pypdf-6.20.1.tar.gz", hash = "sha256:28f5a9d2fdc2749264612d94e6a58de54c11d730d9f0cabf8ad34117c4942b45", size = 7075352, upload-time = "2026-10-12T16:14:24.784Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/71/f8/4cbd09988b4b158260b7e0df38bf16f19e998bf0e257a18661a8da04280e/pypdf-6.20.1-py3-none-any.whl", hash = "sha256:aa5a55ddcffdc5e5ab291d5decb23f6383f4e56f8e3263dc39af41fff03885ad", size = 402665, upload-time = "2026-10-12T16:14:22.556Z" },
 ]
 
 [[package]]

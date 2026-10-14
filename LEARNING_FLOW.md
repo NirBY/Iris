@@ -2,6 +2,14 @@
 
 ## Reducing avoidable review work
 
+PDF text analysis uses the configured classifier, with bounded local extraction
+(10 MB, 20 pages, 24,000 characters). Unreadable pages, images, drawings, forms,
+annotations, encryption and extraction failures prevent automatic clearance.
+Readable text may still produce a harmful verdict. Extracted text is temporary;
+only page count and completeness metadata accompany classification scores.
+This is an AI classification path, not a source of human learning labels, and
+does not update model weights or change learning mode.
+
 Local Ollama vision now checks up to six chronological frames across clips of at
 most 30 seconds, including the beginning and end. The same request includes the
 caption and available speech transcript. Silent clips can be classified from

@@ -3,7 +3,7 @@
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Message, ReviewFeedback
+from app.db.models import Classification, Message, ReviewFeedback
 
 
 async def quarantine_legacy_unknowns(db: AsyncSession) -> None:
@@ -30,6 +30,15 @@ async def quarantine_legacy_unknowns(db: AsyncSession) -> None:
             Message.type == "document",
             Message.verdict == "safe",
             Message.id.not_in(select(ReviewFeedback.message_id)),
+            ~select(Classification.id)
+            .where(
+                Classification.message_id == Message.id,
+                Classification.input_kind == "document_text",
+                Classification.scores["_meta"]["media_analysis"]["method"].as_string()
+                == "pdf_text_v1",
+                Classification.scores["_meta"]["media_analysis"]["complete"].as_boolean() == True,  # noqa: E712
+            )
+            .exists(),
         )
         .values(verdict="review", review_reason="Document attachment requires manual review")
     )

@@ -33,7 +33,7 @@ def review_category(reason: str | None) -> str:
         return "unsupported_type"
     if "decode" in reason:
         return "media_decode_failed"
-    if "document" in reason:
+    if "document" in reason or "pdf" in reason:
         return "document_review"
     if "video" in reason:
         return "video_review"
