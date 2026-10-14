@@ -39,7 +39,7 @@ from app.db.models import (
 )
 from app.deps import get_db
 from app.jobs.queue import enqueue
-from app.review_queue import ai_pending, unavailable_content
+from app.review_queue import ai_pending, review_kind, unavailable_content
 from app.security.auth import current_user, parent_user
 from app.settings_store import get_setting
 
@@ -439,6 +439,8 @@ async def response_notes(db: AsyncSession, message_id: int) -> list[dict[str, An
 
 
 class ReviewItem(BaseModel):
+    review_kind: str = "uncertain"
+    can_recover_media: bool = False
     human_feedback: dict[str, Any] | None = None
     response_notes: list[dict[str, Any]] = []
     missing_data: bool = False
@@ -447,6 +449,7 @@ class ReviewItem(BaseModel):
 
 
 class ReviewPage(BaseModel):
+    reason_counts: dict[str, int] = {}
     reviewed_total: int = 0
     items: list[ReviewItem]
     total: int
@@ -460,6 +463,7 @@ async def review_queue(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 25,
     view: Literal["pending", "missing_data", "responses", "ai"] = "pending",
+    reason: Literal["all", "uncertain", "technical", "attachment", "unavailable"] = "all",
 ) -> ReviewPage:
     from app.db.models import Chat
 
@@ -478,12 +482,22 @@ async def review_queue(
             ),
         )
     )
+    kind = review_kind()
+    counts = dict(
+        (
+            await db.execute(
+                select(kind, func.count()).select_from(Message).where(cond).group_by(kind)
+            )
+        ).all()
+    )
+    if reason != "all":
+        cond = and_(cond, kind == reason)
     total = int(
         (await db.execute(select(func.count()).select_from(Message).where(cond))).scalar_one()
     )
     rows = (
         await db.execute(
-            select(Message, Chat)
+            select(Message, Chat, kind)
             .join(Chat, Chat.id == Message.chat_id)
             .where(cond)
             .order_by(Message.sent_at.desc(), Message.id.desc())
@@ -491,10 +505,10 @@ async def review_queue(
             .offset((page - 1) * page_size)
         )
     ).all()
-    kids = await _kids(db, [m.id for m, _ in rows])
-    failures = await _failures(db, [m for m, _ in rows])
+    kids = await _kids(db, [m.id for m, _, _ in rows])
+    failures = await _failures(db, [m for m, _, _ in rows])
     items: list[ReviewItem] = []
-    for m, c in rows:
+    for m, c, category in rows:
         cls = (
             await db.execute(
                 select(Classification)
@@ -504,6 +518,13 @@ async def review_queue(
         ).scalars()
         items.append(
             ReviewItem(
+                review_kind=category,
+                can_recover_media=bool(
+                    m.media
+                    and not m.redacted
+                    and not m.revoked_at
+                    and m.type in {"image", "sticker", "video", "audio", "voice", "document"}
+                ),
                 human_feedback=await human_feedback(db, m),
                 response_notes=await response_notes(db, m.id),
                 missing_data=view == "missing_data",
@@ -514,6 +535,7 @@ async def review_queue(
             )
         )
     return ReviewPage(
+        reason_counts=counts,
         items=items,
         total=total,
         page=page,

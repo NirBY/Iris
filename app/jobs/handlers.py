@@ -414,6 +414,10 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             # Editing a flagged message into something harmless must not clear the flag.
             message.verdict = prior_verdict
         message.status = "done"
+        if prepared.problem is None:
+            issue = await db.get(ReviewDataIssue, message.id)
+            if issue is not None:
+                await db.delete(issue)
         if outcome.results:
             # Every stage counts: a later look can clear what an earlier one flagged.
             high = [c for r in outcome.results for c in r.high_categories]

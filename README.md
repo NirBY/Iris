@@ -22,12 +22,18 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
 Ollama can use accepted parent text reviews as examples for future checks. Settings →
 Classification includes Off, Shadow comparison, and conservative Active learning modes.
 See the [architecture flowchart, implementation plan, and evaluation guide](OLLAMA_LEARNING.md).
+The [AI learning and model-training flow](LEARNING_FLOW.md) diagrams private feedback,
+Shadow/Active comparisons, evaluation gates and optional local adapter training.
 
 **IrisReview** shows messages queued for AI or being checked, with a thinking icon per message.
 Parents and admins can skip AI to move a message into human **Review**. Cancelling AI revokes its
 job lease, so a late AI result cannot overwrite a subsequent human decision. Human Review excludes
 AI work and shows Safe/Harmful actions only for unresolved decisions; response history is read-only.
 Review actions are visible directly, without an additional-options section.
+Filter reviews by uncertain classification, attachment checks or technical issues;
+counts cover the entire selected queue. Recoverable attachments offer **Recover media
+and recheck**, with a five-minute request cooldown. Deleted or withheld content cannot
+be recovered. Successful processing clears a missing-data marker; failures retain it.
 
 ### Operational settings
 

@@ -33,6 +33,13 @@ import { QueryError } from '../components/QueryError'
 import { useState } from 'react'
 import { ReviewDetails, type ReviewDraft } from '../components/ReviewDetails'
 
+const reviewKinds: Record<string, string> = {
+  uncertain: 'Uncertain classification',
+  attachment: 'Attachment check',
+  technical: 'Technical issue',
+  unavailable: 'Unavailable content',
+}
+
 export function Review() {
   const [drafts, setDrafts] = useState<Record<number, ReviewDraft>>({})
   const { get, page, update } = useUrlState()
@@ -43,11 +50,15 @@ export function Review() {
         ? 'missing_data'
         : 'pending'
   const pageSize = 25
+  const reason = view === 'pending' && reviewKinds[get('reason')] ? get('reason') : 'all'
   const qc = useQueryClient()
   const { data: me } = useMe()
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['review', view, page],
-    queryFn: () => api<ReviewPage>(`/api/review?page=${page}&page_size=${pageSize}&view=${view}`),
+    queryKey: ['review', view, page, reason],
+    queryFn: () =>
+      api<ReviewPage>(
+        `/api/review?page=${page}&page_size=${pageSize}&view=${view}${reason === 'all' ? '' : `&reason=${reason}`}`,
+      ),
     refetchInterval: 15_000,
   })
   const purge = useMutation({
@@ -96,8 +107,17 @@ export function Review() {
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not queue AI judgment.'),
   })
   const rejudging = (m: Message) =>
+    (recoverMedia.isPending && recoverMedia.variables === m.id) ||
     (judgeAgain.isPending && judgeAgain.variables === m.id) ||
     ['pending', 'processing'].includes(m.status)
+  const recoverMedia = useMutation({
+    mutationFn: (id: number) => api(`/api/messages/${id}/recover-media`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success('Media recovery queued. Iris will check recovered content before deciding.')
+      return qc.invalidateQueries()
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not queue media recovery.'),
+  })
   async function copyTrace(id: number) {
     try {
       const trace = await api<unknown>(`/api/review/${id}/trace`)
@@ -160,6 +180,33 @@ export function Review() {
           )}
         </p>
       )}
+      {view === 'pending' && (
+        <section className="flex flex-col gap-2" aria-label={t('Filter review reasons')}>
+          <p className="text-sm text-muted-foreground">
+            {t('Choose what to review. A technical failure is not a harmful-content decision.')}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {['all', 'uncertain', 'attachment', 'technical'].map((key) => (
+              <Button
+                key={key}
+                size="sm"
+                variant={reason === key ? 'primary' : 'outline'}
+                aria-pressed={reason === key}
+                onClick={() => update({ reason: key === 'all' ? '' : key })}
+              >
+                {t(key === 'all' ? 'All review reasons' : reviewKinds[key])}
+                {data?.reason_counts && (
+                  <span className="ms-1 tabular-nums">
+                    {key === 'all'
+                      ? Object.values(data.reason_counts).reduce((a, b) => a + b, 0)
+                      : data.reason_counts[key] || 0}
+                  </span>
+                )}
+              </Button>
+            ))}
+          </div>
+        </section>
+      )}
       {data && (
         <p className="text-sm text-muted-foreground">
           {data.total}{' '}
@@ -200,6 +247,8 @@ export function Review() {
               missing_data: missingData,
               response_notes: notes,
               human_feedback: feedback,
+              review_kind: kind,
+              can_recover_media: canRecover,
             }) => (
               <li
                 key={m.id}
@@ -253,6 +302,11 @@ export function Review() {
                 )}
                 {m.review_reason && (
                   <p className="text-sm text-muted-foreground">{t(m.review_reason)}</p>
+                )}
+                {kind && (
+                  <p className="text-sm font-medium">
+                    {t(reviewKinds[kind] || 'Uncertain classification')}
+                  </p>
                 )}
                 {feedback && (
                   <section className="rounded-md bg-surface-2 p-3 text-sm">
@@ -363,6 +417,16 @@ export function Review() {
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">
+                  {canRecover && view !== 'responses' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={rejudging(m) || !['admin', 'parent'].includes(me?.role || '')}
+                      onClick={() => recoverMedia.mutate(m.id)}
+                    >
+                      <RotateCcw /> {t('Recover media and recheck')}
+                    </Button>
+                  )}
                   <SkipGroup messageId={m.id} isGroup={m.is_group} disabled={rejudging(m)} />
                   <Button
                     variant="outline"
@@ -372,6 +436,7 @@ export function Review() {
                     disabled={
                       judgeAgain.isPending ||
                       m.redacted ||
+                      !!m.revoked_at ||
                       view === 'responses' ||
                       !['admin', 'parent'].includes(me?.role || '') ||
                       ['pending', 'processing'].includes(m.status)

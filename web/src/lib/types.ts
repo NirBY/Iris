@@ -139,6 +139,8 @@ export interface AlertDetail extends Alert {
 }
 
 export interface ReviewItem {
+  review_kind?: string
+  can_recover_media?: boolean
   human_feedback?: {
     verdict: string
     categories: string[] | null
@@ -152,6 +154,7 @@ export interface ReviewItem {
 }
 
 export interface ReviewPage {
+  reason_counts?: Record<string, number>
   reviewed_total?: number
   items: ReviewItem[]
   total: number

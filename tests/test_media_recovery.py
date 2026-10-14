@@ -8,6 +8,7 @@ import pytest
 import respx
 
 from app.classify.moderation import URL as MOD_URL
+from app.db.models import ReviewDataIssue
 from app.openwa.client import MediaTooLarge, OpenWAClient, OpenWAError
 from tests.test_media_pipeline import MEDIA, MEDIA_URL, run_all, setup, the_message
 from tests.test_webhooks import fx, post
@@ -142,6 +143,12 @@ async def test_worker_classifies_recovered_picture(app_client: Any, failures: in
     )
     respx.post(MOD_URL).mock(return_value=mod_response())
     await post(app_client, token, fx("image_nocaption_received"))
+    before, _ = await the_message(app_client)
+    async with app_client.app.state.session_factory() as db:
+        db.add(ReviewDataIssue(message_id=before.id, issue="missing_data"))
+        await db.commit()
     assert await run_all(deps) == ["done"]
     message, _ = await the_message(app_client)
     assert message.verdict == "safe" and history.call_count == failures + 1
+    async with app_client.app.state.session_factory() as db:
+        assert await db.get(ReviewDataIssue, message.id) is None

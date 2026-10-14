@@ -1,6 +1,6 @@
 """/api/messages: search, detail and in-chat context."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -469,11 +469,41 @@ async def message_context(
 async def reprocess_message(message_id: int, db: DB) -> dict[str, bool]:
     """Re-enqueue classification. Blocked for redacted messages (their content is gone)."""
     m, _ = await _load(db, message_id)
-    if m.redacted:
-        raise HTTPException(status_code=409, detail="Redacted messages cannot be reprocessed")
+    if m.redacted or m.revoked_at is not None:
+        raise HTTPException(
+            status_code=409, detail="Unavailable message content cannot be reprocessed"
+        )
     if await has_active_job(db, m.id):
         raise HTTPException(status_code=409, detail="Already queued or running")
     m.status, m.verdict = "pending", None
     db.add(Job(type="process_message", payload={"message_id": m.id}))
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/{message_id}/recover-media", dependencies=[Depends(parent_user)])
+async def recover_message_media(message_id: int, db: DB) -> dict[str, bool]:
+    """Explicit bounded recovery through the existing classifier, never a safety override."""
+    m, _ = await _load(db, message_id)
+    if m.redacted or m.revoked_at is not None:
+        raise HTTPException(409, "Unavailable message content cannot be reprocessed")
+    if m.type not in {"image", "sticker", "video", "audio", "voice", "document"} or not m.media:
+        raise HTTPException(409, "No recoverable media reference")
+    if await has_active_job(db, m.id):
+        raise HTTPException(409, "Already queued or running")
+    recent = await db.scalar(
+        select(Job.id)
+        .where(
+            Job.type == "process_message",
+            Job.payload["message_id"].as_integer() == m.id,
+            Job.payload["media_recovery"].as_boolean().is_(True),
+            Job.created_at > datetime.now(UTC) - timedelta(minutes=5),
+        )
+        .limit(1)
+    )
+    if recent:
+        raise HTTPException(429, "Wait five minutes before requesting media recovery again")
+    m.status, m.verdict = "pending", None
+    db.add(Job(type="process_message", payload={"message_id": m.id, "media_recovery": True}))
     await db.commit()
     return {"ok": True}

@@ -1,5 +1,20 @@
 /** State, feedback and recovery copy shared by pages and dialogs. */
 export const hebrewFeedback: Record<string, string> = {
+  'Uncertain classification': 'סיווג לא ודאי',
+  'Attachment check': 'בדיקת קובץ מצורף',
+  'Technical issue': 'תקלה טכנית',
+  'All review reasons': 'כל סיבות הבדיקה',
+  'Filter review reasons': 'סינון לפי סיבת הבדיקה',
+  'Choose what to review. A technical failure is not a harmful-content decision.':
+    'בחרו מה לבדוק. תקלה טכנית אינה קביעה שהתוכן מזיק.',
+  'Recover media and recheck': 'שחזור מדיה ובדיקה מחדש',
+  'Media recovery queued. Iris will check recovered content before deciding.':
+    'שחזור המדיה נוסף לתור. Iris יבדוק את התוכן ששוחזר לפני קבלת החלטה.',
+  'Could not queue media recovery.': 'לא ניתן להוסיף שחזור מדיה לתור.',
+  'Wait five minutes before requesting media recovery again':
+    'יש להמתין חמש דקות לפני בקשה נוספת לשחזור מדיה',
+  'No recoverable media reference': 'אין הפניה למדיה שניתן לשחזר',
+  'Unavailable message content cannot be reprocessed': 'לא ניתן לבדוק מחדש תוכן שנמחק או הוסתר',
   'This sticker is unavailable in OpenWA. Iris cannot display it without the original file.':
     'המדבקה אינה זמינה ב־OpenWA. לא ניתן להציג אותה ב־Iris ללא הקובץ המקורי.',
   'Loading document…': 'טוען מסמך…',

@@ -38,6 +38,27 @@ const item = {
   ],
 }
 
+test('filters by operational reason and offers explicit media recovery', async () => {
+  const user = userEvent.setup()
+  const calls = renderWithApp(<Review />, {
+    '/api/review': {
+      items: [{ ...item, can_recover_media: true, review_kind: 'technical' }],
+      total: 1,
+      page: 1,
+      page_size: 25,
+      reason_counts: { technical: 1, attachment: 2 },
+    },
+  })
+  await user.click(await screen.findByRole('button', { name: /Technical issue/ }))
+  await waitFor(() => expect(calls.some((c) => c.url.includes('reason=technical'))).toBe(true))
+  await user.click(screen.getByRole('button', { name: 'Recover media and recheck' }))
+  await waitFor(() =>
+    expect(
+      calls.some((c) => c.method === 'POST' && c.url === '/api/messages/9/recover-media'),
+    ).toBe(true),
+  )
+})
+
 test('sends explicit categories and a Hebrew explanation with the human decision', async () => {
   const user = userEvent.setup()
   const calls = renderWithApp(<Review />, {
