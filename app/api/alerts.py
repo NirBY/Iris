@@ -483,11 +483,12 @@ async def review_queue(
         )
     )
     kind = review_kind()
-    counts = dict(
+    # Group projected categories, not the correlated missing-data EXISTS itself.
+    # MySQL ONLY_FULL_GROUP_BY rejects the latter's reference to messages.id.
+    categorized = select(kind.label("kind")).select_from(Message).where(cond).subquery()
+    counts: dict[str, int] = dict(
         (
-            await db.execute(
-                select(kind, func.count()).select_from(Message).where(cond).group_by(kind)
-            )
+            await db.execute(select(categorized.c.kind, func.count()).group_by(categorized.c.kind))
         ).all()
     )
     if reason != "all":
