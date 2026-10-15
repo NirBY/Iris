@@ -33,9 +33,18 @@ async def quarantine_legacy_unknowns(db: AsyncSession) -> None:
             ~select(Classification.id)
             .where(
                 Classification.message_id == Message.id,
-                Classification.input_kind == "document_text",
-                Classification.scores["_meta"]["media_analysis"]["method"].as_string()
-                == "pdf_text_v1",
+                Classification.scores["_meta"]["media_analysis"]["method"]
+                .as_string()
+                .in_(
+                    [
+                        "pdf_text_v1",
+                        "docx_text_v1",
+                        "plain_text_v1",
+                        "attachment_image_v1",
+                        "attachment_audio_v1",
+                        "sampled_video_v1",
+                    ]
+                ),
                 Classification.scores["_meta"]["media_analysis"]["complete"].as_boolean() == True,  # noqa: E712
             )
             .exists(),

@@ -37,7 +37,7 @@ export function ClassificationCards({
               {c.input_kind === 'video_frames'
                 ? t('Sampled video frames')
                 : c.input_kind === 'document_text'
-                  ? t('PDF text analysis')
+                  ? t('Document text analysis')
                   : c.input_kind}
               , {c.model}
             </span>
@@ -52,7 +52,7 @@ export function ClassificationCards({
           {c.input_kind === 'document_text' && (
             <p className="text-sm text-muted-foreground">
               {t(
-                'PDF text was checked. Unreadable pages and unchecked visual content still require review.',
+                'Document text was checked. Unreadable or unchecked visual, embedded and dynamic content still requires review.',
               )}
             </p>
           )}

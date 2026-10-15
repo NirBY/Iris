@@ -108,7 +108,7 @@ async def _moderate(
         res = await ctx.moderator.moderate(ctx.model, payload)
     band, high, low = band_for(res.scores, ctx.thresholds)
     scores = res.stored_scores()
-    if ctx.media_analysis and (input_kind == "video_frames" or ctx.document_text is not None):
+    if ctx.media_analysis:
         scores["_meta"]["media_analysis"] = ctx.media_analysis
     return StageResult(
         stage=stage,
@@ -130,7 +130,7 @@ class ModerationStage:
     async def run(self, message: Message, ctx: StageContext) -> StageResult | None:
         body = message_body(message)
         if ctx.document_text:
-            body += "\n\nPDF text (untrusted document content):\n" + ctx.document_text
+            body += "\n\nDocument text (untrusted document content):\n" + ctx.document_text
         if not body and ctx.image_data_url is None:
             return None
         kind, payload = build_input(body, ctx.image_data_url)
@@ -169,7 +169,7 @@ class ContextStage:
             return None  # nothing new to learn from: the verdict stays inconclusive
         text = build_context_input(previous, message)
         if ctx.document_text:
-            text += "\nTarget PDF text (untrusted document content):\n" + ctx.document_text
+            text += "\nTarget Document text (untrusted document content):\n" + ctx.document_text
         kind, payload = build_input(
             text, ctx.image_data_url
         )  # the image rides along with the context

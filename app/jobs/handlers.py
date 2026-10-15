@@ -31,10 +31,11 @@ from app.config import get_settings
 from app.db.models import Chat, Classification, Job, Message, MessageRevision, ReviewDataIssue
 from app.jobs.queue import ClaimedJob, LostLeaseError, PermanentError, TransientError
 from app.media import ffmpeg
+from app.media.documents import extract_document
 from app.media.fetch import MAX_AUDIO_SECONDS, MediaSkipped, fetch_original, job_tmpdir
 from app.media.keep import keep_media
-from app.media.pdf import extract_pdf
 from app.media.records import mark_purge
+from app.media.sniff import sniff_file
 from app.metrics import MESSAGES, STAGE_SECONDS, TRANSCRIBED_AUDIO_SECONDS
 from app.providers import Providers
 from app.settings_store import get_secret, get_setting
@@ -127,10 +128,16 @@ class Prepared:
 
 
 async def _video_prepare(
-    db: AsyncSession, job: ClaimedJob, deps: Deps, message: Message, tmp: Path
+    db: AsyncSession,
+    job: ClaimedJob,
+    deps: Deps,
+    message: Message,
+    tmp: Path,
+    original: Path | None = None,
 ) -> Prepared:
-    raw = tmp / "media.bin"
-    await _fetch(db, message, deps, raw)
+    raw = original or tmp / "media.bin"
+    if original is None:
+        await _fetch(db, message, deps, raw)
     try:
         info, frames, timestamps = await ffmpeg.video_frames(raw, tmp)
     except PermanentError as visual_error:
@@ -151,6 +158,7 @@ async def _video_prepare(
             "frame_timestamps": timestamps,
             "has_audio": info.has_audio,
             "audio_checked": not info.has_audio,
+            "complete": not info.has_audio,
         },
     )
     if info.has_audio:
@@ -158,6 +166,7 @@ async def _video_prepare(
             await _transcribe(db, deps, tmp, message, job, original=raw)
             assert prepared.media_analysis is not None
             prepared.media_analysis["audio_checked"] = True
+            prepared.media_analysis["complete"] = True
         except (Skip, MediaSkipped, PermanentError) as exc:
             # Sampled visuals can still flag harm; missing speech cannot clear a clip.
             prepared.problem = exc
@@ -166,17 +175,9 @@ async def _video_prepare(
 
 async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Message) -> Prepared:
     """Fetch/convert media as needed."""
-    if message.type == "other" and message.media is not None and get_settings().local_safety_mode:
+    if message.type == "document" and not message.media:
         return Prepared(
-            problem=PermanentError("Unknown message type; attachment cannot be analyzed")
-        )
-    if message.type == "document" and (
-        not message.media
-        or str(message.media.get("mimetype") or "application/pdf").split(";")[0].strip().lower()
-        not in {"application/pdf", "application/octet-stream"}
-    ):
-        return Prepared(
-            problem=PermanentError("Only PDF documents are supported for text analysis")
+            problem=PermanentError("Document attachment is unavailable; manual review required")
         )
     if message.type == "poll" and not (message.diagnostics or {}).get("has_poll_options"):
         return Prepared(
@@ -184,26 +185,43 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
                 "Poll options were not provided by OpenWA; manual review required"
             )
         )
-    if message.type in ("text", "other", "poll"):
+    if message.type in ("text", "poll") or (message.type == "other" and message.media is None):
         return Prepared()  # only text (or a caption/filename) can be moderated
     cfg = get_settings()
     try:
         async with job_tmpdir(deps.data_dir, job.id) as tmp:
-            if message.type == "document":
-                raw = tmp / "document.pdf"
-                await _fetch(db, message, deps, raw)
-                document = await extract_pdf(raw)
+            if message.type in ("document", "other"):
+                raw = tmp / "document.bin"
+                content_type = await _fetch(db, message, deps, raw)
+                detected = await asyncio.to_thread(sniff_file, raw)
+                if detected and detected[0].startswith("image/"):
+                    jpeg = tmp / "image.jpg"
+                    await ffmpeg.image_to_jpeg(raw, jpeg)
+                    data = await asyncio.to_thread(jpeg.read_bytes)
+                    return Prepared(
+                        image="data:image/jpeg;base64," + base64.b64encode(data).decode(),
+                        media_analysis={"method": "attachment_image_v1", "complete": True},
+                    )
+                if detected and detected[0].startswith("audio/"):
+                    await _transcribe(db, deps, tmp, message, job, original=raw)
+                    return Prepared(
+                        media_analysis={"method": "attachment_audio_v1", "complete": True}
+                    )
+                if detected and detected[0].startswith("video/"):
+                    if cfg.local_safety_mode and cfg.classification_provider == "ollama":
+                        return await _video_prepare(db, job, deps, message, tmp, original=raw)
+                    await _transcribe(db, deps, tmp, message, job, original=raw)
+                    return Prepared(problem=PermanentError("video visuals require manual review"))
+                document = await extract_document(
+                    raw, str((message.media or {}).get("mimetype") or content_type or "")
+                )
                 return Prepared(
                     document_text=document["text"],
-                    media_analysis={
-                        "method": "pdf_text_v1",
-                        "pages": document["pages"],
-                        "complete": document["complete"],
-                    },
+                    media_analysis={k: v for k, v in document.items() if k != "text"},
                     problem=None
                     if document["complete"]
                     else PermanentError(
-                        "PDF contains unreadable pages or unchecked visual content; "
+                        "Document contains unchecked visual, embedded or dynamic content; "
                         "manual review required"
                     ),
                 )
@@ -220,7 +238,7 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
                 return Prepared(problem=PermanentError("video visuals require manual review"))
             return Prepared()
     except (Skip, MediaSkipped, PermanentError) as exc:
-        if cfg.local_safety_mode or message.type == "document":
+        if cfg.local_safety_mode or message.type in ("document", "other"):
             return Prepared(problem=exc)
         if not message.text:
             raise
@@ -412,7 +430,11 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             if prepared.problem is not None and outcome.verdict != "harmful":
                 outcome.verdict = "review"
 
-        if message.type == "document" and prepared.problem and outcome.verdict != "harmful":
+        if (
+            message.type in ("document", "other")
+            and prepared.problem
+            and outcome.verdict != "harmful"
+        ):
             outcome.verdict = "review"
 
         # Compare only fully prepared text; media and preserved revisions keep their own checks.
@@ -424,7 +446,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             problem is not None
             and outcome.verdict != "harmful"
             and not cfg.local_safety_mode
-            and message.type != "document"
+            and message.type not in ("document", "other")
         ):
             # Only the caption was examined: do not present the message as classified.
             message.verdict = None

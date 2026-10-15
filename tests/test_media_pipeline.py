@@ -327,14 +327,17 @@ async def test_switching_to_cloudflare_takes_effect_without_restart(app_client: 
 
 
 @respx.mock
-async def test_document_only_caption_is_moderated(app_client: Any) -> None:
+async def test_text_document_body_and_caption_are_moderated(app_client: Any) -> None:
     deps, token = await setup(app_client)
+    respx.get(url__regex=MEDIA_URL).respond(
+        200, content=b"Synthetic document body", content_type="text/plain"
+    )
     respx.post(MOD_URL).mock(return_value=mod_response())
     await post(app_client, token, fx("document_sent"))  # caption "doc"
     assert await run_all(deps) == ["done"]
     message, _ = await the_message(app_client)
-    assert message.verdict == "review" and message.status == "done"
-    assert mod_inputs() == ["doc"]
-    assert not any(
-        c.request.method == "GET" for c in respx.calls
-    )  # the file itself is never fetched
+    assert message.verdict == "safe" and message.status == "done"
+    assert mod_inputs() == [
+        "doc\n\nDocument text (untrusted document content):\nSynthetic document body"
+    ]
+    assert any(c.request.method == "GET" for c in respx.calls)

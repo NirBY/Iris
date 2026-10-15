@@ -30,16 +30,28 @@ Parents and admins can skip AI to move a message into human **Review**. Cancelli
 job lease, so a late AI result cannot overwrite a subsequent human decision. Human Review excludes
 AI work and shows Safe/Harmful actions only for unresolved decisions; response history is read-only.
 Review actions are visible directly, without an additional-options section.
-PDF documents now use the configured classifier to check locally extracted text.
-Analysis is limited to 10 MB, 20 pages and 24,000 characters. Encrypted, scanned,
-malformed or over-limit files remain in review. Images, drawings, annotations and
-forms are not assessed by text extraction: documents containing them cannot be
-cleared by this path, although readable text can still trigger a harmful verdict.
-Extraction runs in a separate process with a timeout and Linux memory/CPU limits.
-Extracted text is temporary; classification traces retain coverage metadata only.
-Document decisions are AI decisions, not human learning labels. Non-PDF formats
-still require review. Existing documents can be checked through **Recover media
-and recheck**; no backlog is automatically cleared.
+Attachments use the configured classifier, including local Ollama. Iris detects PDF,
+Office archives and ordinary media by their bytes, including attachments that OpenWA
+reports as unknown. Extracted document text is temporary; classification traces retain
+format and coverage metadata only. These are AI decisions, not human learning labels.
+
+| Attachment | Analysis coverage |
+| --- | --- |
+| PDF | Text, up to 20 pages; scanned pages, drawings, images and forms remain reviewable |
+| DOCX | Body, tables, headers, footers, footnotes, endnotes and comments; embedded or dynamic content requires review |
+| XLSX, PPTX, ODT, ODS, ODP | Readable text can flag harm; unrendered layouts, charts, formulas and embedded objects prevent automatic clearance |
+| TXT, CSV, TSV, Markdown, JSON, YAML | UTF-8/UTF-16 text; binary or unreadable content is rejected |
+| HTML, XML | Literal text only; rendered/dynamic content remains unchecked and cannot be cleared |
+| Images, audio, video sent as documents or unknown types | Routed to the existing image, transcription or bounded video analysis path |
+| Legacy DOC/XLS/PPT, RTF, arbitrary archives/executables and vector WAS stickers | Not decoded yet; remain in review, never cleared from the filename or caption |
+
+Document extraction runs in an isolated process with a 30-second timeout and Linux
+memory/CPU limits: 10 MB input, 24,000 characters, at most 200 archive parts and 20 MB
+expanded data. Encrypted, malformed and over-limit files remain in review. Archive
+paths are never extracted; XML DTDs, scripts, macros and external resources are not
+executed. This is bounded content analysis, not malware scanning or universal file
+rendering. Existing attachments can be checked through **Recover media and recheck**;
+no backlog is automatically cleared.
 
 Filter reviews by uncertain classification, attachment checks or technical issues;
 counts cover the entire selected queue. Recoverable attachments offer **Recover media

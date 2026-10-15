@@ -407,4 +407,33 @@ export const hebrewFeedback: Record<string, string> = {
   'awaiting review': 'ממתינות לבדיקה',
   'Unavailable content is kept here for recovery. These messages have not been marked safe.':
     'תוכן לא זמין נשמר כאן לשחזור. הודעות אלה לא סומנו כבטוחות.',
+  'Document text analysis': 'בדיקת טקסט במסמך',
+  'Document text was checked. Unreadable or unchecked visual, embedded and dynamic content still requires review.':
+    'הטקסט במסמך נבדק. תוכן לא קריא, חזותי, מוטמע או דינמי שלא נבדק עדיין מחייב בדיקה ידנית.',
+  'Document contains unchecked visual, embedded or dynamic content; manual review required':
+    'המסמך כולל תוכן חזותי, מוטמע או דינמי שלא נבדק; נדרשת בדיקה ידנית',
+  'This attachment format cannot be analyzed yet; manual review required':
+    'אין עדיין תמיכה בבדיקת פורמט הקובץ המצורף; נדרשת בדיקה ידנית',
+  'Document analysis timed out; manual review required':
+    'בדיקת המסמך חרגה מהזמן המותר; נדרשת בדיקה ידנית',
+  'Document could not be read completely; manual review required':
+    'לא ניתן לקרוא את המסמך במלואו; נדרשת בדיקה ידנית',
+  'Document exceeds the 10 MB analysis limit': 'המסמך חורג ממגבלת הבדיקה של 10 מ״ב',
+  'Document exceeds the 24000-character analysis limit': 'המסמך חורג ממגבלת הבדיקה של 24,000 תווים',
+  'Document text encoding is unreadable; manual review required':
+    'קידוד הטקסט במסמך אינו קריא; נדרשת בדיקה ידנית',
+  'Document archive is encrypted, ambiguous or exceeds analysis limits':
+    'ארכיון המסמך מוצפן, אינו חד־משמעי או חורג ממגבלות הבדיקה',
+  'Word document contains unsupported XML declarations': 'מסמך Word כולל הצהרות XML שאינן נתמכות',
+  'Word document exceeds the 10 MB analysis limit': 'מסמך Word חורג ממגבלת הבדיקה של 10 מ״ב',
+  'Word document exceeds the 24000-character analysis limit':
+    'מסמך Word חורג ממגבלת הבדיקה של 24,000 תווים',
+  'Word archive is encrypted, ambiguous or exceeds analysis limits':
+    'ארכיון Word מוצפן, אינו חד־משמעי או חורג ממגבלות הבדיקה',
+  'Only PDF and DOCX documents are supported for text analysis':
+    'סוג מסמך Word זה אינו נתמך; ניתן להשתמש ב־DOCX או ב־PDF',
+  'Document attachment is unavailable; manual review required':
+    'המסמך המצורף אינו זמין; נדרשת בדיקה ידנית',
+  'Word document structure is unreadable; manual review required':
+    'מבנה מסמך Word אינו קריא; נדרשת בדיקה ידנית',
 }
