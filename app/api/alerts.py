@@ -524,7 +524,8 @@ async def review_queue(
                     m.media
                     and not m.redacted
                     and not m.revoked_at
-                    and m.type in {"image", "sticker", "video", "audio", "voice", "document"}
+                    and m.type
+                    in {"image", "sticker", "video", "audio", "voice", "document", "other"}
                 ),
                 human_feedback=await human_feedback(db, m),
                 response_notes=await response_notes(db, m.id),

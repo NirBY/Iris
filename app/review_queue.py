@@ -29,7 +29,10 @@ def review_kind() -> ColumnElement[str]:
             "technical",
         ),
         (
-            Message.type.in_(("image", "sticker", "video", "voice", "audio", "document")),
+            or_(
+                Message.type.in_(("image", "sticker", "video", "voice", "audio", "document")),
+                (Message.type == "other") & Message.media["message_ref"].as_string().is_not(None),
+            ),
             "attachment",
         ),
         else_="uncertain",

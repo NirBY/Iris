@@ -56,6 +56,22 @@ async def test_reason_filters_count_entire_queue_before_pagination(app_client):
     assert (await app_client.get("/api/review?reason=invented")).status_code == 422
 
 
+async def test_unknown_attachment_can_be_recovered_without_safety_override(app_client):
+    mid = (await seed(app_client))[1]
+    async with app_client.app.state.session_factory() as db:
+        m = await db.get(Message, mid)
+        m.type = "other"
+        m.review_reason = "This attachment format cannot be analyzed yet; manual review required"
+        await db.commit()
+    result = (await app_client.get("/api/review?reason=attachment")).json()
+    item = next(row for row in result["items"] if row["message"]["id"] == mid)
+    assert item["can_recover_media"] and item["review_kind"] == "attachment"
+    assert (await app_client.post(f"/api/messages/{mid}/recover-media")).status_code == 200
+    async with app_client.app.state.session_factory() as db:
+        assert (await db.get(Message, mid)).status == "pending"
+        assert await db.get(ReviewFeedback, mid) is None
+
+
 async def test_explicit_recovery_queues_once_and_preserves_missing_data_until_success(app_client):
     mid = (await seed(app_client))[3]
     async with app_client.app.state.session_factory() as db:

@@ -487,7 +487,10 @@ async def recover_message_media(message_id: int, db: DB) -> dict[str, bool]:
     m, _ = await _load(db, message_id)
     if m.redacted or m.revoked_at is not None:
         raise HTTPException(409, "Unavailable message content cannot be reprocessed")
-    if m.type not in {"image", "sticker", "video", "audio", "voice", "document"} or not m.media:
+    if (
+        m.type not in {"image", "sticker", "video", "audio", "voice", "document", "other"}
+        or not m.media
+    ):
         raise HTTPException(409, "No recoverable media reference")
     if await has_active_job(db, m.id):
         raise HTTPException(409, "Already queued or running")
