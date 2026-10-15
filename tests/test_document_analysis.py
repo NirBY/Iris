@@ -261,3 +261,33 @@ async def test_markup_never_claims_rendered_coverage(tmp_path, mime):
     path = tmp_path / "file"
     path.write_text("<p>synthetic text</p>")
     assert not (await documents.extract_document(path, mime))["complete"]
+
+
+@pytest.mark.parametrize(
+    "kind", ["decimal", "upperLetter", "bullet", "picture", "missing", "symbol"]
+)
+async def test_word_list_labels_are_examined_without_clearing_custom_bullets(tmp_path, kind):
+    path = tmp_path / "file"
+    doc = (
+        f'<w:document xmlns:w="{W[1:-1]}"><w:body><w:p><w:pPr><w:numPr>'
+        '<w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>'
+        "<w:r><w:t>Classroom task</w:t></w:r></w:p></w:body></w:document>"
+    )
+    fmt = kind if kind in {"decimal", "upperLetter", "bullet"} else "decimal"
+    number = (
+        f'<w:numbering xmlns:w="{W[1:-1]}"><w:abstractNum w:abstractNumId="0">'
+        f'<w:lvl w:ilvl="0"><w:numFmt w:val="{fmt}"/>'
+        '<w:lvlText w:val="Synthetic label %1"/>'
+        + ('<w:lvlPicBulletId w:val="1"/>' if kind == "picture" else "")
+        + ('<w:rPr><w:rFonts w:ascii="Wingdings"/></w:rPr>' if kind == "symbol" else "")
+        + '</w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/>'
+        "</w:num></w:numbering>"
+    )
+    extras = {"word/document.xml": doc}
+    if kind != "missing":
+        extras["word/numbering.xml"] = number
+    make_docx(path, extras=extras)
+    result = await documents.extract_document(path)
+    assert result["complete"] is (kind in {"decimal", "upperLetter"})
+    if kind != "missing":
+        assert "Synthetic label %1" in result["text"]

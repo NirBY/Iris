@@ -38,7 +38,7 @@ format and coverage metadata only. These are AI decisions, not human learning la
 | Attachment | Analysis coverage |
 | --- | --- |
 | PDF | Text, up to 20 pages; scanned pages, drawings, images and forms remain reviewable |
-| DOCX | Body, tables, headers, footers, footnotes, endnotes and comments; embedded or dynamic content requires review |
+| DOCX | Body, tables, standard numbered lists, headers, footers, footnotes, endnotes and comments; embedded or dynamic content requires review |
 | XLSX, PPTX, ODT, ODS, ODP | Readable text can flag harm; unrendered layouts, charts, formulas and embedded objects prevent automatic clearance |
 | TXT, CSV, TSV, Markdown, JSON, YAML | UTF-8/UTF-16 text; binary or unreadable content is rejected |
 | HTML, XML | Literal text only; rendered/dynamic content remains unchecked and cannot be cleared |
