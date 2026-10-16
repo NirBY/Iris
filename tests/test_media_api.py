@@ -156,8 +156,8 @@ async def test_the_whatsapp_alert_carries_the_media_link(app_client: Any) -> Non
     await run_all(deps)
     (row,) = await rows(app_client)
     text = json.loads(send.calls.last.request.content)["text"]
-    assert f"/media/{row.id}" in text and "📎 Media kept (image," in text
-    assert text.index("📎") < text.index("Open:")
+    assert f"/media/{row.id}" in text and "📎 מדיה נשמרה (תמונה," in text
+    assert text.index("📎") < text.index("פתיחה:")
 
 
 @respx.mock
@@ -177,4 +177,4 @@ async def test_a_withheld_message_alert_has_no_media_line(app_client: Any) -> No
     await post(app_client, token, fx("image_nocaption_received"))
     await run_all(deps)
     text = json.loads(send.calls.last.request.content)["text"]
-    assert "Media kept" not in text and "withheld" in text
+    assert "מדיה נשמרה" not in text and "התוכן הוסתר" in text

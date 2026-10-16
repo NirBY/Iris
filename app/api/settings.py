@@ -318,7 +318,7 @@ async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
                     target,
                     # Signed like a real alert so a monitored session skips the test.
                     with_signed_link(
-                        f"{ALERT_PREFIX} (test)\nAlert delivery is working.",
+                        f"{ALERT_PREFIX} (בדיקה)\nשליחת ההתראות פועלת.",
                         cfg.public_base_url,
                         cfg.key_bytes,
                         0,

@@ -654,3 +654,11 @@ MIT License. See [LICENSE](LICENSE).
 ## Optional local providers (beta)
 
 The [beta local deployment guide](docker-compose/local/README.md) describes opt-in Ollama moderation, a native Apple Silicon transcription companion, parent recipient management and QR pairing. Existing cloud defaults remain unchanged. Read the guide's validation limits before deploying this beta for monitoring.
+
+## Hebrew interface and right-to-left layout
+
+This branch provides a Hebrew-first interface: the page uses `lang="he"` and `dir="rtl"`, with Hebrew labels, validation messages, dates, accessibility text, and PWA metadata. Navigation, form controls, dialogs, dropdowns, and tabs follow right-to-left layout. User-authored message content keeps automatic text direction.
+
+The interface currently has no language selector; Hebrew replaces the previous English default. The string tables in `web/src/lib/i18n.ts` and `web/src/lib/he.ts` provide a starting point for selectable locales if the project adopts that approach.
+
+Generated alert text is also Hebrew. Existing signed English alerts remain recognizable by the alert loop guard; alert signatures and API category identifiers keep their existing format. Translation and RTL tests run with the normal frontend and Python test suites.
