@@ -1,8 +1,9 @@
+import { dir } from '../../lib/language'
 import * as TabsPrimitive from '@radix-ui/react-tabs'
 import { cn } from '../../lib/cn'
 
 export function Tabs(props: TabsPrimitive.TabsProps) {
-  return <TabsPrimitive.Root dir="rtl" {...props} />
+  return <TabsPrimitive.Root dir={dir} {...props} />
 }
 
 export function TabsList({ className, ...props }: TabsPrimitive.TabsListProps) {

@@ -1,3 +1,4 @@
+import { he } from '../lib/he'
 import { apiErrorMessage } from '../lib/apiErrors'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, Database, Loader2, PlugZap, Save, Undo2 } from 'lucide-react'
@@ -362,16 +363,16 @@ function DatabaseForm({ data }: { data: DatabaseStatus }) {
 
 function tableLabel(table: string): string {
   const labels: Record<string, string> = {
-    messages: 'הודעות',
-    alerts: 'התראות',
-    jobs: 'משימות',
-    chats: 'שיחות',
-    instances: 'חיבורי טלפונים',
-    users: 'משתמשים',
-    classifications: 'סיווגים',
-    message_receipts: 'אישורי הודעות',
-    settings: 'הגדרות',
-    stored_media: 'מדיה שמורה',
+    messages: he('Messages'),
+    alerts: he('Alerts'),
+    jobs: he('Jobs'),
+    chats: he('Chats'),
+    instances: he('Phone connections'),
+    users: he('Users'),
+    classifications: he('Classifications'),
+    message_receipts: he('Message receipts'),
+    settings: he('Settings'),
+    stored_media: he('Stored media'),
   }
   return labels[table] ?? table
 }

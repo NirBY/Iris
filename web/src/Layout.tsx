@@ -5,6 +5,8 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { IrisMark } from './components/IrisMark'
 import { InstallApp } from './components/InstallApp'
+import { LanguageSelect } from './components/LanguageSelect'
+import { dir } from './lib/language'
 import { LiveStatus } from './components/LiveStatus'
 import { PageLoading } from './components/PageLoading'
 import { NAV, TAB_BAR, type NavItem } from './components/nav'
@@ -102,7 +104,7 @@ function AccountMenu({ wide, version }: { wide: boolean; version?: string }) {
     setThemeState(t)
   }
   return (
-    <DropdownMenu dir="rtl">
+    <DropdownMenu dir={dir}>
       <DropdownMenuTrigger asChild>
         <button
           className={cn(
@@ -383,6 +385,9 @@ export function Layout() {
           className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-5 outline-none md:px-8 md:pb-10 md:pt-8"
         >
           <Suspense fallback={<PageLoading />}>
+            <div className="mb-4 flex justify-end">
+              <LanguageSelect />
+            </div>
             <Outlet />
           </Suspense>
         </main>

@@ -1,15 +1,12 @@
-/**
- * Central Hebrew string table. Hebrew is the only supported locale for now, but every
- * user-visible string in the app should be looked up here (via `t`) rather than written
- * inline, so the UI never needs a DOM text sweep to change language or wording again.
- */
-export const locale = 'he-IL' as const
-export const dir = 'rtl' as const
+/** Typed English/Hebrew UI strings, selected once per page load. */
+import { language } from './language'
+import { strings as englishStrings } from './en'
+export { locale, dir } from './language'
 
 type Leaf = string | string[] | ((...args: never[]) => string)
 type Dict = { [key: string]: Leaf | Dict }
 
-export const strings = {
+export const hebrewStrings = {
   common: {
     loading: 'טוען…',
     error: 'שגיאה',
@@ -738,6 +735,8 @@ export const strings = {
     open: 'פתיחה',
   },
 } satisfies Dict
+
+export const strings = language === 'he' ? hebrewStrings : englishStrings
 
 function lookup(path: string): Leaf | Dict | undefined {
   return path.split('.').reduce<Leaf | Dict | undefined>((node, key) => {

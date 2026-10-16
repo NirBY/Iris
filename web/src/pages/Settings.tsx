@@ -212,7 +212,7 @@ function KeptMedia() {
       description={he('Files stay until their keep time ends, even if you turn keeping off.')}
     >
       <p className="text-sm">
-        <span className="tabular font-medium">{files}</span> {files === 1 ? 'קובץ' : 'קבצים'},{' '}
+        <span className="tabular font-medium">{files}</span> {he(files === 1 ? 'file' : 'files')},{' '}
         {fileSize(stats.data?.media_bytes ?? 0)}
       </p>
       <ConfirmDialog
@@ -329,7 +329,7 @@ function ThresholdsTable({
                 step="0.01"
                 min={0}
                 max={1}
-                aria-label={`${categoryLabel(r.category)} ${f === 'low' ? 'כדאי לבדוק' : 'מזיק'}`}
+                aria-label={`${categoryLabel(r.category)} ${he(f === 'low' ? 'Worth a look' : 'Harmful')}`}
                 value={edits[r.category]?.[f] ?? String(r[f])}
                 onChange={(e) => onEdit(r.category, f, e.target.value)}
               />
@@ -457,7 +457,7 @@ export function Settings() {
     return (
       <div className="flex flex-col gap-5">
         <PageHeader title={he('Settings')} />
-        <QueryError what="ההגדרות" onRetry={() => void refetch()} />
+        <QueryError what={he('the settings')} onRetry={() => void refetch()} />
       </div>
     )
   if (!data) return <PageLoading />

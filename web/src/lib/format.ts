@@ -1,4 +1,5 @@
 import { locale, t } from './i18n'
+import { language } from './language'
 
 export function relativeTime(iso: string | null, now = Date.now()): string {
   if (!iso) return t('common.never')
@@ -25,6 +26,12 @@ export function shortDate(isoDate: string): string {
 }
 
 export function fileSize(bytes: number): string {
+  if (language === 'en') {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 ** 2) return `${Math.round(bytes / 1024)} KB`
+    if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+    return `${(bytes / 1024 ** 3).toFixed(1)} GB`
+  }
   if (bytes < 1024) return `${bytes} ב׳`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} ק״ב`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} מ״ב`

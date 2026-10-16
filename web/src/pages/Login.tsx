@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { IrisMark } from '../components/IrisMark'
+import { LanguageSelect } from '../components/LanguageSelect'
 import { Button } from '../components/ui/button'
 import { Field, Input } from '../components/ui/field'
 import { api, ApiError } from '../lib/api'
@@ -39,6 +40,7 @@ export function Login() {
 
   return (
     <main className="mx-auto grid min-h-dvh w-full max-w-sm content-center gap-8 px-6 py-10">
+      <LanguageSelect />
       <div className="flex flex-col items-center gap-3 text-center text-primary">
         <IrisMark className="size-14" />
         <div className="flex flex-col gap-1 text-foreground">

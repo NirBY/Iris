@@ -289,7 +289,7 @@ async def test_sender_view_first_then_receiver_view_is_also_one_message(app_clie
 
 async def test_real_alert_link_pasted_under_other_text_is_still_classified(app_client: Any) -> None:
     _, token = await make_instance(app_client)
-    link = signed_alert_text().split("\n\nפתיחה: ")[1]
+    link = signed_alert_text().split("\n\nOpen: ")[1]
     body = json.loads(fx("text_received_mixed"))
     body["data"]["body"] = f"⚠️ Iris alert\nI will hurt you\n\nOpen: {link}"
     assert (await post(app_client, token, json.dumps(body).encode())).json() == {

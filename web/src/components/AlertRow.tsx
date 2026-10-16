@@ -1,4 +1,4 @@
-import { categoryLabel } from '../lib/i18n'
+import { categoryLabel, strings, t } from '../lib/i18n'
 import { he } from '../lib/he'
 import { BellOff, CheckCheck, CircleAlert, Mic, ShieldOff } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -45,8 +45,10 @@ export function AlertRow({ alert: a, revealed = false }: { alert: Alert; reveale
         />
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <KidStack names={a.kid_names} />
-          <span className="font-medium">{a.kid_names.join(' ו')}</span>
-          {a.chat_name && <span className="text-sm text-muted-foreground">ב{a.chat_name}</span>}
+          <span className="font-medium">{strings.names.join(a.kid_names)}</span>
+          {a.chat_name && (
+            <span className="text-sm text-muted-foreground">{t('names.in', a.chat_name)}</span>
+          )}
           <span className="ms-auto text-xs text-muted-foreground tabular">
             {relativeTime(a.created_at)}
           </span>

@@ -655,10 +655,10 @@ MIT License. See [LICENSE](LICENSE).
 
 The [beta local deployment guide](docker-compose/local/README.md) describes opt-in Ollama moderation, a native Apple Silicon transcription companion, parent recipient management and QR pairing. Existing cloud defaults remain unchanged. Read the guide's validation limits before deploying this beta for monitoring.
 
-## Hebrew interface and right-to-left layout
+## Interface language
 
-This branch provides a Hebrew-first interface: the page uses `lang="he"` and `dir="rtl"`, with Hebrew labels, validation messages, dates, accessibility text, and PWA metadata. Navigation, form controls, dialogs, dropdowns, and tabs follow right-to-left layout. User-authored message content keeps automatic text direction.
+English remains the default. Use the **Language / שפה** selector on the sign-in screen or above the signed-in content to choose English or Hebrew. The choice is stored in this browser. Changing it reloads the current page, so save any unfinished form edits first. If browser storage is blocked, the selector reports that the preference could not be saved.
 
-The interface currently has no language selector; Hebrew replaces the previous English default. The string tables in `web/src/lib/i18n.ts` and `web/src/lib/he.ts` provide a starting point for selectable locales if the project adopts that approach.
+Hebrew uses `lang="he"`, right-to-left navigation and controls, localized dates, and Hebrew PWA metadata. English uses left-to-right layout. User-authored messages and numeric/URL fields retain automatic text direction. The English and Hebrew dictionaries use the same keys and parameter shapes.
 
-Generated alert text is also Hebrew. Existing signed English alerts remain recognizable by the alert loop guard; alert signatures and API category identifiers keep their existing format. Translation and RTL tests run with the normal frontend and Python test suites.
+This is a browser UI preference; it does not change server-generated WhatsApp alerts or another browser's language. No monitoring, classification, delivery or server configuration behavior is changed by selecting a language.

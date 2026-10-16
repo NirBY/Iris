@@ -1,3 +1,5 @@
+import { language } from './language'
+
 /** Translate server validation text for display while keeping API payloads unchanged. */
 const messages: Record<string, string> = {
   'Alert delivery is not configured': 'שליחת ההתראות עדיין לא הוגדרה',
@@ -72,6 +74,15 @@ const messages: Record<string, string> = {
   'Test alert sent': 'התראת הבדיקה נשלחה',
 }
 function fallback(status: number): string {
+  if (language === 'en') {
+    if (status === 401) return 'Sign in again or check your credentials'
+    if (status === 403) return 'You do not have permission to do this'
+    if (status === 404) return 'The requested item was not found'
+    if (status === 400 || status === 422)
+      return 'Some details are invalid. Check the fields and try again'
+    if (status === 429) return 'Too many requests. Wait and try again'
+    return `Request failed (code ${status}). Try again`
+  }
   if (status === 401) return 'יש להתחבר מחדש או לבדוק את פרטי ההתחברות'
   if (status === 403) return 'אין הרשאה לבצע את הפעולה'
   if (status === 404) return 'הפריט המבוקש לא נמצא'
@@ -82,16 +93,23 @@ function fallback(status: number): string {
 }
 export function apiErrorMessage(detail: unknown, status: number): string {
   if (typeof detail === 'string') {
-    if (messages[detail]) return messages[detail]
-    if (/[\u0590-\u05ff]/.test(detail)) return detail
+    if (messages[detail]) return language === 'he' ? messages[detail] : detail
+    if (language === 'he' && /[\u0590-\u05ff]/.test(detail)) return detail
     const range = detail.match(/^must be an integer between (\d+) and (\d+)$/)
-    if (range) return `יש להזין מספר שלם בין ${range[1]} ל־${range[2]}`
+    if (range)
+      return language === 'he'
+        ? `יש להזין מספר שלם בין ${range[1]} ל־${range[2]}`
+        : `Enter an integer between ${range[1]} and ${range[2]}`
     if (detail.startsWith('database.json cannot be read'))
-      return 'לא ניתן לקרוא את הגדרות מסד הנתונים. יש לבדוק את מפתח ההצפנה וההגדרות.'
+      return language === 'he'
+        ? 'לא ניתן לקרוא את הגדרות מסד הנתונים. יש לבדוק את מפתח ההצפנה וההגדרות.'
+        : 'Cannot read database settings. Check the encryption key and configuration.'
     const charset = detail.match(/^The database uses ([\w-]+)\./)
     if (charset)
-      return `מסד הנתונים משתמש בערכת התווים ${charset[1]}. מומלץ utf8mb4 לשמירת עברית ואמוג׳י`
-    if (status === 200) return 'הבדיקה הצליחה'
+      return language === 'he'
+        ? `מסד הנתונים משתמש בערכת התווים ${charset[1]}. מומלץ utf8mb4 לשמירת עברית ואמוג׳י`
+        : `The database uses ${charset[1]}. Use utf8mb4 for Unicode and emoji.`
+    if (status === 200) return language === 'he' ? 'הבדיקה הצליחה' : 'The check succeeded'
     return fallback(status)
   }
   if (Array.isArray(detail)) {

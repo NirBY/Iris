@@ -102,11 +102,11 @@ async def test_harmful_message_creates_alert_and_delivers_whatsapp_text(app_clie
     sent = json.loads(req.content)
     assert sent["chatId"] == "972501234567@c.us"
     assert sent["text"].startswith(
-        "⚠️ התראת Iris\nילד/ה: Noa\nצ'אט: Kid Tester (ישיר)\nמאת: Kid Tester\n"
+        "⚠️ Iris alert\nKid: Noa\nChat: Kid Tester (direct)\nFrom: Kid Tester\n"
     )
     assert (
-        f"פתיחה: http://localhost:8080/alerts/{a.id}?s=" in sent["text"]
-        and "אלימות (0.95)" in sent["text"]
+        f"Open: http://localhost:8080/alerts/{a.id}?s=" in sent["text"]
+        and "violence (0.95)" in sent["text"]
     )
     await deps.providers.aclose()
 
@@ -179,7 +179,7 @@ async def test_cooldown_suppresses_then_plus_n_more_line(app_client: Any) -> Non
     await run_all(deps)
     assert send.call_count == 2
     assert (
-        "+2 התראות נוספות בצ'אט הזה מאז ההתראה האחרונה"
+        "+2 more alerts in this chat since last notification"
         in json.loads(send.calls.last.request.content)["text"]
     )
     await deps.providers.aclose()
@@ -278,7 +278,7 @@ async def test_sexual_minors_text_is_redacted_everywhere_and_never_logged_or_for
         (a,) = (await s.execute(select(Alert))).scalars().all()
         assert a.quote is None and a.categories == ["sexual/minors"]
     sent_text = json.loads(send.calls.last.request.content)["text"]
-    assert secret not in sent_text and "התוכן הוסתר (תוכן מיני)" in sent_text
+    assert secret not in sent_text and "Content withheld (sexual content)" in sent_text
     assert not any(secret in line for line in logs)
     assert secret not in (await app_client.get("/api/messages")).text
     assert (await app_client.get("/api/messages", params={"q": secret})).json()["total"] == 0
@@ -354,8 +354,8 @@ async def test_deleted_alerted_message_sends_a_follow_up_without_content(app_cli
     assert await run_all(deps) == ["done"]
     assert send.call_count == 2
     text = json.loads(send.calls.last.request.content)["text"]
-    assert text.startswith(ALERT_PREFIX) and "נמחקה אצל כולם" in text
-    assert "mixed" not in text and "ילד/ה: Noa" in text
+    assert text.startswith(ALERT_PREFIX) and "deleted for everyone" in text
+    assert "mixed" not in text and "Kid: Noa" in text
     assert is_own_alert(text, get_settings().key_bytes)  # the loop guard still recognises it
     await deps.providers.aclose()
 
@@ -370,7 +370,7 @@ async def test_edited_alerted_message_sends_a_follow_up(app_client: Any) -> None
     await post(app_client, token, fx("message_edited"))
     await run_all(deps)  # the follow-up and the re-check of the edited text
     texts = [json.loads(c.request.content)["text"] for c in send.calls]
-    assert any("נערכה על ידי השולח/ת" in t for t in texts)
+    assert any("was edited by the sender" in t for t in texts)
     await deps.providers.aclose()
 
 

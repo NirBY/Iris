@@ -30,7 +30,7 @@ export function Instances() {
         )}
       />
       {isLoading && <Skeleton className="h-48" />}
-      {isError && <QueryError what="הטלפונים שלך" onRetry={() => void refetch()} />}
+      {isError && <QueryError what={he('your phones')} onRetry={() => void refetch()} />}
       <h2 className="text-lg font-semibold">{he('Children')}</h2>
       <AddPhone defaultRole="child" />
       <ul className="flex flex-col gap-4">

@@ -135,7 +135,7 @@ async def test_alert_test_button_sends_a_real_message_with_entered_values(app_cl
         assert sent.headers["x-api-key"] == "owa"
         assert b"972501234567@c.us" in sent.content
         text = json.loads(sent.content)["text"]
-        assert "שליחת ההתראות פועלת" in text and is_own_alert(text, get_settings().key_bytes)
+        assert "Alert delivery is working" in text and is_own_alert(text, get_settings().key_bytes)
         route.mock(return_value=httpx.Response(400, json={"message": "Session is not active"}))
         bad = (
             await app_client.post(

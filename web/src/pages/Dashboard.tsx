@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { he } from '../lib/he'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -69,7 +70,7 @@ function attentionItems(s: Stats): Item[] {
       to: '/alerts?status=new',
       action: he('Open alerts'),
       tone: 'danger',
-      text: `${alerts} ${alerts === 1 ? 'התראה חדשה' : 'התראות חדשות'} לקריאה`,
+      text: t('dashboard.newAlertsToRead', alerts),
     })
   if (s.review_queue > 0)
     items.push({
@@ -77,7 +78,7 @@ function attentionItems(s: Stats): Item[] {
       to: '/review',
       action: he('Review'),
       tone: 'warning',
-      text: `${s.review_queue} הודעות שאיריס לא הצליחה לסווג`,
+      text: he('{n} messages Iris could not classify', { n: s.review_queue }),
     })
   if (!s.delivery_configured)
     items.push({
@@ -122,7 +123,7 @@ function attentionItems(s: Stats): Item[] {
       to: '/alerts',
       action: he('See alerts'),
       tone: 'danger',
-      text: `${undelivered} התראות שלא נשלחו ל־WhatsApp שלך`,
+      text: he('{n} alerts not delivered to your WhatsApp', { n: undelivered }),
     })
   if (s.failed_jobs > 0)
     items.push({
@@ -130,7 +131,7 @@ function attentionItems(s: Stats): Item[] {
       to: '/jobs',
       action: he('See why'),
       tone: 'warning',
-      text: `${s.failed_jobs} ${s.failed_jobs === 1 ? 'משימה נכשלה' : 'משימות נכשלו'}`,
+      text: t('dashboard.jobsFailed', s.failed_jobs),
     })
   if (s.silent_instances > 0)
     items.push({
@@ -138,7 +139,12 @@ function attentionItems(s: Stats): Item[] {
       to: '/instances',
       action: he('Check setup'),
       tone: 'warning',
-      text: `${s.silent_instances} טלפונים ${s.monitoring_window_minutes ? 'ללא הודעות בפרק הזמן שהוגדר' : 'שמעולם לא התקבלו מהם הודעות'}`,
+      text: he(
+        s.monitoring_window_minutes
+          ? '{n} phones with no messages in the configured window'
+          : '{n} phones that have never received messages',
+        { n: s.silent_instances },
+      ),
     })
   return items
 }
@@ -148,11 +154,11 @@ function headline(s: Stats, items: Item[]) {
   const review = s.review_queue
   if (alerts + review > 0) {
     const parts = [
-      alerts > 0 && `${alerts} ${alerts === 1 ? 'התראה' : 'התראות'}`,
-      review > 0 && `${review} לבדיקה`,
+      alerts > 0 && t('dashboard.alertsCount', alerts),
+      review > 0 && t('dashboard.toReview', review),
     ].filter(Boolean)
     return {
-      title: `${parts.join(' ו־')} דורשות תשומת לב`,
+      title: he('{parts} need your attention', { parts: parts.join(he(' and ')) }),
       sub: he('Start with the newest alert.'),
     }
   }
@@ -165,7 +171,9 @@ function headline(s: Stats, items: Item[]) {
     title: he('All quiet'),
     sub:
       s.messages_today > 0
-        ? `איריס בדקה ${s.messages_today} הודעות היום ולא סימנה תוכן פוגעני.`
+        ? he('Iris checked {n} messages today and did not flag harmful content.', {
+            n: s.messages_today,
+          })
         : he('Iris is watching. Nothing has come in today yet.'),
   }
 }

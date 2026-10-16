@@ -12,38 +12,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app.alerts import ALERT_PREFIX, LEGACY_ALERT_PREFIX
+from app.alerts import ALERT_PREFIX
 
 MAX_QUOTE = 500
-
-_CATEGORY_NAMES = {
-    "harassment": "הטרדה",
-    "harassment/threatening": "הטרדה מאיימת",
-    "hate": "שנאה",
-    "hate/threatening": "שנאה מאיימת",
-    "illicit": "פעילות בלתי חוקית",
-    "illicit/violent": "פעילות בלתי חוקית ואלימה",
-    "self-harm": "פגיעה עצמית",
-    "self-harm/instructions": "הנחיות לפגיעה עצמית",
-    "self-harm/intent": "כוונה לפגיעה עצמית",
-    "sexual": "תוכן מיני",
-    "sexual/minors": "תוכן מיני עם קטינים",
-    "violence": "אלימות",
-    "violence/graphic": "אלימות גרפית",
-}
-_TYPE_NAMES = {
-    "text": "טקסט",
-    "image": "תמונה",
-    "sticker": "מדבקה",
-    "video": "סרטון",
-    "voice": "הודעה קולית",
-    "audio": "שמע",
-    "document": "מסמך",
-}
-
-WITHHELD = "התוכן הוסתר (תוכן מיני). יש לבדוק את הצ׳אט ישירות."
+WITHHELD = "Content withheld (sexual content). Review the chat directly."
 # The link must be the LAST line: anything typed after it would not be covered by the signature.
-_LINK_RE = re.compile(r"\n\n(?:פתיחה|Open): \S*/alerts/(\d+)\?s=([0-9a-f]{16})\Z")
+_LINK_RE = re.compile(r"\n\nOpen: \S*/alerts/(\d+)\?s=([0-9a-f]{16})\Z")
 
 
 def alert_signature(key: bytes, alert_id: int, body: str) -> str:
@@ -56,12 +30,12 @@ def alert_link(base_url: str, key: bytes, alert_id: int, body: str) -> str:
 
 
 def with_signed_link(body: str, base_url: str, key: bytes, alert_id: int) -> str:
-    return f"{body}\n\nפתיחה: {alert_link(base_url, key, alert_id, body)}"
+    return f"{body}\n\nOpen: {alert_link(base_url, key, alert_id, body)}"
 
 
 def is_own_alert(text: str, key: bytes) -> bool:
     """True only for the exact text Iris produced: prefix, body, and a signature over that body."""
-    if not text.startswith((ALERT_PREFIX, LEGACY_ALERT_PREFIX)):
+    if not text.startswith(ALERT_PREFIX):
         return False
     m = _LINK_RE.search(text)
     if m is None:
@@ -81,7 +55,7 @@ def make_quote(message_type: str, text: str | None, transcript: str | None) -> s
     elif text:
         body = text
     else:
-        body = f"[{_TYPE_NAMES.get(message_type, message_type)}]"
+        body = f"[{message_type}]"
     return body if len(body) <= MAX_QUOTE else body[: MAX_QUOTE - 1] + "…"
 
 
@@ -94,10 +68,10 @@ class MediaFact:
 
 def human_size(n: int) -> str:
     if n < 1024:
-        return f"{n} ב׳"
+        return f"{n} B"
     if n < 1024 * 1024:
-        return f"{n / 1024:.0f} ק״ב"
-    return f"{n / (1024 * 1024):.1f} מ״ב"
+        return f"{n / 1024:.0f} KB"
+    return f"{n / (1024 * 1024):.1f} MB"
 
 
 @dataclass(frozen=True)
@@ -121,16 +95,16 @@ def format_alert(f: AlertFacts, timezone: str, base_url: str, key: bytes) -> str
     if when.tzinfo is None:
         when = when.replace(tzinfo=ZoneInfo("UTC"))  # stored as naive UTC
     local = when.astimezone(ZoneInfo(timezone))
-    top, *others = [_CATEGORY_NAMES.get(c, c) for c in f.categories]
+    top, others = f.categories[0], f.categories[1:]
     category = f"{top} ({f.max_score:.2f})" + (f", {', '.join(others)}" if others else "")
-    sender = (f.sender_name or "?") + (" (הילד/ה שלך)" if f.from_me else "")
+    sender = (f.sender_name or "?") + (" (your kid)" if f.from_me else "")
     lines = [
         ALERT_PREFIX,
-        f"ילד/ה: {', '.join(f.kid_names)}",
-        f"צ'אט: {f.chat_name or '?'} ({'קבוצה' if f.is_group else 'ישיר'})",
-        f"מאת: {sender}",
-        f"קטגוריה: {category}",
-        f"שעה: {local.strftime('%d/%m %H:%M')}",
+        f"Kid: {', '.join(f.kid_names)}",
+        f"Chat: {f.chat_name or '?'} ({'group' if f.is_group else 'direct'})",
+        f"From: {sender}",
+        f"Category: {category}",
+        f"Time: {local.strftime('%d/%m %H:%M')}",
         "",
         WITHHELD if f.quote is None else f'"{f.quote}"',
     ]
@@ -139,18 +113,17 @@ def format_alert(f: AlertFacts, timezone: str, base_url: str, key: bytes) -> str
         # that needs a login; the file itself is never reachable from this text alone.
         lines += [
             "",
-            f"📎 מדיה נשמרה ({_TYPE_NAMES.get(f.media.kind, f.media.kind)}, "
-            f"{human_size(f.media.size_bytes)}): "
+            f"📎 Media kept ({f.media.kind}, {human_size(f.media.size_bytes)}): "
             f"{base_url}/media/{f.media.media_id}",
         ]
     if f.more_suppressed:
-        lines += ["", f"+{f.more_suppressed} התראות נוספות בצ'אט הזה מאז ההתראה האחרונה"]
+        lines += ["", f"+{f.more_suppressed} more alerts in this chat since last notification"]
     return with_signed_link("\n".join(lines), base_url, key, f.alert_id)
 
 
 CHANGE_TEXT = {
-    "edited": "נערכה על ידי השולח/ת",
-    "revoked": "נמחקה אצל כולם על ידי השולח/ת",
+    "edited": "was edited by the sender",
+    "revoked": "was deleted for everyone by the sender",
 }
 
 
@@ -161,13 +134,13 @@ def format_change_notice(kind: str, f: AlertFacts, timezone: str, base_url: str,
     if when.tzinfo is None:
         when = when.replace(tzinfo=ZoneInfo("UTC"))
     local = when.astimezone(ZoneInfo(timezone))
-    sender = (f.sender_name or "?") + (" (הילד/ה שלך)" if f.from_me else "")
+    sender = (f.sender_name or "?") + (" (your kid)" if f.from_me else "")
     lines = [
         ALERT_PREFIX,
-        f"עדכון: ההודעה מהתראה מספר {f.alert_id} {CHANGE_TEXT[kind]}.",
-        f"ילד/ה: {', '.join(f.kid_names)}",
-        f"צ'אט: {f.chat_name or '?'} ({'קבוצה' if f.is_group else 'ישיר'})",
-        f"מאת: {sender}",
-        f"שעה: {local.strftime('%d/%m %H:%M')}",
+        f"Update: the message from alert #{f.alert_id} {CHANGE_TEXT[kind]}.",
+        f"Kid: {', '.join(f.kid_names)}",
+        f"Chat: {f.chat_name or '?'} ({'group' if f.is_group else 'direct'})",
+        f"From: {sender}",
+        f"Time: {local.strftime('%d/%m %H:%M')}",
     ]
     return with_signed_link("\n".join(lines), base_url, key, f.alert_id)

@@ -1,5 +1,25 @@
 /** Hebrew text for additional controls without dotted translation keys. */
+import { language } from './language'
+
 const text: Record<string, string> = {
+  'your phones': 'הטלפונים שלך',
+  'the settings': 'ההגדרות',
+  'Worth a look': 'כדאי לבדוק',
+  file: 'קובץ',
+  files: 'קבצים',
+  ' and ': ' ו־',
+  '{n} messages Iris could not classify': '{n} הודעות שאיריס לא הצליחה לסווג',
+  '{n} alerts not delivered to your WhatsApp': '{n} התראות שלא נשלחו ל־WhatsApp שלך',
+  '{n} phones with no messages in the configured window': '{n} טלפונים ללא הודעות בפרק הזמן שהוגדר',
+  '{n} phones that have never received messages': '{n} טלפונים שמעולם לא התקבלו מהם הודעות',
+  '{parts} need your attention': '{parts} דורשות תשומת לב',
+  'Iris checked {n} messages today and did not flag harmful content.':
+    'איריס בדקה {n} הודעות היום ולא סימנה תוכן פוגעני.',
+  'Phone connections': 'חיבורי טלפונים',
+  Users: 'משתמשים',
+  Classifications: 'סיווגים',
+  'Message receipts': 'אישורי הודעות',
+  'Stored media': 'מדיה שמורה',
   System: 'מערכת',
   Light: 'בהיר',
   Dark: 'כהה',
@@ -664,7 +684,8 @@ const text: Record<string, string> = {
 }
 
 export function he(value: string, variables: Record<string, string | number> = {}): string {
-  return (text[value] ?? value).replace(/\{(\w+)\}/g, (match, key: string) =>
-    String(variables[key] ?? match),
+  return (language === 'he' ? (text[value] ?? value) : value).replace(
+    /\{(\w+)\}/g,
+    (match, key: string) => String(variables[key] ?? match),
   )
 }

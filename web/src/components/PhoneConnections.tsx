@@ -1,3 +1,4 @@
+import { t } from '../lib/i18n'
 import { he } from '../lib/he'
 import { RepairPhone } from './RepairPhone'
 import { EditPhone } from './EditPhone'
@@ -110,7 +111,8 @@ export function PhoneCard({ i }: { i: Instance }) {
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="text-lg font-semibold">{i.kid_name}</span>
           <span className="truncate text-sm text-muted-foreground">
-            {i.openwa_base_url}, חיבור {i.session_name || i.openwa_instance_id.slice(0, 8)}
+            {i.openwa_base_url}
+            {t('instances.session', i.session_name || i.openwa_instance_id.slice(0, 8))}
           </span>
         </div>
         {!parent && (
