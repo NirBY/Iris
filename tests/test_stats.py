@@ -188,10 +188,15 @@ async def test_setup_counts_separate_children_parents_and_senders(app_client: An
 
 
 async def test_timeline_filters_message_receipts_without_duplicate_counts(app_client: Any):
+    import json
+
     first, token = await make_instance(app_client, "First")
     second, token2 = await make_instance(app_client, "Second")
-    await post(app_client, token, msg_body("text_received_mixed", "CHILD1", "one"))
-    await post(app_client, token2, msg_body("text_received_mixed", "CHILD2", "two"))
+    # Fixed fixture dates eventually fall outside the default 14-day timeline.
+    for child_token, key, text in ((token, "CHILD1", "one"), (token2, "CHILD2", "two")):
+        body = json.loads(msg_body("text_received_mixed", key, text))
+        body["data"]["timestamp"] = int(datetime.now(UTC).timestamp())
+        await post(app_client, child_token, json.dumps(body).encode())
     for child in (first, second):
         value = (await app_client.get(f"/api/stats/timeline?instance_id={child}")).json()
         assert sum(day["other"] for day in value["days"]) == 1
