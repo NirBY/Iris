@@ -149,6 +149,74 @@ async def test_alert_test_button_sends_a_real_message_with_entered_values(app_cl
     assert (await app_client.post("/api/settings/test/nope")).status_code == 422
 
 
+async def test_alert_test_button_uses_telegram_with_entered_or_saved_values(
+    app_client: Any,
+) -> None:
+    import httpx
+    import respx
+
+    token = "123456789:AAH-test_token_value_0123456789abc"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    form = {"channel": "telegram", "telegram_bot_token": token, "telegram_chat_id": "-100123"}
+    with respx.mock:
+        route = respx.post(url).mock(return_value=httpx.Response(200, json={"ok": True}))
+        r = await app_client.post("/api/settings/test/alert", json=form)
+        assert r.json() == {"ok": True, "detail": "Test message sent"}
+        sent = json.loads(route.calls.last.request.content)
+        assert sent["chat_id"] == "-100123" and "parse_mode" not in sent
+        assert "Alert delivery is working" in sent["text"]
+        assert is_own_alert(sent["text"], get_settings().key_bytes)
+
+        # saved values are used when the form leaves them blank, and the saved channel decides
+        await app_client.put(
+            "/api/settings",
+            json={
+                "settings": {
+                    "alerts.channel": "telegram",
+                    "alerts.telegram_bot_token": token,
+                    "alerts.telegram_chat_id": "@iris_alerts",
+                }
+            },
+        )
+        assert (await app_client.post("/api/settings/test/alert")).json()["ok"] is True
+        assert json.loads(route.calls.last.request.content)["chat_id"] == "@iris_alerts"
+
+        route.mock(
+            return_value=httpx.Response(
+                400, json={"ok": False, "description": "Bad Request: chat not found"}
+            )
+        )
+        bad = (await app_client.post("/api/settings/test/alert", json=form)).json()
+        assert bad["ok"] is False and "chat not found" in bad["detail"] and token not in str(bad)
+        route.mock(
+            return_value=httpx.Response(401, json={"ok": False, "description": "Unauthorized"})
+        )
+        bad = (await app_client.post("/api/settings/test/alert", json=form)).json()
+        assert "bot token" in bad["detail"] and token not in str(bad)
+
+
+async def test_alert_test_button_telegram_reports_missing_and_malformed_values(
+    app_client: Any,
+) -> None:
+    token = "123456789:AAH-test_token_value_0123456789abc"
+    cases = [
+        ({"channel": "telegram"}, "bot token"),
+        ({"channel": "telegram", "telegram_bot_token": token}, "chat ID"),
+        (
+            {"channel": "telegram", "telegram_bot_token": "nope/../x", "telegram_chat_id": "1"},
+            "not a valid Telegram bot token",
+        ),
+        (
+            {"channel": "telegram", "telegram_bot_token": token, "telegram_chat_id": "a b"},
+            "chat ID",
+        ),
+    ]
+    for form, expected in cases:
+        r = (await app_client.post("/api/settings/test/alert", json=form)).json()
+        assert r["ok"] is False and expected in r["detail"], form
+        assert "nope/../x" not in r["detail"] and token not in r["detail"]
+
+
 async def test_alert_settings_defaults_and_validation(app_client: Any) -> None:
     s = (await app_client.get("/api/settings")).json()
     assert s["alerts.cooldown_minutes"] == 10 and s["alerts.timezone"] == "Asia/Jerusalem"
@@ -161,6 +229,40 @@ async def test_alert_settings_defaults_and_validation(app_client: Any) -> None:
         assert (await app_client.put("/api/settings", json={"settings": bad})).status_code == 422
     ok = {"alerts.timezone": "Europe/London", "alerts.cooldown_minutes": 0}
     assert (await app_client.put("/api/settings", json={"settings": ok})).status_code == 200
+
+
+async def test_alert_channel_defaults_to_whatsapp_and_validates_telegram_fields(
+    app_client: Any,
+) -> None:
+    s = (await app_client.get("/api/settings")).json()
+    assert s["alerts.channel"] == "whatsapp"
+    assert s["alerts.telegram_chat_id"] is None
+    assert s["alerts.telegram_bot_token"] == {"set": False}
+    for bad in (
+        {"alerts.channel": "sms"},
+        {"alerts.channel": "both"},
+        {"alerts.telegram_chat_id": "not an id"},
+        {"alerts.telegram_chat_id": "12.5"},
+    ):
+        assert (await app_client.put("/api/settings", json={"settings": bad})).status_code == 422
+    for chat_id in ("123456789", "-1001234567890", "@iris_alerts"):
+        ok = {"alerts.channel": "telegram", "alerts.telegram_chat_id": chat_id}
+        assert (await app_client.put("/api/settings", json={"settings": ok})).status_code == 200
+
+
+async def test_telegram_bot_token_is_encrypted_and_write_only(app_client: Any) -> None:
+    token = "123456:ABC-secret-token"
+    r = await app_client.put(
+        "/api/settings", json={"settings": {"alerts.telegram_bot_token": token}}
+    )
+    assert r.status_code == 200 and r.json()["alerts.telegram_bot_token"] == {"set": True}
+    assert token not in (await app_client.get("/api/settings")).text
+    async with app_client.app.state.session_factory() as s:
+        row = (
+            await s.execute(select(Setting).where(Setting.key == "alerts.telegram_bot_token"))
+        ).scalar_one()
+        assert row.is_secret and token not in str(row.value)
+        assert await get_secret(s, "alerts.telegram_bot_token", get_settings().key_bytes) == token
 
 
 async def test_thresholds_endpoint_shows_effective_values_and_defaults(app_client: Any) -> None:

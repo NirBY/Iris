@@ -1,8 +1,8 @@
-"""deliver_alert job: send one alert over WhatsApp via the configured sender instance."""
+"""deliver_alert job: send one alert over the selected channel (WhatsApp or Telegram)."""
 
 import asyncio
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from loguru import logger
 from sqlalchemy import Select, func, select
@@ -17,7 +17,8 @@ from app.media.records import stored_for
 from app.metrics import ALERTS
 from app.openwa.client import OpenWAClient, OpenWAError
 from app.security.crypto import decrypt
-from app.settings_store import get_setting
+from app.settings_store import get_secret, get_setting
+from app.telegram.client import TelegramClient, TelegramError
 
 if TYPE_CHECKING:
     from app.jobs.handlers import Deps
@@ -27,6 +28,54 @@ def recipient_chat_id(recipient: str) -> str:
     """A phone number (digits, optional +) becomes `<digits>@c.us`; chat ids pass through."""
     r = recipient.strip()
     return r if "@" in r else f"{r.lstrip('+')}@c.us"
+
+
+class Channel(Protocol):
+    async def send(self, db: AsyncSession, job: ClaimedJob, text: str) -> None:
+        """Deliver `text`; raise TransientError (retried) or PermanentError (not retried)."""
+
+
+class _WhatsAppChannel:
+    def __init__(self, sender: Instance, recipient: str, key_bytes: bytes) -> None:
+        self._sender, self._recipient, self._key_bytes = sender, recipient, key_bytes
+
+    async def send(self, db: AsyncSession, job: ClaimedJob, text: str) -> None:
+        await send_to_parents(db, job, self._sender, self._key_bytes, text, self._recipient)
+
+
+class _TelegramChannel:
+    def __init__(self, bot_token: str, chat_id: str) -> None:
+        self._bot_token, self._chat_id = bot_token, chat_id
+
+    async def send(self, db: AsyncSession, job: ClaimedJob, text: str) -> None:
+        try:
+            client = TelegramClient(self._bot_token)
+        except ValueError:
+            raise PermanentError("the Telegram bot token is not valid") from None
+        try:
+            await client.send_text(self._chat_id, text)
+        except TelegramError as exc:
+            if exc.status is None or exc.status >= 500 or exc.status == 429:
+                raise TransientError(
+                    f"alert delivery failed: {exc.message}", exc.retry_after
+                ) from exc
+            raise PermanentError(f"alert delivery rejected: {exc.message}") from exc
+        finally:
+            await client.aclose()
+
+
+async def resolve_channel(db: AsyncSession, deps: "Deps") -> Channel | None:
+    """The configured channel, or None when the selected one is not fully set up."""
+    if await get_setting(db, "alerts.channel") == "telegram":
+        token = await get_secret(db, "alerts.telegram_bot_token", deps.key_bytes)
+        chat_id = await get_setting(db, "alerts.telegram_chat_id")
+        return _TelegramChannel(token, chat_id) if token and chat_id else None
+    sender_id = await get_setting(db, "alerts.sender_instance_id")
+    recipient = await get_setting(db, "alerts.recipient")
+    sender = await db.get(Instance, sender_id) if sender_id else None
+    if not recipient or sender is None or not sender.openwa_api_key_enc:
+        return None
+    return _WhatsAppChannel(sender, recipient, deps.key_bytes)
 
 
 def _top(alert: Alert) -> str:
@@ -160,10 +209,8 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
             raise PermanentError("alert's message no longer exists")
         chat = await db.get(Chat, message.chat_id)
 
-        sender_id = await get_setting(db, "alerts.sender_instance_id")
-        recipient = await get_setting(db, "alerts.recipient")
-        sender = await db.get(Instance, sender_id) if sender_id else None
-        if not recipient or sender is None or not sender.openwa_api_key_enc:
+        channel = await resolve_channel(db, deps)
+        if channel is None:
             alert.delivery_status, alert.delivery_error = "failed", "alert delivery not configured"
             await db.commit()
             raise PermanentError("alert delivery not configured")
@@ -212,7 +259,7 @@ async def _deliver(job: ClaimedJob, deps: "Deps") -> None:
         )
         text = format_alert(facts, timezone, deps.public_base_url, deps.key_bytes)
         try:
-            await send_to_parents(db, job, sender, deps.key_bytes, text, recipient)
+            await channel.send(db, job, text)
         except PermanentError as exc:
             partial = get_settings().local_safety_mode and job.payload.get("delivered_recipients")
             alert.delivery_status = "partial" if partial else "failed"
@@ -244,10 +291,8 @@ async def notify_change(job: ClaimedJob, deps: "Deps") -> None:
         if message is None:
             raise PermanentError("alert's message no longer exists")
         chat = await db.get(Chat, message.chat_id)
-        sender_id = await get_setting(db, "alerts.sender_instance_id")
-        recipient = await get_setting(db, "alerts.recipient")
-        sender = await db.get(Instance, sender_id) if sender_id else None
-        if not recipient or sender is None or not sender.openwa_api_key_enc:
+        channel = await resolve_channel(db, deps)
+        if channel is None:
             raise PermanentError("alert delivery not configured")
         timezone = str(await get_setting(db, "alerts.timezone"))
         text = format_change_notice(
@@ -272,5 +317,5 @@ async def notify_change(job: ClaimedJob, deps: "Deps") -> None:
             if stored is not None:
                 stored.payload = dict(job.payload)
                 await db.commit()
-        await send_to_parents(db, job, sender, deps.key_bytes, text, recipient)
+        await channel.send(db, job, text)
         logger.info("alert {} follow-up ({}) delivered", alert.id, kind)
