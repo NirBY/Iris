@@ -49,6 +49,12 @@ review no older than the last edit. Retrieval revisions are included in evaluati
 fingerprints, so prior results and checkpoints cannot silently authorize changed
 retrieval rules. This applies equally to lexical and semantic learning.
 
+Exact child membership is also enforced before the bounded candidate window:
+examples shared with an additional child, or missing one of the target's children,
+cannot displace eligible examples. The same scope is rechecked before embedding.
+This improves retrieval availability without sharing examples across child scopes
+or treating bot decisions as human feedback.
+
 Adapter evaluation checks both `adapter_model.safetensors` and `adapter_config.json`
 against the training manifest before loading and after inference. Older adapters
 without both checksums must be retrained; do not manufacture a manifest for them.

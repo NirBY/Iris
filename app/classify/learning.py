@@ -7,7 +7,7 @@ import unicodedata
 from dataclasses import dataclass, replace
 from typing import Any
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.classify.ollama import OllamaModerator
@@ -28,8 +28,8 @@ from app.settings_store import get_setting
 MAX_EXAMPLE_CHARS = 1200
 MAX_CANDIDATES = 200
 MAX_EXAMPLES = 4
-RETRIEVAL_VERSION = "lexical-v4"
-SEMANTIC_VERSION = "semantic-v3"
+RETRIEVAL_VERSION = "lexical-v5"
+SEMANTIC_VERSION = "semantic-v4"
 TEXT_TYPES = {"text", "chat"}
 
 
@@ -134,10 +134,19 @@ async def select_examples(
                 (Message.sent_at == target.sent_at) & (Message.id < target.id),
             ),
             Message.id.in_(
-                select(MessageReceipt.message_id).where(
-                    MessageReceipt.instance_id.in_(children),
-                )
+                select(MessageReceipt.message_id)
+                .where(MessageReceipt.instance_id.in_(children))
+                .group_by(MessageReceipt.message_id)
+                .having(func.count(func.distinct(MessageReceipt.instance_id)) == len(children))
             ),
+            # Apply exact child scope before LIMIT so shared/subset messages
+            # cannot crowd out valid human-reviewed examples.
+            ~select(MessageReceipt.message_id)
+            .where(
+                MessageReceipt.message_id == Message.id,
+                MessageReceipt.instance_id.not_in(children),
+            )
+            .exists(),
             ~select(ReviewDataIssue.message_id)
             .where(ReviewDataIssue.message_id == Message.id)
             .exists(),

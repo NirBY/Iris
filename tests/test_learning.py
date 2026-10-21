@@ -223,6 +223,58 @@ async def test_exact_child_scope_blocks_cross_child_and_shared_message_leaks(db)
     assert await retrieve(db, target) == []
 
 
+@pytest.mark.parametrize("scope", ["extra_child", "missing_child"])
+@pytest.mark.parametrize("strategy", ["lexical", "semantic"])
+async def test_wrong_child_scope_cannot_crowd_out_valid_examples(db, monkeypatch, scope, strategy):
+    from unittest.mock import AsyncMock
+
+    from app.classify import learning
+
+    source, target = await samples(db)
+    child = Instance(
+        kid_name="Other", openwa_base_url="http://wa", openwa_instance_id="2", webhook_token="other"
+    )
+    db.add(child)
+    await db.flush()
+    newer = Message(
+        chat_id=source.chat_id,
+        wa_message_id="wrong-scope",
+        type="text",
+        text=source.text,
+        sent_at=T0 + timedelta(hours=1),
+    )
+    db.add(newer)
+    await db.flush()
+    db.add_all(
+        [
+            MessageReceipt(message_id=newer.id, instance_id=1),
+            ReviewFeedback(message_id=newer.id, verdict="harmful"),
+        ]
+    )
+    if scope == "extra_child":
+        db.add(MessageReceipt(message_id=newer.id, instance_id=child.id))
+    else:
+        db.add_all(
+            [
+                MessageReceipt(message_id=source.id, instance_id=child.id),
+                MessageReceipt(message_id=target.id, instance_id=child.id),
+            ]
+        )
+    await capture(db, newer, "harmful")
+    (await db.get(LearningExample, source.id)).created_at = T0
+    (await db.get(LearningExample, newer.id)).created_at = T0 + timedelta(hours=1)
+    await db.commit()
+    monkeypatch.setattr(learning, "MAX_CANDIDATES", 1)
+    embedder = AsyncMock()
+    embedder.embed.return_value = [[1.0, 0.0], [1.0, 0.0]]
+    await set_setting(db, "classification.learning_embedding_model", "embed-model")
+    selected = await select_examples(db, target, strategy=strategy, embedder=embedder)
+    assert [row["message_id"] for row in selected.examples] == [source.id]
+    assert selected.metadata["candidates"] == 1
+    if strategy == "semantic":
+        embedder.embed.assert_awaited_once_with("embed-model", [target.text, source.text])
+
+
 @pytest.mark.parametrize("kind,verdict", [("image", "safe"), ("text", "ignored")])
 async def test_media_and_ignore_never_become_examples(db, kind, verdict):
     _, target = await samples(db)
