@@ -24,6 +24,7 @@ from app.openwa.client import OpenWAClient, OpenWAError
 from app.security.auth import current_user
 from app.security.crypto import decrypt
 from app.settings_store import REGISTRY, all_settings, get_secret, get_setting, set_setting
+from app.telegram.client import TelegramClient, TelegramError
 from app.transcription.cloudflare import CloudflareTranscriber
 
 router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(current_user)])
@@ -95,6 +96,9 @@ class TestRequest(BaseModel):
     api_key: str | None = None
     sender_instance_id: int | None = None
     recipient: str | None = None
+    channel: Literal["whatsapp", "telegram"] | None = None
+    telegram_bot_token: str | None = Field(default=None, max_length=200)
+    telegram_chat_id: str | None = Field(default=None, max_length=100)
     account_id: str | None = None
     api_token: str | None = None
     model: str | None = None
@@ -191,8 +195,22 @@ async def _test_media(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
     return TestResult(ok=True, detail="Storage works: a test file was written, read and deleted.")
 
 
+# Signed like a real alert (the signature covers this exact text), so Iris skips it if it comes
+# back through a monitored session rather than classifying it.
+def _signed_test_text(cfg: Settings) -> str:
+    return with_signed_link(
+        f"{ALERT_PREFIX} (test)\nAlert delivery is working.",
+        cfg.public_base_url,
+        cfg.key_bytes,
+        0,
+    )
+
+
 async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> TestResult:
-    """Send a real WhatsApp test message with the entered (or saved) sender and recipient."""
+    """Send a real test message on the entered (or saved) channel with entered or saved values."""
+    channel = body.channel or await get_setting(db, "alerts.channel")
+    if channel == "telegram":
+        return await _test_telegram(db, cfg, body)
     sender_id = body.sender_instance_id or await get_setting(db, "alerts.sender_instance_id")
     recipient = body.recipient or await get_setting(db, "alerts.recipient")
     sender = await db.get(Instance, sender_id) if sender_id else None
@@ -207,18 +225,40 @@ async def _test_alert(db: AsyncSession, cfg: Settings, body: TestRequest) -> Tes
         await client.send_text(
             sender.openwa_instance_id,
             recipient_chat_id(recipient),
-            # Signed like a real alert (the signature covers this exact text), so Iris skips it
-            # if it comes back through a monitored session rather than classifying it.
-            with_signed_link(
-                f"{ALERT_PREFIX} (test)\nAlert delivery is working.",
-                cfg.public_base_url,
-                cfg.key_bytes,
-                0,
-            ),
+            _signed_test_text(cfg),
         )
     except OpenWAError as exc:
         hint = " (is the OpenWA session running?)" if exc.status == 400 else ""
         return TestResult(ok=False, detail=f"OpenWA: {exc.message}{hint}")
+    finally:
+        await client.aclose()
+    return TestResult(ok=True, detail="Test message sent")
+
+
+async def _test_telegram(db: AsyncSession, cfg: Settings, body: TestRequest) -> TestResult:
+    token = body.telegram_bot_token or await get_secret(
+        db, "alerts.telegram_bot_token", cfg.key_bytes
+    )
+    chat_id = body.telegram_chat_id or await get_setting(db, "alerts.telegram_chat_id")
+    if not token:
+        return TestResult(ok=False, detail="Enter the Telegram bot token from @BotFather")
+    if not chat_id:
+        return TestResult(ok=False, detail="Enter the Telegram chat ID to send alerts to")
+    try:
+        chat_id = REGISTRY["alerts.telegram_chat_id"].validate(chat_id)
+        client = TelegramClient(token)
+    except ValueError as exc:
+        # Only our own fixed validation messages: they never contain the token.
+        return TestResult(ok=False, detail=str(exc))
+    try:
+        await client.send_text(chat_id, _signed_test_text(cfg))
+    except TelegramError as exc:
+        hint = ""
+        if exc.status in (401, 404):
+            hint = " (check the bot token)"
+        elif exc.status in (400, 403):
+            hint = " (send your bot a message first, and check the chat ID)"
+        return TestResult(ok=False, detail=f"Telegram: {exc.message}{hint}")
     finally:
         await client.aclose()
     return TestResult(ok=True, detail="Test message sent")
