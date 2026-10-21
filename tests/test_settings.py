@@ -163,6 +163,40 @@ async def test_alert_settings_defaults_and_validation(app_client: Any) -> None:
     assert (await app_client.put("/api/settings", json={"settings": ok})).status_code == 200
 
 
+async def test_alert_channel_defaults_to_whatsapp_and_validates_telegram_fields(
+    app_client: Any,
+) -> None:
+    s = (await app_client.get("/api/settings")).json()
+    assert s["alerts.channel"] == "whatsapp"
+    assert s["alerts.telegram_chat_id"] is None
+    assert s["alerts.telegram_bot_token"] == {"set": False}
+    for bad in (
+        {"alerts.channel": "sms"},
+        {"alerts.channel": "both"},
+        {"alerts.telegram_chat_id": "not an id"},
+        {"alerts.telegram_chat_id": "12.5"},
+    ):
+        assert (await app_client.put("/api/settings", json={"settings": bad})).status_code == 422
+    for chat_id in ("123456789", "-1001234567890", "@iris_alerts"):
+        ok = {"alerts.channel": "telegram", "alerts.telegram_chat_id": chat_id}
+        assert (await app_client.put("/api/settings", json={"settings": ok})).status_code == 200
+
+
+async def test_telegram_bot_token_is_encrypted_and_write_only(app_client: Any) -> None:
+    token = "123456:ABC-secret-token"
+    r = await app_client.put(
+        "/api/settings", json={"settings": {"alerts.telegram_bot_token": token}}
+    )
+    assert r.status_code == 200 and r.json()["alerts.telegram_bot_token"] == {"set": True}
+    assert token not in (await app_client.get("/api/settings")).text
+    async with app_client.app.state.session_factory() as s:
+        row = (
+            await s.execute(select(Setting).where(Setting.key == "alerts.telegram_bot_token"))
+        ).scalar_one()
+        assert row.is_secret and token not in str(row.value)
+        assert await get_secret(s, "alerts.telegram_bot_token", get_settings().key_bytes) == token
+
+
 async def test_thresholds_endpoint_shows_effective_values_and_defaults(app_client: Any) -> None:
     rows = {r["category"]: r for r in (await app_client.get("/api/settings/thresholds")).json()}
     assert (

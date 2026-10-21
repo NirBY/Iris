@@ -92,6 +92,17 @@ def _choice(*options: str) -> Callable[[Any], str]:
     return check
 
 
+def _telegram_chat_id(v: Any) -> str | None:
+    if v is None or v == "":
+        return None
+    text = _str(v)
+    if not re.fullmatch(r"-?\d{1,20}|@[A-Za-z][A-Za-z0-9_]{4,31}", text):
+        raise ValueError(
+            "use the numeric chat ID (e.g. 123456789 or -1001234567890) or @channelname"
+        )
+    return text
+
+
 def _s3_endpoint(v: Any) -> str | None:
     if v is None or v == "":
         return None
@@ -136,8 +147,11 @@ REGISTRY: dict[str, Spec] = {
     "scope.monitor_groups": Spec(True, _bool),
     "retention.message_days": Spec(90, _int_range(1, 3650)),
     "retention.alert_days": Spec(365, _int_range(1, 3650)),
+    "alerts.channel": Spec("whatsapp", _choice("whatsapp", "telegram")),
     "alerts.sender_instance_id": Spec(None, _opt_int),
     "alerts.recipient": Spec(None, _opt_str),
+    "alerts.telegram_bot_token": Spec(None, _opt_secret, secret=True),
+    "alerts.telegram_chat_id": Spec(None, _telegram_chat_id),
     "alerts.cooldown_minutes": Spec(10, _int_range(0, 1440)),
     "alerts.alert_on_review": Spec(False, _bool),
     "alerts.notify_changes": Spec(True, _bool),
