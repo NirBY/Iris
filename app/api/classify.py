@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.settings import ThresholdRow, thresholds
 from app.classify.moderation import ModerationClient
+from app.classify.ollama import OllamaModerator
 from app.classify.stages import build_context_input
 from app.classify.thresholds import band_for, effective_thresholds
 from app.config import Settings, get_settings
@@ -75,9 +76,13 @@ async def classify_test(
     cfg: Annotated[Settings, Depends(get_settings)],
 ) -> ClassifyResponse:
     key = await get_secret(db, "openai.api_key", cfg.key_bytes)
-    if not key:
+    if not key and cfg.classification_provider != "ollama":
         raise HTTPException(400, "No OpenAI API key set")
-    model = str(await get_setting(db, "classification.model"))
+    model = (
+        cfg.ollama_model
+        if cfg.classification_provider == "ollama"
+        else str(await get_setting(db, "classification.model"))
+    )
     saved = effective_thresholds(await get_setting(db, "classification.thresholds"))
     inputs = [("moderation", body.text)]
     if body.context:
@@ -86,7 +91,11 @@ async def classify_test(
         inputs.append(("context", build_context_input(previous, target)))
     if _rate_limited(len(inputs)):
         raise HTTPException(429, "Too many checks. Wait a few minutes and try again.")
-    client = ModerationClient(key)
+    client = (
+        OllamaModerator(cfg.ollama_base_url, cfg.ollama_model)
+        if cfg.classification_provider == "ollama"
+        else ModerationClient(key or "")
+    )
     stages: list[StageOut] = []
     try:
         # With context lines both stages are scored, so the page can re-band either under edited

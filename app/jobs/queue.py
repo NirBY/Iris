@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.config import get_settings
 from app.db.models import Alert, Job, Message
 from app.events import bus
 from app.metrics import ALERTS
@@ -58,16 +59,21 @@ async def enqueue(
     return job.id
 
 
-async def claim(factory: async_sessionmaker[AsyncSession]) -> ClaimedJob | None:
+async def claim(
+    factory: async_sessionmaker[AsyncSession],
+    *,
+    types: tuple[str, ...] | None = None,
+    exclude_types: tuple[str, ...] = (),
+) -> ClaimedJob | None:
     async with factory() as db:
         now = _naive(_now())
+        filters = [Job.status == "queued", Job.run_after <= now]
+        if types is not None:
+            filters.append(Job.type.in_(types))
+        if exclude_types:
+            filters.append(Job.type.not_in(exclude_types))
         candidate = (
-            await db.execute(
-                select(Job.id)
-                .where(Job.status == "queued", Job.run_after <= now)
-                .order_by(Job.id)
-                .limit(1)
-            )
+            await db.execute(select(Job.id).where(*filters).order_by(Job.id).limit(1))
         ).scalar_one_or_none()
         if candidate is None:
             return None
@@ -83,6 +89,21 @@ async def claim(factory: async_sessionmaker[AsyncSession]) -> ClaimedJob | None:
         job = await db.get(Job, candidate)
         assert job is not None
         return ClaimedJob(job.id, job.type, job.payload, job.attempts, job.max_attempts)
+
+
+async def heartbeat(factory: async_sessionmaker[AsyncSession], job: ClaimedJob) -> None:
+    """Renew only the lease belonging to this attempt, not a recovered replacement."""
+    async with factory() as db:
+        await db.execute(
+            update(Job)
+            .where(
+                Job.id == job.id,
+                Job.status == "running",
+                Job.attempts == job.attempts,
+            )
+            .values(locked_at=_naive(_now()))
+        )
+        await db.commit()
 
 
 async def ack(factory: async_sessionmaker[AsyncSession], job_id: int) -> None:
@@ -142,7 +163,12 @@ async def fail(
             await db.execute(
                 update(Alert)
                 .where(Alert.id == alert_id)
-                .values(delivery_status="failed", delivery_error=error[:500])
+                .values(
+                    delivery_status="partial"
+                    if get_settings().local_safety_mode and job.payload.get("delivered_recipients")
+                    else "failed",
+                    delivery_error=error[:500],
+                )
             )
         await db.commit()
         bus.publish("jobs", "stats", "messages", "alerts")  # a failed check or delivery shows

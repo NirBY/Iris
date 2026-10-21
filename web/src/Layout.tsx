@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { IrisMark } from './components/IrisMark'
+import { InstallApp } from './components/InstallApp'
 import { LiveStatus } from './components/LiveStatus'
 import { PageLoading } from './components/PageLoading'
 import { NAV, TAB_BAR, type NavItem } from './components/nav'
@@ -177,6 +178,7 @@ function Sidebar({ stats, version, live }: { stats?: Stats; version?: string; li
         ))}
       </nav>
       {wide && <LiveStatus status={live} />}
+      <InstallApp compact={!wide} />
       <AccountMenu wide={wide} version={version} />
     </aside>
   )
@@ -279,6 +281,7 @@ function MoreSheet({ stats, version }: { stats?: Stats; version?: string }) {
           <LogOut />
           Sign out
         </Button>
+        <InstallApp />
       </DialogContent>
     </Dialog>
   )

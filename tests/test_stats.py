@@ -11,6 +11,8 @@ from tests.test_webhooks import fx, make_instance, post
 
 async def test_stats_empty_database(app_client: Any) -> None:
     s = (await app_client.get("/api/stats")).json()
+    assert s["children"] == s["parent_recipients"] == s["alert_phones"] == 0
+    assert s["alert_sender_configured"] is False
     assert s["messages_today"] == 0 and s["queue_depth"] == 0 and s["failed_jobs"] == 0
     assert s["delivery_configured"] is False and s["instances"] == 0 and s["review_queue"] == 0
 
@@ -129,3 +131,37 @@ async def test_timeline_validates_days_and_requires_auth(app_client: Any) -> Non
     assert len((await app_client.get("/api/stats/timeline")).json()["days"]) == 14  # default
     app_client.cookies.clear()
     assert (await app_client.get("/api/stats/timeline")).status_code == 401
+
+
+async def test_setup_counts_separate_children_parents_and_senders(app_client: Any) -> None:
+    await make_instance(app_client, "Child")
+    parent = (
+        await app_client.post(
+            "/api/instances",
+            json={
+                "kid_name": "Sender",
+                "role": "parent",
+                "openwa_base_url": "https://wa.example",
+                "openwa_instance_id": "sender",
+            },
+        )
+    ).json()
+    response = await app_client.put(
+        "/api/settings",
+        json={
+            "settings": {
+                "alerts.sender_instance_id": parent["id"],
+                "alerts.recipient": "15550100101, 15550100102",
+            }
+        },
+    )
+    assert response.status_code == 200
+    stats = (await app_client.get("/api/stats")).json()
+    assert stats["children"] == 1
+    assert stats["parent_recipients"] == 2
+    assert stats["alert_phones"] == 1
+    assert stats["alert_sender_configured"] is True
+    await app_client.delete(f"/api/instances/{parent['id']}")
+    stats = (await app_client.get("/api/stats")).json()
+    assert stats["alert_sender_configured"] is False
+    assert stats["alert_phones"] == 0

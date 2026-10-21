@@ -1,0 +1,13 @@
+groups:
+  - name: iris
+    rules:
+      - alert: IrisUnavailable
+        expr: up{job="iris"} == 0
+        for: 2m
+        annotations:
+          summary: Iris monitoring is unavailable
+      - alert: IrisWhatsAppDisconnected
+        expr: iris_session_ready == 0
+        for: 2m
+        annotations:
+          summary: A monitored WhatsApp session or alert sender is unavailable

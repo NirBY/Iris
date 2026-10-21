@@ -15,6 +15,7 @@ const DELIVERY: Record<
   { label: string; tone: 'danger' | 'warning' | 'neutral'; icon: typeof CircleAlert }
 > = {
   failed: { label: 'Not delivered', tone: 'danger', icon: CircleAlert },
+  partial: { label: 'Some parents notified', tone: 'warning', icon: CircleAlert },
   suppressed: { label: 'Held back', tone: 'neutral', icon: BellOff },
   pending: { label: 'Sending', tone: 'warning', icon: CircleAlert },
 }

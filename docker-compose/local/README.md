@@ -1,0 +1,35 @@
+# Optional local providers
+
+Iris keeps its original cloud behavior unless local providers are explicitly configured. `IRIS_CLASSIFICATION_PROVIDER=ollama` selects the text-only local classifier. A nonempty `IRIS_WHISPER_URL` selects an OpenAI-compatible local transcription endpoint; no cloud fallback is performed. Neither option requires Mila specifically.
+
+Use [compose.yml](compose.yml) with [.env.example](.env.example). For native transcription on Apple Silicon, see [the Mac installer](macos/INSTALL.md). Run Ollama and the transcription API on the Mac; the NAS runs Iris and OpenWA. No Docker installation is required on the Mac. Example hostnames and empty credential fields must be replaced privately.
+
+Build the complete image from this reviewed checkout: `docker compose --env-file .env -f compose.yml build iris`. Portainer cannot obtain unpushed source from GitHub: build or transfer the resulting image to its Docker endpoint first, then deploy the stack. A locally built image has no registry update channel. Never mount individual source modules or a different frontend over an auto-updated image. Watchtower may manage a published, tested image from your own registry; enable its labels only after establishing that update workflow. An existing label-enabled Watchtower can be reused; do not launch another daemon against the same Docker socket.
+
+Prepare the Iris data directory for uid 10001, mode 700 before startup. Keep `IRIS_SECRET_KEY` for the life of the database and include it in encrypted backups. Store backups separately from the NAS. Use SQLite's backup API or stop Iris for a consistent copy; copying only a live WAL database file is insufficient. This example does not install an automated backup service.
+
+`IRIS_LOCAL_SAFETY_MODE=true` sends unexamined images, silent/unsupported/oversized media to review, still checks captions, checks preserved pre-edit text, preserves unresolved messages during retention, bounds concurrent login hashing and tracks partial parent delivery. Review alerts remain controlled by `alerts.alert_on_review`; turn that on if unexamined content should notify parents.
+
+`IRIS_DELIVERY_WORKERS=1` reserves a separate delivery lane. `IRIS_JOB_HEARTBEAT_SECONDS=30` renews active leases during long inference. Both default to zero for compatibility. A machine crash can still leave a running job until its lease expires. WhatsApp delivery is not exactly-once: a crash after the provider accepts a message but before its acknowledgement is saved may cause a repeat.
+
+`IRIS_MONITORING_SILENCE_MINUTES=60` enables dashboard silence warnings and minute-by-minute session readiness probes, including the alert sender. Silence is a warning, not proof of failure; quiet chats can trigger it. Use the protected `/metrics` endpoint and [Prometheus rules](prometheus-rules.yml) with an independent alert receiver to detect Iris or sender outages. Those rules are examples; they are not an installed alerting service.
+
+The Settings Providers tab lets you select OpenAI, Cloudflare transcription, Ollama or a local Whisper-compatible API, edit endpoints/models and save encrypted credentials. Saved runtime choices override environment defaults and survive restarts. **Test Ollama** uses the entered endpoint/model; **Test transcription connection** authenticates and checks `/v1/models`. Use real Hebrew/English audio to validate inference. Changing a keyed endpoint requires re-entering its key or explicitly disabling the inherited environment key. Processing mode, worker counts, lease renewal, silence warnings and webhook signatures are editable under Classification. Cloud settings are retained for switching back. Videos are checked through their audio and caption; video frames are not analyzed.
+
+**Phones** contains monitored children. **Settings → Alerts** contains up to ten parent alert recipient numbers and optional sender connections. Recipient numbers do not each need an OpenWA session. Parent connections are never monitored. Existing connections retain their child role until explicitly changed; a paused connection is not automatically assumed to be a parent.
+
+Use **Install app** in the sidebar or mobile **More** menu for Chrome desktop and Android installation. The web manifest and service worker support standalone display; serve Iris over HTTPS for browser installation prompts. Plain LAN HTTP may offer only a shortcut. The service worker does not cache private content; installed Iris still needs network access and does not implement background push notifications. Screens support mobile navigation, scrolling Settings tabs and safe-area spacing.
+
+Configure the sender's OpenWA address as `http://openwa:2785`. Its default host binding is loopback; use an SSH tunnel for the administration UI or explicitly choose a restricted private interface. Register signed webhooks using Iris's registration action. Put the Iris UI behind HTTPS and set `IRIS_PUBLIC_BASE_URL` accordingly; this makes session cookies Secure. Plain HTTP remains possible for existing trusted-LAN deployments and is not protected transport.
+
+Use a separate sender phone if every parent must receive normal notifications. A parent who is also the sender receives a message to self; the app cannot ensure an audible phone notification. Up to ten recipient numbers or supported chat IDs fit the existing string setting.
+
+Local model scores are not calibrated OpenAI probabilities. Validate false negatives and adversarial prompts on an appropriate evaluation set before relying on unattended monitoring. Strict JSON validation and instruction separation do not eliminate prompt injection. No child recordings or real message corpus is included in this proposal.
+
+Automatic pairing is available only when both `OPENWA_URL` and `OPENWA_API_KEY` are configured on Iris. The API key stays on the server. Request a QR first. Iris automatically saves successful pairings, then offers an optional display name. Closing the optional naming dialog keeps the saved connection. Leaving the name blank uses the OpenWA session name; OpenWA assigns its internal session ID. After scanning, Iris reads the connected phone number from OpenWA. Manual mode remains available for existing sessions.
+
+## Beta status
+
+This optional integration is a beta contribution for evaluation. The example image is built with version `local-providers-beta.1`. It does not publish or replace upstream's stable image. Complete Linux/database CI, real monitoring-to-alert delivery, model calibration and deployment security checks remain validation gates. Keep deployment credentials and private data outside Git.
+
+Existing phones can use **Re-pair WhatsApp** on their card or Edit form. **Check connection** opens re-pairing when required. Iris checks the existing OpenWA session, refreshes its QR every two seconds and restores child webhooks after connection. Closing this dialog preserves the registered phone and session; it differs from abandoning an unsaved new pairing.

@@ -7,10 +7,11 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.service import delivery_configured
+from app.config import get_settings
 from app.db.models import Alert, Chat, ChatInstance, Instance, Job, Message, StoredMedia
 from app.deps import get_db
 from app.security.auth import current_user
@@ -31,10 +32,17 @@ class Stats(BaseModel):
     failed_jobs: int  # failed + dead
     delivery_configured: bool
     instances: int
+    children: int = 0
+    parent_recipients: int = 0
+    alert_phones: int = 0
+    alert_sender_configured: bool = False
     silent_instances: int  # enabled but never received a webhook
     media_policy: str  # off | harmful | harmful_review | all
     media_files: int  # kept media that can be shown
     media_bytes: int
+    sender_is_recipient: bool = False
+    unavailable_instances: int = 0
+    monitoring_window_minutes: int = 0
 
 
 async def _count(db: AsyncSession, stmt) -> int:  # type: ignore[no-untyped-def]
@@ -59,6 +67,30 @@ async def stats(db: DB) -> Stats:
         str(k): int(v)
         for k, v in (await db.execute(select(Job.status, func.count()).group_by(Job.status))).all()
     }
+    cfg = get_settings()
+    from app.monitoring import states
+
+    silence_filter = or_(Instance.last_webhook_at.is_(None))
+    if cfg.monitoring_silence_minutes:
+        silence_filter = or_(
+            silence_filter,
+            Instance.last_webhook_at < now - timedelta(minutes=cfg.monitoring_silence_minutes),
+        )
+    sender_id = await get_setting(db, "alerts.sender_instance_id")
+    sender = await db.get(Instance, sender_id) if sender_id else None
+    from app.alerts.recipients import recipients
+
+    try:
+        targets = recipients(await get_setting(db, "alerts.recipient"))
+    except ValueError:
+        targets = []
+    phones = list((await db.scalars(select(Instance))).all())
+    roles = await get_setting(db, "phones.roles")
+    parent_ids = {phone.id for phone in phones if roles.get(str(phone.id)) == "parent"}
+    sender_ids = parent_ids | ({sender.id} if sender else set())
+    sender_is_recipient = bool(
+        sender and sender.phone_number and (sender.phone_number.lstrip("+") + "@c.us" in targets)
+    )
     return Stats(
         messages_today=await _count(
             db, select(func.count()).select_from(Message).where(Message.sent_at >= day)
@@ -78,12 +110,16 @@ async def stats(db: DB) -> Stats:
         queue_depth=jobs.get("queued", 0) + jobs.get("running", 0),
         failed_jobs=jobs.get("failed", 0) + jobs.get("dead", 0),
         delivery_configured=await delivery_configured(db),
-        instances=await _count(db, select(func.count()).select_from(Instance)),
+        instances=len(phones),
+        children=sum(phone.id not in parent_ids for phone in phones),
+        parent_recipients=len(targets),
+        alert_phones=len(sender_ids),
+        alert_sender_configured=sender is not None,
         silent_instances=await _count(
             db,
             select(func.count())
             .select_from(Instance)
-            .where(Instance.enabled.is_(True), Instance.last_webhook_at.is_(None)),
+            .where(Instance.enabled.is_(True), silence_filter),
         ),
         media_policy=str(await get_setting(db, "media.policy")),
         media_files=await _count(
@@ -95,6 +131,15 @@ async def stats(db: DB) -> Stats:
                 StoredMedia.purge.is_(False)
             ),
         ),
+        sender_is_recipient=sender_is_recipient,
+        unavailable_instances=sum(
+            not states.get(phone.id, True)
+            for phone in phones
+            if phone.enabled or phone.id == sender_id
+        )
+        if cfg.monitoring_silence_minutes
+        else 0,
+        monitoring_window_minutes=cfg.monitoring_silence_minutes,
     )
 
 

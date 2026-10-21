@@ -662,4 +662,8 @@ linux/amd64 and linux/arm64 on every pull request.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+MIT License. See [LICENSE](LICENSE).
+
+## Optional local providers (beta)
+
+The [beta local deployment guide](docker-compose/local/README.md) describes opt-in Ollama moderation, a native Apple Silicon transcription companion, parent recipient management and QR pairing. Existing cloud defaults remain unchanged. Read the guide's validation limits before deploying this beta for monitoring.

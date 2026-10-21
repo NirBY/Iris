@@ -10,6 +10,12 @@ import { applyTheme, watchSystemTheme } from './lib/theme'
 applyTheme()
 watchSystemTheme()
 
+if (window.isSecureContext && 'serviceWorker' in navigator && import.meta.env.PROD) {
+  void navigator.serviceWorker.register('/sw.js').catch(() => {
+    // Installation is optional; the regular web interface remains available.
+  })
+}
+
 const queryClient = new QueryClient()
 
 createRoot(document.getElementById('root')!).render(

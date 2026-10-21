@@ -1,7 +1,7 @@
 import * as AlertPrimitive from '@radix-ui/react-alert-dialog'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { cn } from '../../lib/cn'
 import { Button, type ButtonProps } from './button'
 
@@ -63,16 +63,32 @@ export function ConfirmDialog({
   confirmLabel,
   onConfirm,
   tone = 'danger',
+  children,
+  onOpenChange,
+  pending = false,
+  keepOpen = false,
 }: {
   trigger: ReactNode
   title: string
   description: string
   confirmLabel: string
-  onConfirm: () => void
+  onConfirm: () => void | Promise<void>
   tone?: ButtonProps['variant']
+  children?: ReactNode
+  onOpenChange?: (open: boolean) => void
+  pending?: boolean
+  keepOpen?: boolean
 }) {
+  const [open, setOpen] = useState(false)
   return (
-    <AlertPrimitive.Root>
+    <AlertPrimitive.Root
+      open={open}
+      onOpenChange={(value) => {
+        if (pending) return
+        setOpen(value)
+        onOpenChange?.(value)
+      }}
+    >
       <AlertPrimitive.Trigger asChild>{trigger}</AlertPrimitive.Trigger>
       <AlertPrimitive.Portal>
         <AlertPrimitive.Overlay className={overlay} />
@@ -81,12 +97,28 @@ export function ConfirmDialog({
           <AlertPrimitive.Description className="text-sm text-muted-foreground">
             {description}
           </AlertPrimitive.Description>
+          {children}
           <div className="flex flex-wrap justify-end gap-2">
             <AlertPrimitive.Cancel asChild>
-              <Button variant="outline">Cancel</Button>
+              <Button variant="outline" disabled={pending}>
+                Cancel
+              </Button>
             </AlertPrimitive.Cancel>
             <AlertPrimitive.Action asChild>
-              <Button variant={tone} onClick={onConfirm}>
+              <Button
+                variant={tone}
+                disabled={pending}
+                onClick={(event) => {
+                  if (keepOpen) {
+                    event.preventDefault()
+                    void Promise.resolve(onConfirm())
+                      .then(() => setOpen(false))
+                      .catch(() => {})
+                  } else {
+                    void onConfirm()
+                  }
+                }}
+              >
                 {confirmLabel}
               </Button>
             </AlertPrimitive.Action>

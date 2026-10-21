@@ -141,3 +141,193 @@ async def test_session_id_is_path_quoted(app_client) -> None:  # type: ignore[no
     )
     await app_client.post(f"/api/instances/{out['id']}/register-webhook")
     assert route.calls.last.request.url.raw_path.startswith(b"/api/sessions/..%2Fadmin/webhooks")
+
+
+@respx.mock
+async def test_delete_openwa_opt_in_logs_out_then_deletes(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    logout = respx.post("https://wa.example.com/api/sessions/sess-1/logout").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    delete = respx.delete("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(204)
+    )
+    response = await app_client.delete(f"/api/instances/{out['id']}?delete_openwa=true")
+    assert response.status_code == 204
+    assert logout.called and delete.called
+    assert logout.calls.last.request.headers["x-api-key"] == BODY["openwa_api_key"]
+    assert (await app_client.get(f"/api/instances/{out['id']}")).status_code == 404
+
+
+@respx.mock
+async def test_openwa_delete_failure_keeps_iris_phone_for_retry(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    respx.post("https://wa.example.com/api/sessions/sess-1/logout").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    respx.delete("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(503)
+    )
+    assert (
+        await app_client.delete(f"/api/instances/{out['id']}?delete_openwa=true")
+    ).status_code == 502
+    assert (await app_client.get(f"/api/instances/{out['id']}")).status_code == 200
+
+
+@respx.mock
+async def test_openwa_already_deleted_allows_iris_removal(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    respx.post("https://wa.example.com/api/sessions/sess-1/logout").mock(
+        return_value=httpx.Response(404)
+    )
+    respx.delete("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(404)
+    )
+    assert (
+        await app_client.delete(f"/api/instances/{out['id']}?delete_openwa=true")
+    ).status_code == 204
+
+
+@respx.mock
+async def test_verified_create_rejects_wrong_key_without_saving(app_client) -> None:  # type: ignore[no-untyped-def]
+    respx.get("https://wa.example.com/api/sessions/sess-1").mock(return_value=httpx.Response(401))
+    response = await app_client.post("/api/instances", json={**BODY, "verify_openwa": True})
+    assert response.status_code == 502
+    assert "API key was rejected" in response.json()["detail"]
+    assert (await app_client.get("/api/instances")).json() == []
+
+
+@respx.mock
+async def test_verified_create_reads_openwa_phone(app_client) -> None:  # type: ignore[no-untyped-def]
+    respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(200, json={"id": "sess-1", "phone": "15550100101"})
+    )
+    response = await app_client.post("/api/instances", json={**BODY, "verify_openwa": True})
+    assert response.status_code == 201
+    assert response.json()["phone_number"] == "15550100101"
+
+
+@respx.mock
+async def test_staged_removal_keeps_iris_until_both_stages_finish(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    logout = respx.post("https://wa.example.com/api/sessions/sess-1/logout").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    delete = respx.delete("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(503)
+    )
+    path = f"/api/instances/{out['id']}"
+    assert (await app_client.post(path + "/remove-openwa?stage=deactivate")).status_code == 204
+    assert logout.called and not delete.called
+    assert (await app_client.get(path)).status_code == 200
+    assert (await app_client.post(path + "/remove-openwa?stage=delete")).status_code == 502
+    assert (await app_client.get(path)).status_code == 200
+    delete.mock(return_value=httpx.Response(204))
+    assert (await app_client.post(path + "/remove-openwa?stage=delete")).status_code == 204
+    assert (await app_client.get(path)).status_code == 200
+    assert (await app_client.delete(path)).status_code == 204
+
+
+async def test_edit_session_id_and_iris_label_are_persisted(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    response = await app_client.patch(
+        f"/api/instances/{out['id']}",
+        json={
+            "kid_name": "New name",
+            "openwa_instance_id": "new-id",
+            "session_name": "Family session",
+            "phone_number": "15550100101",
+            "enabled": False,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["session_name"] == "Family session"
+    assert response.json()["openwa_instance_id"] == "new-id"
+    assert (await app_client.get(f"/api/instances/{out['id']}")).json()[
+        "session_name"
+    ] == "Family session"
+
+
+@respx.mock
+async def test_invalid_key_edit_keeps_original_connection(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    respx.get("https://wa.example.com/api/sessions/new-id").mock(return_value=httpx.Response(401))
+    response = await app_client.patch(
+        f"/api/instances/{out['id']}",
+        json={"openwa_instance_id": "new-id", "openwa_api_key": "wrong-key", "verify_openwa": True},
+    )
+    assert response.status_code == 502
+    unchanged = (await app_client.get(f"/api/instances/{out['id']}")).json()
+    assert unchanged["openwa_instance_id"] == "sess-1"
+
+
+async def test_deleted_sender_selection_cannot_attach_to_new_child(app_client) -> None:  # type: ignore[no-untyped-def]
+    parent = (await app_client.post("/api/instances", json={**BODY, "role": "parent"})).json()
+    response = await app_client.put(
+        "/api/settings", json={"settings": {"alerts.sender_instance_id": parent["id"]}}
+    )
+    assert response.status_code == 200
+    assert (await app_client.delete(f"/api/instances/{parent['id']}")).status_code == 204
+    child = (await app_client.post("/api/instances", json={**BODY, "role": "child"})).json()
+    assert child["role"] == "child"
+    assert (await app_client.get("/api/settings")).json()["alerts.sender_instance_id"] is None
+    assert (await app_client.get("/api/stats")).json()["alert_sender_configured"] is False
+
+
+async def test_stale_sender_is_cleared_before_creating_child(app_client) -> None:  # type: ignore[no-untyped-def]
+    from app.settings_store import set_setting
+
+    async with app_client.app.state.session_factory() as db:
+        await set_setting(db, "alerts.sender_instance_id", 1)
+    await app_client.post("/api/instances", json={**BODY, "role": "child"})
+    assert (await app_client.get("/api/settings")).json()["alerts.sender_instance_id"] is None
+
+
+@respx.mock
+async def test_phone_status_reports_repairing_and_recovery(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    route = respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(200, json={"status": "qr_ready"})
+    )
+    response = await app_client.post(f"/api/instances/{out['id']}/check-session")
+    assert response.status_code == 200
+    assert response.json()["connection_status"] == "qr_ready"
+    assert response.json()["connection_checked_at"]
+    assert response.json()["enabled"] is True
+    route.mock(return_value=httpx.Response(200, json={"status": "ready"}))
+    assert (await app_client.post(f"/api/instances/{out['id']}/check-session")).json()[
+        "connection_status"
+    ] == "ready"
+
+
+@respx.mock
+async def test_repair_existing_session_returns_qr_without_removing_phone(app_client) -> None:  # type: ignore[no-untyped-def]
+    import base64
+
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    qr = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\nexample").decode()
+    respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(200, json={"status": "qr_ready"})
+    )
+    respx.get("https://wa.example.com/api/sessions/sess-1/qr").mock(
+        return_value=httpx.Response(200, json={"qrCode": qr})
+    )
+    response = await app_client.post(f"/api/instances/{out['id']}/re-pair")
+    assert response.status_code == 200 and response.json()["qr"] == qr
+    assert response.headers["cache-control"] == "no-store"
+    assert (await app_client.get(f"/api/instances/{out['id']}")).status_code == 200
+
+
+@respx.mock
+async def test_repair_disconnected_session_starts_existing_id(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(200, json={"status": "disconnected"})
+    )
+    start = respx.post("https://wa.example.com/api/sessions/sess-1/start").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    assert (await app_client.post(f"/api/instances/{out['id']}/re-pair")).json()[
+        "status"
+    ] == "initializing"
+    assert start.called

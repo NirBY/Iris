@@ -64,6 +64,11 @@ class OpenWAClient:
             raise OpenWAError(r.status_code, detail)
         return r.json() if r.content else None
 
+    async def session_ready(self, session_id: str) -> bool:
+        data = await self._request("GET", f"/api/sessions/{quote(session_id, safe='')}")
+        body = data.get("data", data) if isinstance(data, dict) else {}
+        return isinstance(body, dict) and str(body.get("status", "")).lower() == "ready"
+
     async def register_webhook(self, session_id: str, url: str, secret: str) -> str:
         """Subscribe the session's webhook for `url` to Iris's events and return its id.
 

@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.alerts.delivery import deliver_alert, notify_change
 from app.chats import resolve_group_names
+from app.config import get_settings
 from app.jobs import queue
 from app.jobs.handlers import Deps, process_message
 from app.jobs.queue import ClaimedJob, PermanentError, TransientError
@@ -23,6 +24,27 @@ HANDLERS: dict[str, Handler] = {
 
 
 async def run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler] = HANDLERS) -> str:
+    interval = get_settings().job_heartbeat_seconds
+    if not interval:
+        return await _run_one(job, deps, handlers)
+
+    async def renew() -> None:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await queue.heartbeat(deps.session_factory, job)
+            except Exception:
+                logger.warning("job {} heartbeat could not be renewed", job.id)
+
+    lease = asyncio.create_task(renew())
+    try:
+        return await _run_one(job, deps, handlers)
+    finally:
+        lease.cancel()
+        await asyncio.gather(lease, return_exceptions=True)
+
+
+async def _run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler]) -> str:
     """Execute a claimed job and record the outcome. Returns the resulting job status."""
     factory = deps.session_factory
     handler = handlers.get(job.type)
@@ -44,7 +66,7 @@ async def run_one(job: ClaimedJob, deps: Deps, handlers: dict[str, Handler] = HA
         logger.warning("job {} failed: {}", job.id, exc)
         return await queue.fail(factory, job, str(exc), transient=False)
     except Exception as exc:  # a bug must not kill the worker; never log message content
-        logger.exception("job {} crashed", job.id)
+        logger.error("job {} crashed ({})", job.id, exc.__class__.__name__)
         return await queue.fail(
             factory, job, f"unexpected {exc.__class__.__name__}", transient=False
         )
@@ -56,8 +78,11 @@ class WorkerPool:
     def __init__(self, deps: Deps, size: int, poll_interval: float = 1.0) -> None:
         self._deps = deps
         self._size = size
+        self._delivery_size = get_settings().delivery_workers if size else 0
         self._poll = poll_interval
         self._tasks: list[asyncio.Task[None]] = []
+        self._generation = 0
+        self._maintenance_started = False
 
     async def start(self) -> None:
         # Single process: nothing can be running yet, so any leftover temp media is from a crash.
@@ -65,9 +90,40 @@ class WorkerPool:
         recovered = await queue.recover_stale(self._deps.session_factory)
         if recovered:
             logger.info("recovered {} stale jobs", recovered)
-        self._tasks = [asyncio.create_task(self._loop(i)) for i in range(self._size)]
+        self._tasks = [
+            asyncio.create_task(self._loop(i, generation=self._generation))
+            for i in range(self._size)
+        ]
+        self._tasks.extend(
+            asyncio.create_task(
+                self._loop(self._size + i, delivery=True, generation=self._generation)
+            )
+            for i in range(self._delivery_size)
+        )
         if self._size:
             self._tasks.append(asyncio.create_task(self._maintenance()))
+            self._maintenance_started = True
+
+    async def reconfigure(self, size: int, delivery_size: int) -> None:
+        """New workers use new settings; old in-flight jobs finish without cancellation."""
+        delivery_size = delivery_size if size else 0
+        if (size, delivery_size) == (self._size, self._delivery_size):
+            return
+        self._generation += 1
+        self._size, self._delivery_size = size, delivery_size
+        active = [task for task in self._tasks if not task.done()]
+        generation = self._generation
+        self._tasks = [
+            asyncio.create_task(self._loop(i, generation=generation)) for i in range(size)
+        ]
+        self._tasks.extend(
+            asyncio.create_task(self._loop(size + i, delivery=True, generation=generation))
+            for i in range(delivery_size)
+        )
+        self._tasks.extend(active)
+        if size and not self._maintenance_started:
+            self._tasks.append(asyncio.create_task(self._maintenance()))
+            self._maintenance_started = True
 
     async def stop(self) -> None:
         for t in self._tasks:
@@ -77,11 +133,11 @@ class WorkerPool:
 
     @property
     def alive(self) -> int:
-        return sum(1 for t in self._tasks[: self._size] if not t.done())
+        return sum(1 for t in self._tasks[: self.size] if not t.done())
 
     @property
     def size(self) -> int:
-        return self._size
+        return self._size + self._delivery_size
 
     async def _maintenance(self) -> None:
         """Housekeeping: re-queue orphaned jobs, and name groups that still have no name."""
@@ -94,6 +150,13 @@ class WorkerPool:
                 await queue.recover_stale(self._deps.session_factory)
             except Exception:
                 logger.exception("stale job recovery failed")
+            if get_settings().monitoring_silence_minutes:
+                from app.monitoring import probe_sessions
+
+                try:
+                    await probe_sessions(self._deps.session_factory, self._deps.key_bytes)
+                except Exception:
+                    logger.warning("monitoring session probe failed")
             try:
                 await resolve_group_names(self._deps.session_factory, self._deps.key_bytes)
             except Exception:
@@ -105,10 +168,15 @@ class WorkerPool:
             except Exception:
                 logger.exception("media cleanup failed")
 
-    async def _loop(self, n: int) -> None:
-        while True:
+    async def _loop(self, n: int, delivery: bool = False, generation: int = 0) -> None:
+        while generation == self._generation:
             try:
-                job = await queue.claim(self._deps.session_factory)
+                delivery_types = ("deliver_alert", "notify_change")
+                job = await queue.claim(
+                    self._deps.session_factory,
+                    types=delivery_types if delivery else None,
+                    exclude_types=delivery_types if self._delivery_size and not delivery else (),
+                )
                 if job is None:
                     await asyncio.sleep(self._poll)
                     continue

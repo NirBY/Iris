@@ -35,6 +35,30 @@ interface Item {
 
 function attentionItems(s: Stats): Item[] {
   const items: Item[] = []
+  if ((s.children ?? s.instances) === 0)
+    items.push({
+      icon: Smartphone,
+      to: '/instances',
+      action: 'Add a child',
+      tone: 'warning',
+      text: 'No child phone is configured. Iris cannot monitor children yet.',
+    })
+  if (s.parent_recipients === 0)
+    items.push({
+      icon: Settings,
+      to: '/settings?tab=Alerts',
+      action: 'Add parents',
+      tone: 'warning',
+      text: 'No parent recipients are configured. Add a parent phone number to receive alerts.',
+    })
+  if (s.alert_sender_configured === false)
+    items.push({
+      icon: Smartphone,
+      to: '/settings?tab=Alerts',
+      action: 'Set alert phone',
+      tone: 'warning',
+      text: 'No alert phone is set. Connect a sender phone and select it to send alerts to parents.',
+    })
   const alerts = s.alerts_by_status['new'] ?? 0
   const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
   if (alerts > 0)
@@ -56,12 +80,36 @@ function attentionItems(s: Stats): Item[] {
   if (!s.delivery_configured)
     items.push({
       icon: Settings,
-      to: '/settings',
+      to: '/settings?tab=Alerts',
       action: 'Set up delivery',
       tone: 'warning',
       text: 'Alert delivery is not configured, so alerts are recorded but not sent.',
     })
   const undelivered = s.alerts_by_delivery['failed'] ?? 0
+  if ((s.unavailable_instances ?? 0) > 0)
+    items.push({
+      icon: ServerCrash,
+      to: '/instances',
+      action: 'Check sessions',
+      tone: 'danger',
+      text: 'A monitored phone or the alert sender is disconnected or unreachable. Monitoring or delivery may have stopped.',
+    })
+  if (s.sender_is_recipient)
+    items.push({
+      icon: Smartphone,
+      to: '/settings?tab=Alerts',
+      action: 'Check recipients',
+      tone: 'warning',
+      text: 'The sender is also a parent recipient. Messages to yourself may not notify you; use a separate sender phone for reliable parent notifications.',
+    })
+  if ((s.alerts_by_delivery['partial'] ?? 0) > 0)
+    items.push({
+      icon: BellRing,
+      to: '/alerts',
+      action: 'Check delivery',
+      tone: 'warning',
+      text: 'Some alerts reached only part of the parent recipient list.',
+    })
   if (s.delivery_configured && undelivered > 0)
     items.push({
       icon: ServerCrash,
@@ -84,7 +132,7 @@ function attentionItems(s: Stats): Item[] {
       to: '/instances',
       action: 'Check setup',
       tone: 'warning',
-      text: `${s.silent_instances} ${plural(s.silent_instances, 'phone has', 'phones have')} never received a webhook`,
+      text: `${s.silent_instances} ${plural(s.silent_instances, 'phone has', 'phones have')} ${s.monitoring_window_minutes ? 'no webhook within the configured monitoring window' : 'never received a webhook'}`,
     })
   return items
 }
@@ -103,7 +151,10 @@ function headline(s: Stats, items: Item[]) {
     }
   }
   if (items.length > 0)
-    return { title: 'Nothing urgent', sub: 'A few things need setting up or fixing, below.' }
+    return {
+      title: 'Needs attention',
+      sub: 'Monitoring or alert delivery needs setting up or fixing, below.',
+    }
   return {
     title: 'All quiet',
     sub:
@@ -202,11 +253,23 @@ export function Dashboard() {
             <p className="text-3xl font-semibold tracking-tight sm:text-4xl">{title}</p>
             <p className="max-w-prose text-muted-foreground">{sub}</p>
           </div>
-          <dl className="grid grid-cols-2 divide-x divide-y rounded-md border sm:grid-flow-col sm:auto-cols-fr sm:divide-y-0 rtl:divide-x-reverse">
+          <dl className="grid grid-cols-2 divide-x divide-y rounded-md border sm:grid-cols-3 rtl:divide-x-reverse">
             <Stat label="Messages today" value={s.messages_today} to="/messages" />
             <Stat label="Last 7 days" value={s.messages_7d} to="/messages" />
             <Stat label="In the queue" value={s.queue_depth} />
-            <Stat label="Phones" value={s.instances} to="/instances" />
+            <Stat label="Children" value={s.children ?? s.instances} to="/instances" />
+            <Stat
+              label="Parents"
+              value={s.parent_recipients ?? 0}
+              to="/settings?tab=Alerts"
+              note="Alert recipients"
+            />
+            <Stat
+              label="Alert phones"
+              value={s.alert_phones ?? 0}
+              to="/settings?tab=Alerts"
+              note="Sender connections"
+            />
             {((s.media_policy && s.media_policy !== 'off') || (s.media_files ?? 0) > 0) && (
               <Stat
                 label="Media kept"

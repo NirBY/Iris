@@ -7,4 +7,5 @@ from loguru import logger
 
 def setup_logging(level: str = "INFO", json: bool = False) -> None:
     logger.remove()
-    logger.add(sys.stderr, level=level.upper(), serialize=json)
+    # Exception tracebacks must never expose local variables containing messages or keys.
+    logger.add(sys.stderr, level=level.upper(), serialize=json, diagnose=False)
