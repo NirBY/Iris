@@ -192,6 +192,14 @@ async def get_secret(db: AsyncSession, key: str, key_bytes: bytes) -> str | None
     return decrypt(key_bytes, row.value) if row is not None and row.value else None
 
 
+async def secret_is_set(db: AsyncSession, key: str) -> bool:
+    """Whether a secret has a stored value, without decrypting it."""
+    if not _spec(key).secret:
+        raise ValueError(f"{key} is not a secret")
+    row = await db.get(Setting, key)
+    return bool(row and row.value)
+
+
 async def set_setting(
     db: AsyncSession, key: str, value: Any, key_bytes: bytes | None = None
 ) -> None:
