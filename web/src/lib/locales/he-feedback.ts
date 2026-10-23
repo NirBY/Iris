@@ -397,8 +397,12 @@ export const hebrewFeedback: Record<string, string> = {
     'משך הסרטון או התמונה אינם זמינים; נדרשת בדיקה ידנית',
   'Video exceeds the 30-second local visual analysis limit; manual review required':
     'הסרטון ארוך ממגבלת 30 השניות לבדיקה חזותית מקומית; נדרשת בדיקה ידנית',
+  'Video exceeds the 60-second local visual analysis limit; manual review required':
+    'הסרטון ארוך ממגבלת 60 השניות לבדיקה חזותית מקומית; נדרשת בדיקה ידנית',
   'Video sample could not be decoded; manual review required':
     'לא ניתן לפענח דגימה מהסרטון; נדרשת בדיקה ידנית',
+  'Video classifier changed between frame batches':
+    'מודל בדיקת הסרטון השתנה בין קבוצות הפריימים; נדרשת בדיקה חוזרת',
   'Local AI checked sampled frames with the available caption and speech. Sampling does not inspect every frame.':
     'הבינה המקומית בדקה פריימים שנדגמו יחד עם הכיתוב והדיבור הזמינים. הדגימה אינה בודקת כל פריים.',
   'with unavailable content': 'עם תוכן לא זמין',

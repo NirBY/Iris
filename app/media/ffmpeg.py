@@ -11,8 +11,8 @@ from app.jobs.queue import PermanentError
 _TIMEOUT = 120.0
 _MAX_CONCURRENT = 2  # decoders are CPU/memory heavy: never more than this at once
 _slots: asyncio.Semaphore | None = None
-MAX_VIDEO_ANALYSIS_SECONDS = 30
-MAX_VIDEO_FRAMES = 6
+MAX_VIDEO_ANALYSIS_SECONDS = 60
+MAX_VIDEO_FRAMES = 12
 # Only local files/pipes: a crafted playlist or concat file must not make ffmpeg fetch URLs.
 _SAFE_INPUT = ("-protocol_whitelist", "file,pipe")
 
@@ -115,9 +115,9 @@ async def video_frames(src: Path, directory: Path) -> tuple[MediaInfo, list[Path
         )
     if duration > MAX_VIDEO_ANALYSIS_SECONDS:
         raise PermanentError(
-            "Video exceeds the 30-second local visual analysis limit; manual review required"
+            "Video exceeds the 60-second local visual analysis limit; manual review required"
         )
-    count = min(MAX_VIDEO_FRAMES, max(2, math.ceil(duration)))
+    count = min(MAX_VIDEO_FRAMES, max(2, min(6, math.ceil(duration)), math.ceil(duration / 5)))
     timestamps = [round(max(0.0, duration - 0.1) * i / max(1, count - 1), 3) for i in range(count)]
     frames = []
     for index, timestamp in enumerate(timestamps):

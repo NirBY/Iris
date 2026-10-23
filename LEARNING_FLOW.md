@@ -12,9 +12,11 @@ temporary; only format and completeness metadata accompany classification scores
 This is an AI classification path, not a source of human learning labels, and does
 not update model weights or change learning mode.
 
-Local Ollama vision now checks up to six chronological frames across clips of at
-most 30 seconds, including the beginning and end. The same request includes the
-caption and available speech transcript. Silent clips can be classified from
+Local Ollama vision checks up to twelve chronological frames across clips of at
+most 60 seconds, including the beginning and end. Requests contain at most six
+frames each, with the caption and available speech transcript repeated in each
+request. Every batch must succeed, and the highest score for each category wins;
+safe frames cannot dilute harmful evidence. Silent clips can be classified from
 visual evidence; an unreadable frame, failed speech check, unknown duration or
 longer clip cannot be automatically cleared by this path. Sampling is not an
 exhaustive frame-by-frame inspection. Classification traces record duration,

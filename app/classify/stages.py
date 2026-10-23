@@ -13,9 +13,11 @@ from app.classify.moderation import ModerationResult
 from app.classify.ollama import OllamaModerator
 from app.classify.thresholds import Band, Thresholds, band_for
 from app.db.models import Message
+from app.jobs.queue import PermanentError
 
 MAX_CONTEXT_CHARS = 8000
 MAX_LINE_CHARS = 500
+VIDEO_BATCH_FRAMES = 6
 
 
 class Moderator(Protocol):
@@ -102,14 +104,43 @@ async def _moderate(
     target_id: int | None = None,
 ) -> StageResult:
     started = time.perf_counter()
-    if ctx.learning_examples and isinstance(ctx.moderator, OllamaModerator):
-        res = await ctx.moderator.moderate(ctx.model, payload, examples=ctx.learning_examples)
-    else:
-        res = await ctx.moderator.moderate(ctx.model, payload)
+    batches = [payload]
+    if input_kind == "video_frames" and isinstance(payload, list):
+        frames = [part for part in payload if part.get("type") == "image_url"]
+        text = [part for part in payload if part.get("type") != "image_url"]
+        batches = [
+            [*text, *frames[offset : offset + VIDEO_BATCH_FRAMES]]
+            for offset in range(0, len(frames), VIDEO_BATCH_FRAMES)
+        ]
+        if not batches:
+            raise ValueError("Video analysis requires at least one decoded frame")
+    results = []
+    for batch in batches:
+        if ctx.learning_examples and isinstance(ctx.moderator, OllamaModerator):
+            result = await ctx.moderator.moderate(ctx.model, batch, examples=ctx.learning_examples)
+        else:
+            result = await ctx.moderator.moderate(ctx.model, batch)
+        results.append(result)
+    # Never average away harmful evidence or return a partial safe result.
+    res = ModerationResult({}, False, {}, model=results[0].model)
+    for result in results:
+        if result.model != res.model:
+            raise PermanentError("Video classifier changed between frame batches")
+        for category, score in result.scores.items():
+            res.scores[category] = max(res.scores.get(category, 0.0), score)
+        res.flagged |= result.flagged
+        for category, flagged in result.api_categories.items():
+            res.api_categories[category] = res.api_categories.get(category, False) or flagged
+        for category, kinds in result.applied_input_types.items():
+            res.applied_input_types[category] = sorted(
+                set(res.applied_input_types.get(category, [])) | set(kinds)
+            )
     band, high, low = band_for(res.scores, ctx.thresholds)
     scores = res.stored_scores()
     if ctx.media_analysis:
-        scores["_meta"]["media_analysis"] = ctx.media_analysis
+        scores["_meta"]["media_analysis"] = dict(ctx.media_analysis)
+        if input_kind == "video_frames":
+            scores["_meta"]["media_analysis"]["visual_batches"] = len(batches)
     return StageResult(
         stage=stage,
         input_kind=input_kind,

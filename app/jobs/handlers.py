@@ -153,7 +153,7 @@ async def _video_prepare(
     prepared = Prepared(
         image=images,
         media_analysis={
-            "method": "sampled_video_v1",
+            "method": "sampled_video_v2",
             "duration_seconds": info.duration,
             "frame_timestamps": timestamps,
             "has_audio": info.has_audio,

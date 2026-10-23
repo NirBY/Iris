@@ -43,6 +43,7 @@ async def quarantine_legacy_unknowns(db: AsyncSession) -> None:
                         "attachment_image_v1",
                         "attachment_audio_v1",
                         "sampled_video_v1",
+                        "sampled_video_v2",
                     ]
                 ),
                 Classification.scores["_meta"]["media_analysis"]["complete"].as_boolean() == True,  # noqa: E712
