@@ -212,8 +212,19 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
                             problem=PermanentError("video visuals require manual review")
                         )
                     await _transcribe(db, deps, tmp, message, job, original=raw)
+                    cover = None
+                    if info.cover_art_count > 1:
+                        return Prepared(
+                            problem=PermanentError("multiple cover images require manual review")
+                        )
+                    if info.cover_art_count:
+                        jpeg = tmp / "cover.jpg"
+                        await ffmpeg.image_to_jpeg(raw, jpeg)
+                        data = await asyncio.to_thread(jpeg.read_bytes)
+                        cover = "data:image/jpeg;base64," + base64.b64encode(data).decode()
                     return Prepared(
-                        media_analysis={"method": "attachment_audio_v1", "complete": True}
+                        image=cover,
+                        media_analysis={"method": "attachment_audio_v1", "complete": True},
                     )
                 if detected and detected[0].startswith("video/"):
                     if cfg.local_safety_mode and cfg.classification_provider == "ollama":

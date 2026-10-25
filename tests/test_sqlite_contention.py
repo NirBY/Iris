@@ -126,3 +126,37 @@ async def test_history_retry_preserves_callback_failure(database):
     async with factory() as db:
         runs = list(await db.scalars(select(ScheduleRun)))
         assert len(runs) == 1 and runs[0].status == "failed"
+
+
+async def test_manual_schedule_retries_real_writer_lock(database):
+    from app.api.operations import _run_now
+
+    path, factory = database
+    release = hold_write_lock(path)
+    result = await _run_now(factory, "daily_summary")
+    await release
+    async with factory() as db:
+        jobs = list(await db.scalars(select(Job)))
+        assert len(jobs) == 1 and result["job_ids"] == [jobs[0].id]
+
+
+async def test_dispatch_commits_before_processing_next_schedule(database, monkeypatch):
+    from app import schedules
+
+    path, factory = database
+    original = schedules._dispatch_due
+    visited = []
+
+    async def dispatch(factory, key, now):
+        if visited:
+            async with factory() as db:
+                jobs = list(await db.scalars(select(Job)))
+                assert any(job.payload["schedule_key"] == visited[0] for job in jobs)
+                db.add(Setting(key="internal.dispatch_probe." + key, value={}))
+                await db.commit()
+        await original(factory, key, now)
+        visited.append(key)
+
+    monkeypatch.setattr(schedules, "_dispatch_due", dispatch)
+    await schedules.due_schedules(SimpleNamespace(session_factory=factory))
+    assert len(visited) > 1

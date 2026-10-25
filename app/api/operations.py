@@ -4,14 +4,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import AuditLog, Instance, Job, ScheduleRun, Setting
+from app.db.retry import retry_sqlite_busy
 from app.db.schedule_lock import lock_schedule
 from app.deps import get_db
-from app.jobs.queue import enqueue
 from app.schedules import CATALOG, health_issues, prune_history, schedule_config
 from app.security.auth import admin_user
 from app.settings_store import get_setting
@@ -105,44 +105,50 @@ async def schedules(db: DB) -> dict[str, Any]:
 
 
 @router.post("/schedules/{key}/run")
-async def run_now(key: str, db: DB) -> dict[str, Any]:
+async def run_now(key: str, request: Request) -> dict[str, Any]:
     if key not in CATALOG:
         raise HTTPException(404, "Schedule not found")
-    await lock_schedule(db, key)
-    if await db.scalar(
-        select(Job.id)
-        .where(
-            Job.type == "run_schedule",
-            Job.status.in_(("queued", "running")),
-            Job.payload["schedule_key"].as_string() == key,
-        )
-        .limit(1)
-    ):
-        raise HTTPException(409, "This schedule already has a queued or running job")
-    if key == "connection_notifications":
-        jobs = []
-        for incident in await health_issues(db):
-            job = Job(
-                type="run_schedule",
-                payload={
-                    "schedule_key": key,
-                    "manual": True,
-                    "instance_id": incident["instance_id"],
-                    "incident": incident.get("incident"),
-                    "issues": incident["issues"],
-                },
-                max_attempts=3,
+    return await _run_now(request.app.state.session_factory, key)
+
+
+@retry_sqlite_busy
+async def _run_now(factory: async_sessionmaker[AsyncSession], key: str) -> dict[str, Any]:
+    async with factory.begin() as db:
+        await lock_schedule(db, key)
+        if await db.scalar(
+            select(Job.id)
+            .where(
+                Job.type == "run_schedule",
+                Job.status.in_(("queued", "running")),
+                Job.payload["schedule_key"].as_string() == key,
             )
-            db.add(job)
-            await db.flush()
-            jobs.append(job.id)
-        await db.commit()
-        return {"job_ids": jobs}
-    job_id = await enqueue(
-        db, "run_schedule", {"schedule_key": key, "manual": True}, max_attempts=3
-    )
-    await db.commit()
-    return {"job_ids": [job_id]}
+            .limit(1)
+        ):
+            raise HTTPException(409, "This schedule already has a queued or running job")
+        if key == "connection_notifications":
+            jobs = []
+            for incident in await health_issues(db):
+                job = Job(
+                    type="run_schedule",
+                    payload={
+                        "schedule_key": key,
+                        "manual": True,
+                        "instance_id": incident["instance_id"],
+                        "incident": incident.get("incident"),
+                        "issues": incident["issues"],
+                    },
+                    max_attempts=3,
+                )
+                db.add(job)
+                await db.flush()
+                jobs.append(job.id)
+            return {"job_ids": jobs}
+        job = Job(
+            type="run_schedule", payload={"schedule_key": key, "manual": True}, max_attempts=3
+        )
+        db.add(job)
+        await db.flush()
+        return {"job_ids": [job.id]}
 
 
 @router.get("/audit")

@@ -36,10 +36,18 @@ async def test_quiet_phone_is_not_reported_as_missing_webhook(
     assert stats["silent_instances"] == 0
 
 
-async def test_stats_counts(app_client: Any) -> None:
+async def test_stats_counts(app_client: Any, monkeypatch: Any) -> None:
     _, token = await make_instance(app_client, "Noa")
     await make_instance(app_client, "Silent")  # never receives a webhook
-    now = datetime.now(UTC)
+    # Run this fixture at midday, even when CI crosses the configured local midnight.
+    now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz) if tz else now.replace(tzinfo=None)
+
+    monkeypatch.setattr("app.api.stats.datetime", FixedDateTime)
     for i, age_days in enumerate((0, 3, 20)):
         body = msg_body("text_received_mixed", f"ST0{i}", f"m{i}")
         import json

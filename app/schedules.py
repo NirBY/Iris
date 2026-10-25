@@ -14,7 +14,7 @@ from app.config import get_settings
 from app.db.models import Alert, Instance, Job, Message, MessageReceipt, ScheduleRun, Setting
 from app.db.retry import retry_sqlite_busy
 from app.db.schedule_lock import lock_schedule
-from app.jobs.queue import ClaimedJob, DeferredError, enqueue
+from app.jobs.queue import ClaimedJob, DeferredError
 from app.settings_store import get_secret, get_setting
 
 if TYPE_CHECKING:
@@ -242,50 +242,54 @@ async def schedule_config(db: AsyncSession, key: str) -> dict[str, Any]:
     }
 
 
-@retry_sqlite_busy
 async def due_schedules(deps: "Deps", now: datetime | None = None) -> None:
     now = now or datetime.now(UTC)
-    async with deps.session_factory() as db:
+    for key in CATALOG:
+        await _dispatch_due(deps.session_factory, key, now)
+
+
+@retry_sqlite_busy
+async def _dispatch_due(factory: async_sessionmaker[AsyncSession], key: str, now: datetime) -> None:
+    # Each schedule commits independently; retrying one never repeats earlier inserts.
+    async with factory.begin() as db:
+        await lock_schedule(db, key)
+        await prune_history(db, key, now)
+        if key in ("pairing_cleanup", "connection_notifications"):
+            return
         timezone = ZoneInfo(str(await get_setting(db, "alerts.timezone")))
         local = now.astimezone(timezone)
-        for key in CATALOG:
-            await lock_schedule(db, key)
-            await prune_history(db, key, now)
-            if key in ("pairing_cleanup", "connection_notifications"):
-                continue
-            config = await schedule_config(db, key)
-            if not config["enabled"]:
-                continue
-            state_key = "internal.schedule_due." + key
-            state = await db.get(Setting, state_key)
-            last = state.value if state else {}
-            if key == "daily_summary":
-                if (
-                    local.strftime("%H:%M") < config["time"]
-                    or last.get("day") == local.date().isoformat()
-                ):
-                    continue
-            elif last.get("at") and now.timestamp() - last["at"] < config["interval"]:
-                continue
-            if await db.scalar(
-                select(Job.id)
-                .where(
-                    Job.type == "run_schedule",
-                    Job.status.in_(("queued", "running")),
-                    Job.payload["schedule_key"].as_string() == key,
-                )
-                .limit(1)
+        config = await schedule_config(db, key)
+        if not config["enabled"]:
+            return
+        state_key = "internal.schedule_due." + key
+        state = await db.get(Setting, state_key)
+        last = state.value if state else {}
+        if key == "daily_summary":
+            if (
+                local.strftime("%H:%M") < config["time"]
+                or last.get("day") == local.date().isoformat()
             ):
-                continue
-            # Enqueue and advance the schedule in one transaction. A busy retry
-            # must roll back both, rather than leave a committed duplicate job.
-            db.add(Job(type="run_schedule", payload={"schedule_key": key}, max_attempts=3))
-            value = {"at": now.timestamp(), "day": local.date().isoformat()}
-            if state:
-                state.value = value
-            else:
-                db.add(Setting(key=state_key, value=value))
-        await db.commit()
+                return
+        elif last.get("at") and now.timestamp() - last["at"] < config["interval"]:
+            return
+        if await db.scalar(
+            select(Job.id)
+            .where(
+                Job.type == "run_schedule",
+                Job.status.in_(("queued", "running")),
+                Job.payload["schedule_key"].as_string() == key,
+            )
+            .limit(1)
+        ):
+            return
+        # Enqueue and advance the schedule in one transaction. A busy retry
+        # must roll back both, rather than leave a committed duplicate job.
+        db.add(Job(type="run_schedule", payload={"schedule_key": key}, max_attempts=3))
+        value = {"at": now.timestamp(), "day": local.date().isoformat()}
+        if state:
+            state.value = value
+        else:
+            db.add(Setting(key=state_key, value=value))
 
 
 async def health_issues(db: AsyncSession) -> list[dict[str, Any]]:
@@ -421,6 +425,8 @@ async def check_connections(deps: "Deps", now: datetime | None = None) -> dict[s
                     issues.append("Webhook registration could not be verified")
                 finally:
                     await client.aclose()
+            # Share the reservation with manual dispatch after all external probes.
+            await lock_schedule(db, "connection_notifications")
             saved = await db.get(Setting, f"internal.webhook_status.{inst.id}")
             if saved and saved.value.get("status") == "failed":
                 issues.append("Webhook registration failed; register it again in Phones")
@@ -463,17 +469,31 @@ async def check_connections(deps: "Deps", now: datetime | None = None) -> dict[s
                 if status != "ready":
                     recovery["notified"] = True
                     recovery_row.value = dict(recovery)
-                await enqueue(
-                    db,
-                    "run_schedule",
-                    {
-                        "schedule_key": "connection_notifications",
-                        "instance_id": inst.id,
-                        "incident": incident,
-                        "issues": issues,
-                    },
-                    max_attempts=3,
+                active = await db.scalar(
+                    select(Job.id)
+                    .where(
+                        Job.type == "run_schedule",
+                        Job.status.in_(("queued", "running")),
+                        Job.payload["schedule_key"].as_string() == "connection_notifications",
+                        Job.payload["instance_id"].as_integer() == inst.id,
+                        Job.payload["incident"].as_integer() == incident,
+                    )
+                    .limit(1)
+                    .with_for_update()
                 )
+                if active is None:
+                    db.add(
+                        Job(
+                            type="run_schedule",
+                            payload={
+                                "schedule_key": "connection_notifications",
+                                "instance_id": inst.id,
+                                "incident": incident,
+                                "issues": issues,
+                            },
+                            max_attempts=3,
+                        )
+                    )
             # The next phone probe can take many seconds. Release SQLite's writer
             # after each phone so webhooks, job claims and other schedules can proceed.
             await db.commit()

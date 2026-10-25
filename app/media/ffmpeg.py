@@ -37,6 +37,7 @@ class MediaInfo:
     duration: float | None
     has_audio: bool
     has_video: bool
+    cover_art_count: int = 0
 
 
 def _sniff(path: Path) -> None:
@@ -81,15 +82,23 @@ async def probe(path: Path) -> MediaInfo:
     await _check(path)
     out, _ = await _run(
         "ffprobe", "-v", "error", *_SAFE_INPUT,
-        "-show_entries", "format=duration:stream=codec_type", "-of", "json", str(path),
+        "-show_entries", "format=duration:stream=codec_type:stream_disposition=attached_pic",
+        "-of", "json", str(path),
     )  # fmt: skip
     data = json.loads(out or b"{}")
     kinds = {s.get("codec_type") for s in data.get("streams", [])}
+    visual_streams = [s for s in data.get("streams", []) if s.get("codec_type") == "video"]
+    cover_art = [s for s in visual_streams if s.get("disposition", {}).get("attached_pic") == 1]
     try:
         duration: float | None = float(data["format"]["duration"])
     except (KeyError, TypeError, ValueError):
         duration = None
-    return MediaInfo(duration=duration, has_audio="audio" in kinds, has_video="video" in kinds)
+    return MediaInfo(
+        duration=duration,
+        has_audio="audio" in kinds,
+        has_video=len(visual_streams) > len(cover_art),
+        cover_art_count=len(cover_art),
+    )
 
 
 async def extract_audio(src: Path, dst: Path) -> None:
@@ -125,7 +134,7 @@ async def video_frames(src: Path, directory: Path) -> tuple[MediaInfo, list[Path
         await asyncio.to_thread(dst.unlink, missing_ok=True)
         await _run(
             "ffmpeg", "-nostdin", "-y", "-loglevel", "error", *_SAFE_INPUT,
-            "-ss", str(timestamp), "-i", str(src), "-frames:v", "1", "-vf",
+            "-ss", str(timestamp), "-i", str(src), "-map", "0:V:0", "-frames:v", "1", "-vf",
             "scale='min(640,iw)':'min(640,ih)':force_original_aspect_ratio=decrease",
             "-q:v", "3", str(dst),
         )  # fmt: skip

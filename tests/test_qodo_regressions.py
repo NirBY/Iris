@@ -167,3 +167,131 @@ async def test_manual_and_automatic_summary_share_reservation(app_client):
             )
         )
         assert len(jobs) == 1
+
+
+@respx.mock
+async def test_audio_cover_art_is_checked_without_video_duration_limit(
+    app_client, tmp_path, monkeypatch
+):
+    deps, _ = await setup(app_client)
+    cover = tmp_path / "cover.jpg"
+    await ffmpeg._run(
+        "ffmpeg",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=size=32x32",
+        "-frames:v",
+        "1",
+        str(cover),
+    )
+    path = tmp_path / "cover.mp3"
+    await ffmpeg._run(
+        "ffmpeg",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:duration=61",
+        "-i",
+        str(cover),
+        "-map",
+        "0:a",
+        "-map",
+        "1:v",
+        "-c:a",
+        "libmp3lame",
+        "-b:a",
+        "32k",
+        "-c:v",
+        "copy",
+        "-disposition:v",
+        "attached_pic",
+        str(path),
+    )
+    info = await ffmpeg.probe(path)
+    assert info.has_audio and not info.has_video and info.cover_art_count == 1
+    assert info.duration > 60
+    respx.get(url__regex=MEDIA_URL).respond(200, content=path.read_bytes())
+    transcribe = AsyncMock()
+    visual = AsyncMock()
+    monkeypatch.setattr(handlers, "_transcribe", transcribe)
+    monkeypatch.setattr(handlers, "_video_prepare", visual)
+    async with deps.session_factory() as db:
+        message = Message(
+            type="document",
+            media={"instance_id": 1, "message_ref": "audio", "chat_id": "synthetic"},
+        )
+        result = await handlers._prepare(
+            db, queue.ClaimedJob(992, "process_message", {}, 1, 3), deps, message
+        )
+    assert result.problem is None
+    assert result.image.startswith("data:image/jpeg;base64,")
+    assert result.media_analysis == {"method": "attachment_audio_v1", "complete": True}
+    transcribe.assert_awaited_once()
+    visual.assert_not_awaited()
+    await deps.providers.aclose()
+
+
+@respx.mock
+@pytest.mark.parametrize("concurrent", [False, True])
+async def test_manual_and_automatic_connection_alerts_share_incident(
+    app_client, monkeypatch, concurrent
+):
+    from app.db.models import Instance, Setting
+    from app.monitoring import session_details
+    from app.schedules import check_connections
+    from app.settings_store import set_setting
+    from tests.test_alerts import setup as alert_setup
+
+    deps, _, sender_id = await alert_setup(app_client)
+    now = datetime.now(UTC)
+    async with deps.session_factory() as db:
+        child = await db.scalar(select(Instance).where(Instance.id != sender_id))
+        child_id = child.id
+        await set_setting(
+            db, "schedules.config", {"connections": {"retry_count": 0, "notify_wait_minutes": 1}}
+        )
+        db.add(
+            Setting(
+                key=f"internal.monitoring_health.{child_id}",
+                value={
+                    "issues": ["WhatsApp connection is disconnected"],
+                    "connection_status": "disconnected",
+                    "incident": 1,
+                },
+            )
+        )
+        db.add(
+            Setting(
+                key=f"internal.connection_recovery.{child_id}",
+                value={"offline_since": now.timestamp() - 600, "attempts": 0},
+            )
+        )
+        await db.commit()
+
+    async def probe(instance, key):
+        session_details[instance.id] = ("disconnected" if instance.id == child_id else "ready", now)
+
+    monkeypatch.setattr("app.monitoring.probe_instance", probe)
+    if concurrent:
+        response, _ = await asyncio.gather(
+            app_client.post("/api/schedules/connection_notifications/run"),
+            check_connections(deps, now),
+        )
+        assert response.status_code in (200, 409)
+    else:
+        assert (
+            await app_client.post("/api/schedules/connection_notifications/run")
+        ).status_code == 200
+        await check_connections(deps, now)
+    await check_connections(deps, now)
+    async with deps.session_factory() as db:
+        jobs = list(await db.scalars(select(Job).where(Job.type == "run_schedule")))
+        assert len(jobs) == 1
+        assert jobs[0].payload["incident"] == 1
+        assert (await db.get(Setting, f"internal.connection_recovery.{child_id}")).value["notified"]
+    await deps.providers.aclose()
