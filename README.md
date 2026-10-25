@@ -2,7 +2,7 @@
 
 Iris is a self-hosted safety monitor for kids' WhatsApp. It watches the chats and groups of one or more
 kids' numbers through [OpenWA](https://github.com/rmyndharis/OpenWA), classifies **text, voice notes,
-audio, images and video** for harmful content, and alerts a parent **over WhatsApp** with the kid, the chat,
+audio, images and video** for harmful content, and alerts a parent **over WhatsApp or Telegram** (you pick one) with the kid, the chat,
 the sender and the quoted message.
 
 It is built for mixed Hebrew and English chats (nothing is hardcoded to a language), runs as a single Docker
@@ -39,13 +39,14 @@ container (amd64 and arm64), and uses free or low-cost models wherever possible.
   transcript is moderated.
 - **Context-aware second look.** A message that is borderline is re-checked together with the previous
   messages in the same chat. If it is still unclear it lands in a **review queue** instead of a guess.
-- **WhatsApp alerts** with the kid, chat, sender, category, score, time and the quoted message. A per-chat
-  cooldown avoids floods and the next alert says how many were held back.
+- **WhatsApp or Telegram alerts** with the kid, chat, sender, category, score, time and the quoted message.
+  You choose one channel under Settings → Alerts: WhatsApp through OpenWA, or a Telegram bot of your own.
+  A per-chat cooldown avoids floods and the next alert says how many were held back.
 - **Both sessions monitored?** A message between two monitored kids is stored once, with both kids on it, and
   produces one alert.
 - **Edits and deletes are kept.** A message the sender deletes for everyone stays in Iris with a red border
   and a "Deleted for everyone" label. An edited message gets an **Edited** marker, and the original wording
-  and every earlier version stay available as an edit history. Iris tells you on WhatsApp when the message of
+  and every earlier version stay available as an edit history. Iris tells you on your alert channel when the message of
   an alert you already received is edited or deleted.
 - **Try it page.** Type a message, see how Iris scores and classifies it, and adjust the thresholds with an
   instant preview before saving them.
@@ -86,7 +87,7 @@ flowchart LR
         A -- "send-text" --> OW
         UI["Portal + REST API"] --- DB[("SQLite, PostgreSQL<br/>or MySQL")]
     end
-    A -. "WhatsApp message" .-> P(("Parent"))
+    A -. "WhatsApp or Telegram message" .-> P(("Parent"))
 ```
 
 The webhook handler never calls an external API: it validates, stores, queues and answers `200`. All slow
@@ -166,11 +167,20 @@ IRIS_ADMIN_USERNAME=admin IRIS_ADMIN_PASSWORD=change-me IRIS_DATA_DIR=./data \
    destination is not allowed, your `IRIS_PUBLIC_BASE_URL` is a private address (see Requirements).
    You can also paste the shown URL (`https://…/webhooks/<token>`) into OpenWA by hand.
 3. Repeat for every number you monitor.
-4. Under **Settings → Alerts** choose the instance that **sends** alerts, enter the parent's number
-   (international format, digits only, e.g. `972501234567`) and press **Test**. A real WhatsApp message is
-   sent using the values you typed, before you save.
+4. Under **Settings → Alerts** choose how to be notified (**Notify via**). One channel is used at a time;
+   the values of the other are kept but ignored. Press **Test** to send a real message using the values you
+   typed, before you save.
+   - **WhatsApp (OpenWA):** choose the instance that **sends** alerts and enter the parent's number
+     (international format, digits only, e.g. `972501234567`).
+   - **Telegram:** create a bot with [@BotFather](https://t.me/BotFather) and paste its token (write-only: Iris
+     never shows it again). Then enter your **chat ID**: send any message to your bot, open
+     `https://api.telegram.org/bot<token>/getUpdates` and copy `chat.id` (or ask @userinfobot). A group or
+     channel ID is negative, and a public channel can also be given as `@channelname`. Telegram only lets a
+     bot write to a chat that has messaged it first.
 
-![Settings: alerts](assets/screenshots/settings-alerts.png)
+![Settings: alerts via WhatsApp (OpenWA)](assets/screenshots/settings-alerts.png)
+
+![Settings: alerts via Telegram](assets/screenshots/settings-alerts-telegram.png)
 
 ![Phones](assets/screenshots/instances.png)
 
@@ -300,7 +310,10 @@ UI only ever say whether one is set.
 | Classification | Moderation model | `omni-moderation-latest` |
 | Classification | Per-category thresholds (low and high) | see below |
 | Classification | Context window / max age | 8 messages / 6 hours |
-| Alerts | Sender instance, recipient, cooldown, time zone | cooldown 10 min, `Asia/Jerusalem` |
+| Alerts | Notify via (`whatsapp` or `telegram`) | `whatsapp` |
+| Alerts | WhatsApp: sender instance, recipient | |
+| Alerts | Telegram: bot token (write-only), chat ID | |
+| Alerts | Cooldown, time zone | cooldown 10 min, `Asia/Jerusalem` |
 | Alerts | Also alert on items needing review | off |
 | Alerts | Tell me when an alerted message is edited or deleted | on |
 | Scope | Monitor messages sent by the kid, direct chats, groups | all on |
@@ -383,7 +396,7 @@ it, or **send it again** if delivery failed.
 
 ![Alert detail](assets/screenshots/alert-detail.png)
 
-The WhatsApp alert looks like this:
+The alert looks like this (the same text on WhatsApp and Telegram, as plain text):
 
 ```
 ⚠️ Iris alert
@@ -444,7 +457,7 @@ How Iris treats a change:
 - Content that was withheld (see the safety rule) is never copied into the history, and withholding a message
   also clears its earlier versions.
 - With **Tell me when an alerted message is edited or deleted** on, an alert you already received gets a short
-  WhatsApp follow-up (the kid, chat, sender and a link). It never repeats the message text.
+  follow-up on the same channel (the kid, chat, sender and a link). It never repeats the message text.
 - An edit or delete that reaches Iris before the original message was stored is ignored. WhatsApp does not say
   what an edit replaced, so the history holds what Iris saw; the edit time is when Iris received it.
 

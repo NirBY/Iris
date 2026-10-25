@@ -22,7 +22,7 @@ from app.db.models import (
 from app.jobs.queue import enqueue
 from app.media.records import mark_purge
 from app.metrics import ALERTS
-from app.settings_store import get_setting
+from app.settings_store import get_setting, secret_is_set
 
 REDACTED = "[redacted]"
 MEDIA_TYPES = ("image", "sticker", "video")
@@ -96,6 +96,12 @@ async def _kid_names(db: AsyncSession, message_id: int) -> list[str]:
 
 
 async def delivery_configured(db: AsyncSession) -> bool:
+    """Whether the selected channel has everything it needs (secrets are only checked as set)."""
+    if await get_setting(db, "alerts.channel") == "telegram":
+        return bool(
+            await secret_is_set(db, "alerts.telegram_bot_token")
+            and await get_setting(db, "alerts.telegram_chat_id")
+        )
     return bool(
         await get_setting(db, "alerts.sender_instance_id")
         and await get_setting(db, "alerts.recipient")

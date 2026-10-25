@@ -132,8 +132,19 @@ const text: Record<string, string> = {
     'כבוי כברירת מחדל: אלה ממתינים בעמוד הבדיקה במקום זאת.',
   'Tell me when an alerted message is edited or deleted':
     'הודעה לי כשהודעה שהתריעו עליה נערכת או נמחקת',
-  'Sends a short follow-up on WhatsApp. It never repeats the message.':
-    'שולחת הודעת המשך קצרה בוואטסאפ. היא לעולם לא חוזרת על ההודעה המקורית.',
+  'Sends a short follow-up on your chosen channel. It never repeats the message.':
+    'שולחת הודעת המשך קצרה בערוץ שבחרת. היא לעולם לא חוזרת על ההודעה המקורית.',
+  'Iris sends each alert as a Telegram message from your own bot to your chat.':
+    'איריס שולחת כל התראה כהודעת טלגרם מהבוט שלך לצ׳אט שלך.',
+  'Notify via': 'שליחת התראות דרך',
+  'WhatsApp (OpenWA)': 'וואטסאפ (OpenWA)',
+  'Bot token (from @BotFather)': 'טוקן הבוט (מ־@BotFather)',
+  'Chat ID': 'מזהה צ׳אט',
+  'To find your chat ID, send any message to your bot, then open':
+    'כדי למצוא את מזהה הצ׳אט, שלח/י הודעה כלשהי לבוט שלך ואז פתח/י',
+  'and copy': 'והעתק/י את',
+  'Or message @userinfobot. Groups and channels have negative IDs.':
+    'או שלח/י הודעה ל־@userinfobot. לקבוצות ולערוצים יש מזהים שליליים.',
   'What to watch': 'מה לעקוב אחריו',
   'Turn off anything you do not want Iris to check.': 'כבה/י כל דבר שאת/ה לא רוצה שאיריס תבדוק.',
   'Messages the child sends': 'הודעות שהילד/ה שולח/ת',

@@ -20,8 +20,11 @@ const settings = {
   'scope.monitor_groups': true,
   'retention.message_days': 90,
   'retention.alert_days': 365,
+  'alerts.channel': 'whatsapp',
   'alerts.sender_instance_id': null,
   'alerts.recipient': null,
+  'alerts.telegram_bot_token': { set: false },
+  'alerts.telegram_chat_id': null,
   'alerts.cooldown_minutes': 10,
   'alerts.alert_on_review': false,
   'alerts.notify_changes': true,
@@ -147,6 +150,44 @@ test('alert settings are sent with the right types', async () => {
   expect(JSON.parse(put!.body!).settings).toEqual({
     'alerts.cooldown_minutes': 30,
     'alerts.alert_on_review': true,
+  })
+})
+
+test('the Telegram fields show only when Telegram is chosen, and the token is never shown', async () => {
+  renderPage()
+  await userEvent.click(await screen.findByRole('tab', { name: 'התראות' }))
+  expect(screen.getByLabelText(/שליחת התראות מ/)).toBeInTheDocument()
+  expect(screen.queryByLabelText(/טוקן הבוט/)).not.toBeInTheDocument()
+  await userEvent.selectOptions(screen.getByLabelText(he('Notify via')), 'telegram')
+  expect(screen.getByLabelText(/טוקן הבוט/)).toHaveValue('')
+  expect(screen.getByLabelText(he('Chat ID'))).toBeInTheDocument()
+  expect(screen.queryByLabelText(/שליחת התראות מ/)).not.toBeInTheDocument()
+  expect(screen.getByText(/getUpdates/)).toBeInTheDocument()
+})
+
+test('Telegram settings and the test button send the typed values', async () => {
+  const calls = renderPage()
+  await userEvent.click(await screen.findByRole('tab', { name: 'התראות' }))
+  await userEvent.selectOptions(screen.getByLabelText(he('Notify via')), 'telegram')
+  await userEvent.type(
+    screen.getByLabelText(/טוקן הבוט/),
+    '123456789:AAH-test_token_value_0123456789abc',
+  )
+  await userEvent.type(screen.getByLabelText(he('Chat ID')), '-1001234567890')
+  const section = screen.getByLabelText(he('Chat ID')).closest('section') ?? document.body
+  await userEvent.click(within(section).getByRole('button', { name: 'בדיקה' }))
+  const test = calls.find((c) => c.url === '/api/settings/test/alert')
+  expect(JSON.parse(test!.body!)).toEqual({
+    channel: 'telegram',
+    telegram_bot_token: '123456789:AAH-test_token_value_0123456789abc',
+    telegram_chat_id: '-1001234567890',
+  })
+  await userEvent.click(screen.getByRole('button', { name: 'שמירה' }))
+  const put = calls.find((c) => c.url === '/api/settings' && c.body)
+  expect(JSON.parse(put!.body!).settings).toEqual({
+    'alerts.channel': 'telegram',
+    'alerts.telegram_bot_token': '123456789:AAH-test_token_value_0123456789abc',
+    'alerts.telegram_chat_id': '-1001234567890',
   })
 })
 

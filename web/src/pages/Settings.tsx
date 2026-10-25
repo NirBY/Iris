@@ -72,8 +72,11 @@ interface Values {
   'scope.monitor_from_me': boolean
   'scope.monitor_direct': boolean
   'scope.monitor_groups': boolean
+  'alerts.channel': 'whatsapp' | 'telegram'
   'alerts.sender_instance_id': number | null
   'alerts.recipient': string | null
+  'alerts.telegram_bot_token': Secret
+  'alerts.telegram_chat_id': string | null
   'alerts.cooldown_minutes': number
   'alerts.alert_on_review': boolean
   'alerts.notify_changes': boolean
@@ -111,6 +114,7 @@ type Tab = (typeof TABS)[number]
 const SECRETS = [
   'openai.api_key',
   'transcription.cloudflare_api_token',
+  'alerts.telegram_bot_token',
   'media.s3_secret_key',
   'runtime.whisper_api_key',
 ]
@@ -476,6 +480,7 @@ export function Settings() {
     (data.local_providers?.transcription === 'local_whisper'
       ? 'local_whisper'
       : get('transcription.provider'))
+  const channel = get('alerts.channel') === 'telegram' ? 'telegram' : 'whatsapp'
   const mediaOn = get('media.policy') !== 'off'
 
   async function save(changes: Record<string, Change>, clearKeys: string[] = Object.keys(changes)) {
@@ -872,33 +877,83 @@ export function Settings() {
           </TabsContent>
 
           <TabsContent value="Alerts" className="flex flex-col gap-5">
-            <ParentConnections />
+            {channel !== 'telegram' && <ParentConnections />}
             <Section
               title={he('Where alerts go')}
-              description={he(
-                'Iris sends each alert to every listed parent from one linked WhatsApp phone. Up to 10 recipients.',
-              )}
+              description={
+                channel === 'telegram'
+                  ? he(
+                      'Iris sends each alert as a Telegram message from your own bot to your chat.',
+                    )
+                  : he(
+                      'Iris sends each alert to every listed parent from one linked WhatsApp phone. Up to 10 recipients.',
+                    )
+              }
             >
-              <Field label={he('Send alerts from')}>
-                <Select
-                  value={get('alerts.sender_instance_id')}
-                  onChange={(e) => set('alerts.sender_instance_id')(e.target.value)}
-                >
-                  <option value="">{he('Not set')}</option>
-                  {instances?.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.kid_name}
-                    </option>
-                  ))}
+              <Field label={he('Notify via')}>
+                <Select value={channel} onChange={(e) => set('alerts.channel')(e.target.value)}>
+                  <option value="whatsapp">{he('WhatsApp (OpenWA)')}</option>
+                  <option value="telegram">Telegram</option>
                 </Select>
               </Field>
-              <TestButton
-                target="alert"
-                body={{
-                  sender_instance_id: get('alerts.sender_instance_id') || undefined,
-                  recipient: get('alerts.recipient') || undefined,
-                }}
-              />
+              {channel === 'telegram' ? (
+                <>
+                  <Field label={he('Bot token (from @BotFather)')}>
+                    <SecretInput
+                      value={get('alerts.telegram_bot_token')}
+                      isSet={data['alerts.telegram_bot_token'].set}
+                      onChange={set('alerts.telegram_bot_token')}
+                      onClear={() => void save({ 'alerts.telegram_bot_token': null })}
+                    />
+                  </Field>
+                  <Field label={he('Chat ID')}>
+                    <Input
+                      dir="ltr"
+                      placeholder="123456789"
+                      value={get('alerts.telegram_chat_id')}
+                      onChange={(e) => set('alerts.telegram_chat_id')(e.target.value)}
+                    />
+                  </Field>
+                  <p className="text-sm text-muted-foreground">
+                    {he('To find your chat ID, send any message to your bot, then open')}{' '}
+                    <code dir="ltr">https://api.telegram.org/bot&lt;token&gt;/getUpdates</code>{' '}
+                    {he('and copy')} <code dir="ltr">chat.id</code>.{' '}
+                    {he('Or message @userinfobot. Groups and channels have negative IDs.')}
+                  </p>
+                  <TestButton
+                    target="alert"
+                    body={{
+                      channel,
+                      telegram_bot_token: edit['alerts.telegram_bot_token'] || undefined,
+                      telegram_chat_id: get('alerts.telegram_chat_id') || undefined,
+                    }}
+                  />
+                </>
+              ) : (
+                <>
+                  <Field label={he('Send alerts from')}>
+                    <Select
+                      value={get('alerts.sender_instance_id')}
+                      onChange={(e) => set('alerts.sender_instance_id')(e.target.value)}
+                    >
+                      <option value="">{he('Not set')}</option>
+                      {instances?.map((i) => (
+                        <option key={i.id} value={i.id}>
+                          {i.kid_name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <TestButton
+                    target="alert"
+                    body={{
+                      channel,
+                      sender_instance_id: get('alerts.sender_instance_id') || undefined,
+                      recipient: get('alerts.recipient') || undefined,
+                    }}
+                  />
+                </>
+              )}
             </Section>
             <Section title={he('Frequency and timing')}>
               {num('alerts.cooldown_minutes', he('Cooldown per chat (minutes)'), 0, 1440)}
@@ -917,7 +972,7 @@ export function Settings() {
               {bool(
                 'alerts.notify_changes',
                 he('Tell me when an alerted message is edited or deleted'),
-                he('Sends a short follow-up on WhatsApp. It never repeats the message.'),
+                he('Sends a short follow-up on your chosen channel. It never repeats the message.'),
               )}
             </Section>
           </TabsContent>
