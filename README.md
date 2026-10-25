@@ -260,7 +260,7 @@ IRIS_ADMIN_USERNAME=admin IRIS_ADMIN_PASSWORD=change-me IRIS_DATA_DIR=./data \
    (international format, digits only, e.g. `972501234567`) and press **Test**. A real WhatsApp message is
    sent using the values you typed, before you save.
 
-![Settings: alerts](assets/screenshots/settings-alerts.png)
+![Settings: alerts via WhatsApp (OpenWA)](assets/screenshots/settings-alerts.png)
 
 ![Phones](assets/screenshots/instances.png)
 
