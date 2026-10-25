@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import get_settings
 from app.db.models import Alert, Instance, Job, Message, MessageReceipt, ScheduleRun, Setting
+from app.db.retry import retry_sqlite_busy
 from app.jobs.queue import ClaimedJob, DeferredError, enqueue
 from app.settings_store import get_secret, get_setting
 
@@ -155,17 +156,49 @@ async def redact_error(db: AsyncSession, text: str) -> str:
     return text[:24000]
 
 
+@retry_sqlite_busy
+async def _start_run(
+    factory: async_sessionmaker[AsyncSession], key: str, job_id: int | None
+) -> int:
+    async with factory() as db:
+        run = ScheduleRun(schedule_key=key, job_id=job_id)
+        db.add(run)
+        await db.flush()
+        rid = run.id
+        await prune_history(db, key)
+        await db.commit()
+        return rid
+
+
+@retry_sqlite_busy
+async def _finish_run(
+    factory: async_sessionmaker[AsyncSession],
+    key: str,
+    rid: int,
+    status: str,
+    result: Any,
+    error: str | None,
+    trace: str | None,
+) -> None:
+    async with factory() as db:
+        completed_run = await db.get(ScheduleRun, rid)
+        if completed_run:
+            (
+                completed_run.status,
+                completed_run.result,
+                completed_run.error,
+                completed_run.traceback,
+            ) = status, result, error, trace
+            completed_run.finished_at = datetime.now(UTC)
+            await prune_history(db, key)
+            await db.commit()
+
+
 async def tracked(
     factory: async_sessionmaker[AsyncSession], key: str, callback: Any, job_id: int | None = None
 ) -> Any:
     async with _locks.setdefault(key, asyncio.Lock()):
-        async with factory() as db:
-            run = ScheduleRun(schedule_key=key, job_id=job_id)
-            db.add(run)
-            await db.flush()
-            rid = run.id
-            await prune_history(db, key)
-            await db.commit()
+        rid = await _start_run(factory, key, job_id)
         status, result, error, trace = "success", None, None, None
         try:
             result = await callback()
@@ -190,18 +223,7 @@ async def tracked(
                 trace = await redact_error(db, traceback.format_exc())
             raise
         finally:
-            async with factory() as db:
-                completed_run = await db.get(ScheduleRun, rid)
-                if completed_run:
-                    (
-                        completed_run.status,
-                        completed_run.result,
-                        completed_run.error,
-                        completed_run.traceback,
-                    ) = status, result, error, trace
-                    completed_run.finished_at = datetime.now(UTC)
-                    await prune_history(db, key)
-                    await db.commit()
+            await _finish_run(factory, key, rid, status, result, error, trace)
 
 
 async def schedule_config(db: AsyncSession, key: str) -> dict[str, Any]:
@@ -219,6 +241,7 @@ async def schedule_config(db: AsyncSession, key: str) -> dict[str, Any]:
     }
 
 
+@retry_sqlite_busy
 async def due_schedules(deps: "Deps", now: datetime | None = None) -> None:
     now = now or datetime.now(UTC)
     async with deps.session_factory() as db:
@@ -252,7 +275,9 @@ async def due_schedules(deps: "Deps", now: datetime | None = None) -> None:
                 .limit(1)
             ):
                 continue
-            await enqueue(db, "run_schedule", {"schedule_key": key}, max_attempts=3)
+            # Enqueue and advance the schedule in one transaction. A busy retry
+            # must roll back both, rather than leave a committed duplicate job.
+            db.add(Job(type="run_schedule", payload={"schedule_key": key}, max_attempts=3))
             value = {"at": now.timestamp(), "day": local.date().isoformat()}
             if state:
                 state.value = value

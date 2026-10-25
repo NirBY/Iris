@@ -27,7 +27,7 @@ def retry_sqlite_busy[**P, T](operation: Callable[P, Awaitable[T]]) -> Callable[
                 ):
                     raise
                 # Do not log SQL parameters, message bodies or provider credentials.
-                logger.warning("SQLite busy saving job outcome; retry {} of 3", attempt + 1)
+                logger.warning("SQLite busy during database operation; retry {} of 3", attempt + 1)
                 await sleep(0.25 * 2**attempt)
         raise AssertionError("unreachable")
 

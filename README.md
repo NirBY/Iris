@@ -955,6 +955,13 @@ security changes invalidate them and the login page explains the reason.
 
 ### Queue and notification reliability
 
+Short SQLite lock conflicts retry job claims, lease heartbeats, schedule dispatch and
+schedule-history writes with fresh transactions and bounded backoff. Schedule jobs and
+their due markers commit together. Retrying a history write does not repeat the completed
+callback, and retrying a claim cannot consume a second job after a successful commit.
+Persistent conflicts remain visible as failures; notification deliveries with uncertain
+outcomes are not blindly replayed.
+
 Retention preserves pending and processing messages, unresolved reviews, and messages with
 active classification jobs in every mode. Terminal failed/skipped messages still expire under
 the configured retention window. Classified harmful/review decisions keep durable alert-creation

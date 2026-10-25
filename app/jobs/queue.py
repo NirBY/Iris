@@ -121,6 +121,7 @@ async def enqueue(
     return job.id
 
 
+@retry_sqlite_busy
 async def claim(
     factory: async_sessionmaker[AsyncSession],
     *,
@@ -144,15 +145,19 @@ async def claim(
             .where(Job.id == candidate, Job.status == "queued")
             .values(status="running", locked_at=now, attempts=Job.attempts + 1)
         )
-        await db.commit()
         if res.rowcount != 1:  # type: ignore[attr-defined]
+            await db.rollback()
             return None  # another worker took it
-        bus.publish("jobs", "stats")
         job = await db.get(Job, candidate)
         assert job is not None
-        return ClaimedJob(job.id, job.type, job.payload, job.attempts, job.max_attempts)
+        claimed = ClaimedJob(job.id, job.type, job.payload, job.attempts, job.max_attempts)
+        await db.commit()
+        # No database reads after commit: retrying must never claim a second job.
+        bus.publish("jobs", "stats")
+        return claimed
 
 
+@retry_sqlite_busy
 async def heartbeat(factory: async_sessionmaker[AsyncSession], job: ClaimedJob) -> None:
     """Renew only the lease belonging to this attempt, not a recovered replacement."""
     async with factory() as db:
