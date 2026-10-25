@@ -13,6 +13,18 @@ def load(name: str) -> dict:
 
 
 def validate() -> None:
+    import ast
+    import re
+
+    module = ast.parse((ROOT / "app/version.py").read_text())
+    version = next(
+        node.value.args[1].value
+        for node in module.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "VERSION" for t in node.targets)
+    )
+    docker_version = re.search(r"^ARG VERSION=(.+)$", (ROOT / "Dockerfile").read_text(), re.M)
+    assert docker_version and docker_version[1] == version, "Source and Docker versions differ"
     updates = load("dependabot.yml")["updates"]
     expected = {
         ("uv", "/"),

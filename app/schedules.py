@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import get_settings
 from app.db.models import Alert, Instance, Job, Message, MessageReceipt, ScheduleRun, Setting
 from app.db.retry import retry_sqlite_busy
+from app.db.schedule_lock import lock_schedule
 from app.jobs.queue import ClaimedJob, DeferredError, enqueue
 from app.settings_store import get_secret, get_setting
 
@@ -248,6 +249,7 @@ async def due_schedules(deps: "Deps", now: datetime | None = None) -> None:
         timezone = ZoneInfo(str(await get_setting(db, "alerts.timezone")))
         local = now.astimezone(timezone)
         for key in CATALOG:
+            await lock_schedule(db, key)
             await prune_history(db, key, now)
             if key in ("pairing_cleanup", "connection_notifications"):
                 continue

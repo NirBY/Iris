@@ -37,7 +37,7 @@ format and coverage metadata only. These are AI decisions, not human learning la
 
 | Attachment | Analysis coverage |
 | --- | --- |
-| PDF | Text, up to 20 pages; scanned pages, drawings, images and forms remain reviewable |
+| PDF | Text, up to 20 pages; scanned pages, drawings, images, forms and fonts without reliable Unicode mappings remain reviewable |
 | DOCX | Body, tables, standard numbered lists, headers, footers, footnotes, endnotes and comments; embedded or dynamic content requires review |
 | XLSX, PPTX, ODT, ODS, ODP | Readable text can flag harm; unrendered layouts, charts, formulas and embedded objects prevent automatic clearance |
 | TXT, CSV, TSV, Markdown, JSON, YAML | UTF-8/UTF-16 text; binary or unreadable content is rejected |
@@ -957,7 +957,9 @@ security changes invalidate them and the login page explains the reason.
 
 Short SQLite lock conflicts retry job claims, lease heartbeats, schedule dispatch and
 schedule-history writes with fresh transactions and bounded backoff. Schedule jobs and
-their due markers commit together. Retrying a history write does not repeat the completed
+their due markers commit together. Manual and automatic dispatch share a transaction-scoped
+reservation on SQLite, PostgreSQL and MySQL, so concurrent requests cannot enqueue the same
+active schedule twice. Retrying a history write does not repeat the completed
 callback, and retrying a claim cannot consume a second job after a successful commit.
 Persistent conflicts remain visible as failures; notification deliveries with uncertain
 outcomes are not blindly replayed.

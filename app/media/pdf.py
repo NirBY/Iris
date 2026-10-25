@@ -45,8 +45,28 @@ def extract(path: Path) -> dict[str, Any]:
             incomplete = True
         font_ref = resources.get("/Font")
         fonts = font_ref.get_object() if font_ref else {}
-        if any(font.get_object().get("/Subtype") == "/Type3" for font in fonts.values()):
-            incomplete = True
+        for font_ref in fonts.values():
+            font = font_ref.get_object()
+            if font.get("/Subtype") == "/Type3":
+                incomplete = True
+            if not font.get("/ToUnicode"):
+                encoding_ref = font.get("/Encoding")
+                encoding = encoding_ref.get_object() if encoding_ref else None
+                descriptor_ref = font.get("/FontDescriptor")
+                descriptor = descriptor_ref.get_object() if descriptor_ref else {}
+                embedded = any(k in descriptor for k in ("/FontFile", "/FontFile2", "/FontFile3"))
+                standard = (
+                    encoding in ("/WinAnsiEncoding", "/MacRomanEncoding", "/StandardEncoding")
+                    if isinstance(encoding, str)
+                    else False
+                )
+                if (
+                    font.get("/Subtype") == "/Type0"
+                    or isinstance(encoding, dict)
+                    or (encoding is not None and not standard)
+                    or (embedded and not standard)
+                ):
+                    incomplete = True
         # Images, forms, vector artwork and annotations are not covered by text extraction.
         if page.get("/Annots") or content is None:
             incomplete = True

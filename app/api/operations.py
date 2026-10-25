@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AuditLog, Instance, Job, ScheduleRun, Setting
+from app.db.schedule_lock import lock_schedule
 from app.deps import get_db
 from app.jobs.queue import enqueue
 from app.schedules import CATALOG, health_issues, prune_history, schedule_config
@@ -107,6 +108,7 @@ async def schedules(db: DB) -> dict[str, Any]:
 async def run_now(key: str, db: DB) -> dict[str, Any]:
     if key not in CATALOG:
         raise HTTPException(404, "Schedule not found")
+    await lock_schedule(db, key)
     if await db.scalar(
         select(Job.id)
         .where(
@@ -120,10 +122,9 @@ async def run_now(key: str, db: DB) -> dict[str, Any]:
     if key == "connection_notifications":
         jobs = []
         for incident in await health_issues(db):
-            job = await enqueue(
-                db,
-                "run_schedule",
-                {
+            job = Job(
+                type="run_schedule",
+                payload={
                     "schedule_key": key,
                     "manual": True,
                     "instance_id": incident["instance_id"],
@@ -132,12 +133,16 @@ async def run_now(key: str, db: DB) -> dict[str, Any]:
                 },
                 max_attempts=3,
             )
-            jobs.append(job)
+            db.add(job)
+            await db.flush()
+            jobs.append(job.id)
         await db.commit()
         return {"job_ids": jobs}
-    job = await enqueue(db, "run_schedule", {"schedule_key": key, "manual": True}, max_attempts=3)
+    job_id = await enqueue(
+        db, "run_schedule", {"schedule_key": key, "manual": True}, max_attempts=3
+    )
     await db.commit()
-    return {"job_ids": [job]}
+    return {"job_ids": [job_id]}
 
 
 @router.get("/audit")

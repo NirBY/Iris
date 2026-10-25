@@ -203,6 +203,14 @@ async def _prepare(db: AsyncSession, job: ClaimedJob, deps: Deps, message: Messa
                         media_analysis={"method": "attachment_image_v1", "complete": True},
                     )
                 if detected and detected[0].startswith("audio/"):
+                    info = await ffmpeg.probe(raw)
+                    if info.has_video:
+                        if cfg.local_safety_mode and cfg.classification_provider == "ollama":
+                            return await _video_prepare(db, job, deps, message, tmp, original=raw)
+                        await _transcribe(db, deps, tmp, message, job, original=raw)
+                        return Prepared(
+                            problem=PermanentError("video visuals require manual review")
+                        )
                     await _transcribe(db, deps, tmp, message, job, original=raw)
                     return Prepared(
                         media_analysis={"method": "attachment_audio_v1", "complete": True}
@@ -368,7 +376,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
         try:
             outcome = await run_pipeline(message, ctx)
         except ValueError:
-            if (cfg.local_safety_mode or message.type == "document") and (
+            if (cfg.local_safety_mode or message.type in ("document", "other", "poll")) and (
                 prepared.problem is not None or message.type in ("other", "poll")
             ):
                 if prepared.problem is None:
@@ -431,7 +439,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
                 outcome.verdict = "review"
 
         if (
-            message.type in ("document", "other")
+            message.type in ("document", "other", "poll")
             and prepared.problem
             and outcome.verdict != "harmful"
         ):
@@ -446,7 +454,7 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             problem is not None
             and outcome.verdict != "harmful"
             and not cfg.local_safety_mode
-            and message.type not in ("document", "other")
+            and message.type not in ("document", "other", "poll")
         ):
             # Only the caption was examined: do not present the message as classified.
             message.verdict = None

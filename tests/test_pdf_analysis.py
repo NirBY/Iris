@@ -78,6 +78,67 @@ async def test_unchecked_pages_and_visuals_are_incomplete(tmp_path, options):
     assert not (await pdf.extract_pdf(path))["complete"]
 
 
+@pytest.mark.parametrize("kind", ["identity", "differences", "embedded", "standard"])
+async def test_unmapped_pdf_fonts_cannot_claim_complete_text(tmp_path, kind):
+    from pypdf import PdfReader
+    from pypdf.generic import ArrayObject, NumberObject, TextStringObject
+
+    path = tmp_path / "font.pdf"
+    make_pdf(path)
+    writer = PdfWriter(clone_from=PdfReader(path))
+    page = writer.pages[0]
+    font = page["/Resources"]["/Font"]["/F1"].get_object()
+    del font["/ToUnicode"]
+    if kind == "identity":
+        font[NameObject("/Subtype")] = NameObject("/Type0")
+        font[NameObject("/Encoding")] = NameObject("/Identity-H")
+        font[NameObject("/DescendantFonts")] = ArrayObject(
+            [
+                DictionaryObject(
+                    {
+                        NameObject("/Subtype"): NameObject("/CIDFontType2"),
+                        NameObject("/BaseFont"): NameObject("/Synthetic"),
+                        NameObject("/CIDSystemInfo"): DictionaryObject(
+                            {
+                                NameObject("/Registry"): TextStringObject("Adobe"),
+                                NameObject("/Ordering"): TextStringObject("Identity"),
+                                NameObject("/Supplement"): NumberObject(0),
+                            }
+                        ),
+                    }
+                )
+            ]
+        )
+    elif kind == "differences":
+        font[NameObject("/Encoding")] = DictionaryObject(
+            {
+                NameObject("/BaseEncoding"): NameObject("/WinAnsiEncoding"),
+                NameObject("/Differences"): ArrayObject([NumberObject(65), NameObject("/Z")]),
+            }
+        )
+    elif kind == "embedded":
+        embedded = DecodedStreamObject()
+        embedded.set_data(b"synthetic font bytes")
+        font[NameObject("/FontDescriptor")] = DictionaryObject(
+            {
+                NameObject("/FontFile2"): writer._add_object(embedded),
+            }
+        )
+    else:
+        font[NameObject("/Encoding")] = NameObject("/WinAnsiEncoding")
+    content = DecodedStreamObject()
+    content.set_data(
+        b"BT /F1 12 Tf 20 700 Td <00410042> Tj ET"
+        if kind == "identity"
+        else b"BT /F1 12 Tf 20 700 Td (AB) Tj ET"
+    )
+    page[NameObject("/Contents")] = writer._add_object(content)
+    writer.write(path)
+    result = await pdf.extract_pdf(path)
+    assert result["text"]
+    assert result["complete"] is (kind == "standard")
+
+
 @pytest.mark.parametrize("kind", ["encrypted", "malformed", "oversize", "pages", "characters"])
 async def test_rejected_documents_never_return_a_prefix(tmp_path, monkeypatch, kind):
     path = tmp_path / "test.pdf"

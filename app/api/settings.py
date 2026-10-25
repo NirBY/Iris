@@ -165,7 +165,8 @@ async def update_settings(
         raise HTTPException(status_code=422, detail=errors)
     provider_channel = body.settings.get("alerts.provider_notification_channel")
     if provider_channel and provider_channel != "mixed":
-        provider_ready = await delivery_readiness(db, provider_channel)
+        clean = {key: REGISTRY[key].validate(value) for key, value in body.settings.items()}
+        provider_ready = await delivery_readiness(db, provider_channel, overrides=clean)
         if not provider_ready.provider_ready:
             raise HTTPException(
                 422, {"alerts.provider_notification_channel": provider_ready.provider_error}
