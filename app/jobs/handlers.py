@@ -377,7 +377,9 @@ async def process_message(job: ClaimedJob, deps: Deps) -> None:
             outcome = await run_pipeline(message, ctx)
         except ValueError:
             if (cfg.local_safety_mode or message.type in ("document", "other", "poll")) and (
-                prepared.problem is not None or message.type in ("other", "poll")
+                prepared.problem is not None
+                or message.type == "poll"
+                or (cfg.local_safety_mode and message.type == "other")
             ):
                 if prepared.problem is None:
                     prepared.problem = PermanentError(
