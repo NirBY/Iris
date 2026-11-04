@@ -504,6 +504,8 @@ highlighted and its classifications.
 
 ### Review queue
 
+When OpenWA exhausts media recovery attempts, Iris keeps the review verdict and records the recovery failure. A media-only message with no saved copy appears under unavailable content; a readable caption, transcript, or saved file keeps it in manual review. A recovery failure never becomes a training label. The synthetic learning pack includes independent Hebrew and English cases for distinguishing neutral sports reports from direct threats.
+
 ![Review queue](assets/screenshots/review.png)
 
 Messages that stayed inconclusive even with the surrounding chat wait here, with their text (hidden until you

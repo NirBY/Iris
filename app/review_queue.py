@@ -2,7 +2,10 @@
 
 from sqlalchemy import ColumnElement, case, func, or_, select
 
-from app.db.models import Job, Message, ReviewDataIssue
+from app.db.models import Job, Message, ReviewDataIssue, StoredMedia
+
+OPENWA_RECOVERY_ERROR = "OpenWA media recovery temporarily unavailable"
+EXHAUSTED_REVIEW = "Safety check unavailable after retries; parent review required"
 
 
 def review_kind() -> ColumnElement[str]:
@@ -51,6 +54,13 @@ def unavailable_content() -> ColumnElement[bool]:
     )
     return or_(
         reported,
+        (
+            (func.coalesce(Message.review_reason, "") == OPENWA_RECOVERY_ERROR)
+            & Message.type.in_(("image", "sticker", "video", "voice", "audio", "document", "other"))
+            & (func.trim(func.coalesce(Message.text, "")) == "")
+            & (func.trim(func.coalesce(Message.transcript, "")) == "")
+            & ~select(StoredMedia.id).where(StoredMedia.message_id == Message.id).exists()
+        ),
         Message.redacted.is_(True),
         Message.revoked_at.is_not(None),
         func.coalesce(Message.review_reason, "").in_(

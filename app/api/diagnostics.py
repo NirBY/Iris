@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Job, LearningExample, Message, ReviewFeedback
 from app.deps import get_db
-from app.review_queue import ai_pending, unavailable_content
+from app.review_queue import OPENWA_RECOVERY_ERROR, ai_pending, unavailable_content
 from app.security.auth import admin_user
 
 router = APIRouter(
@@ -19,6 +19,8 @@ router = APIRouter(
 def review_category(reason: str | None) -> str:
     """Stable categories; never echo provider errors or free text to integrations."""
     reason = (reason or "").lower()
+    if reason == OPENWA_RECOVERY_ERROR.lower():
+        return "media_recovery_failed"
     if "media" in reason and any(word in reason for word in ("no stored", "no media")):
         return "missing_media"
     if "whisper" in reason or "transcript" in reason:

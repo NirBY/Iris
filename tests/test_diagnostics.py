@@ -129,3 +129,70 @@ async def test_diagnostics_requires_admin(app_client):
         await db.commit()
         app_client.cookies.set(COOKIE_NAME, make_session_token(get_settings(), user))
     assert (await app_client.get("/api/diagnostics/summary")).status_code == 403
+
+
+async def test_exhausted_media_goes_to_recovery_only_without_inspectable_evidence(app_client):
+    from sqlalchemy import select
+
+    from app.db.models import StoredMedia
+    from app.legacy_review import quarantine_legacy_unknowns
+    from app.review_queue import EXHAUSTED_REVIEW, OPENWA_RECOVERY_ERROR, unavailable_content
+
+    async with app_client.app.state.session_factory() as db:
+        chat = Chat(wa_chat_id="recovery")
+        db.add(chat)
+        await db.flush()
+        rows = [
+            Message(
+                chat_id=chat.id,
+                wa_message_id=str(i),
+                type="image",
+                status="failed",
+                verdict="review",
+                review_reason=EXHAUSTED_REVIEW,
+                sent_at=datetime.now(UTC),
+            )
+            for i in range(5)
+        ]
+        rows[1].text = "readable caption"
+        rows[2].transcript = "readable transcript"
+        db.add_all(rows)
+        await db.flush()
+        for row in rows:
+            db.add(
+                Job(
+                    type="process_message",
+                    payload={"message_id": row.id},
+                    status="dead",
+                    last_error=OPENWA_RECOVERY_ERROR,
+                )
+            )
+        await db.flush()
+        db.add(
+            Job(
+                type="process_message",
+                payload={"message_id": rows[4].id},
+                status="dead",
+                last_error="classifier timeout",
+            )
+        )
+        db.add(
+            StoredMedia(
+                message_id=rows[3].id,
+                backend="local",
+                key="synthetic",
+                content_type="image/png",
+                kind="image",
+                size_bytes=50,
+                sha256="a" * 64,
+            )
+        )
+        await db.commit()
+        await quarantine_legacy_unknowns(db)
+        await quarantine_legacy_unknowns(db)
+        assert list(await db.scalars(select(Message.id).where(unavailable_content()))) == [
+            rows[0].id
+        ]
+        assert rows[4].review_reason == EXHAUSTED_REVIEW
+        assert all(row.verdict == "review" for row in rows)
+        assert not list(await db.scalars(select(ReviewFeedback)))

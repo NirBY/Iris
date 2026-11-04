@@ -3,7 +3,8 @@
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Classification, Message, ReviewFeedback
+from app.db.models import Classification, Job, Message, ReviewFeedback
+from app.review_queue import EXHAUSTED_REVIEW, OPENWA_RECOVERY_ERROR
 
 
 async def quarantine_legacy_unknowns(db: AsyncSession) -> None:
@@ -59,5 +60,26 @@ async def quarantine_legacy_unknowns(db: AsyncSession) -> None:
             Message.verdict.is_(None),
         )
         .values(verdict="review", review_reason="Safety check unavailable; parent review required")
+    )
+    # Only repair the generic terminal reason when the latest processing job
+    # confirms this exact recovery failure. Never infer a verdict from a failed fetch.
+    latest_error = (
+        select(Job.last_error)
+        .where(Job.type == "process_message", Job.payload["message_id"].as_integer() == Message.id)
+        .order_by(Job.id.desc())
+        .limit(1)
+        .correlate(Message)
+        .scalar_subquery()
+    )
+    await db.execute(
+        update(Message)
+        .where(
+            Message.status == "failed",
+            Message.verdict == "review",
+            Message.review_reason == EXHAUSTED_REVIEW,
+            Message.id.not_in(select(ReviewFeedback.message_id)),
+            latest_error == OPENWA_RECOVERY_ERROR,
+        )
+        .values(review_reason=OPENWA_RECOVERY_ERROR)
     )
     await db.commit()

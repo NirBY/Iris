@@ -250,7 +250,7 @@ async def fail(
             await db.execute(
                 update(Message).where(Message.id == message_id).values(status="failed")
             )
-            await _review_failed_check(db, message_id)
+            await _review_failed_check(db, message_id, error)
         alert_id = job.payload.get("alert_id")
         # Only a delivery that ran out of attempts fails its alert; a lost follow-up must not
         # turn an alert the parent already received into a "failed" one.
@@ -275,7 +275,7 @@ async def fail(
         return status
 
 
-async def _review_failed_check(db: AsyncSession, message_id: int) -> None:
+async def _review_failed_check(db: AsyncSession, message_id: int, error: str = "") -> None:
     """A terminal safety-check failure stays visible and cannot expire without review."""
     if not get_settings().local_safety_mode:
         return
@@ -283,7 +283,11 @@ async def _review_failed_check(db: AsyncSession, message_id: int) -> None:
     if message is None or message.verdict == "harmful":
         return
     message.verdict = "review"
-    message.review_reason = "Safety check unavailable after retries; parent review required"
+    from app.review_queue import EXHAUSTED_REVIEW, OPENWA_RECOVERY_ERROR
+
+    message.review_reason = (
+        OPENWA_RECOVERY_ERROR if error == OPENWA_RECOVERY_ERROR else EXHAUSTED_REVIEW
+    )
     await db.flush()
     from app.settings_store import get_setting
 

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Instance, Message
 from app.jobs.queue import PermanentError, TransientError
 from app.openwa.client import MediaTooLarge, OpenWAClient, OpenWAError
+from app.review_queue import OPENWA_RECOVERY_ERROR
 from app.security.crypto import decrypt
 from app.settings_store import get_setting
 
@@ -148,7 +149,7 @@ async def fetch_original(
                     if failure.status in (401, 403):
                         raise PermanentError("OpenWA rejected the API key") from failure
                     if attempt + 1 == attempts:
-                        transient = TransientError("OpenWA media recovery temporarily unavailable")
+                        transient = TransientError(OPENWA_RECOVERY_ERROR)
         finally:
             await client.aclose()
     if transient is not None:
