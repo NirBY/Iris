@@ -504,6 +504,8 @@ highlighted and its classifications.
 
 ### Review queue
 
+Learning retrieval deduplicates human-reviewed content before its candidate limit. Conflicting labels exclude that content hash across the eligible set. Child scope and held-out exclusions are applied before deduplication; both lexical and semantic retrieval share these rules. Retrieval revisions invalidate older evaluation results.
+
 When OpenWA exhausts media recovery attempts, Iris keeps the review verdict and records the recovery failure. A media-only message with no saved copy appears under unavailable content; a readable caption, transcript, or saved file keeps it in manual review. A recovery failure never becomes a training label. The synthetic learning pack includes independent Hebrew and English cases for distinguishing neutral sports reports from direct threats.
 
 ![Review queue](assets/screenshots/review.png)

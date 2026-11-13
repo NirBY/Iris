@@ -28,8 +28,8 @@ from app.settings_store import get_setting
 MAX_EXAMPLE_CHARS = 1200
 MAX_CANDIDATES = 200
 MAX_EXAMPLES = 4
-RETRIEVAL_VERSION = "lexical-v5"
-SEMANTIC_VERSION = "semantic-v4"
+RETRIEVAL_VERSION = "lexical-v6"
+SEMANTIC_VERSION = "semantic-v5"
 TEXT_TYPES = {"text", "chat"}
 
 
@@ -113,7 +113,18 @@ async def select_examples(
     if not children:
         return Selection([], metadata)
     statement = (
-        select(LearningExample, Message)
+        select(
+            LearningExample.message_id.label("message_id"),
+            LearningExample.content_hash.label("content_hash"),
+            LearningExample.verdict.label("verdict"),
+            LearningExample.created_at.label("created_at"),
+            func.row_number()
+            .over(
+                partition_by=LearningExample.content_hash,
+                order_by=(LearningExample.created_at.desc(), Message.id.desc()),
+            )
+            .label("copy_rank"),
+        )
         .join(Message, Message.id == LearningExample.message_id)
         .join(ReviewFeedback, ReviewFeedback.message_id == Message.id)
         .where(
@@ -154,12 +165,31 @@ async def select_examples(
             .where(SkippedGroup.chat_id == Message.chat_id, SkippedGroup.instance_id.in_(children))
             .exists(),
         )
-        .order_by(LearningExample.created_at.desc(), Message.id.desc())
-        .limit(MAX_CANDIDATES)
     )
     if exclude_chats:
         statement = statement.where(Message.chat_id.not_in(exclude_chats))
-    rows = list((await db.execute(statement)).all())
+    # Apply scope/holdout filters first, then deduplicate before the bounded candidate
+    # window. Opposing human labels disqualify the hash, even outside that window.
+    eligible_rows = statement.subquery()
+    consistent_hashes = (
+        select(eligible_rows.c.content_hash)
+        .group_by(eligible_rows.c.content_hash)
+        .having(func.count(func.distinct(eligible_rows.c.verdict)) == 1)
+    )
+    candidate_ids = (
+        select(eligible_rows.c.message_id)
+        .where(eligible_rows.c.copy_rank == 1, eligible_rows.c.content_hash.in_(consistent_hashes))
+        .order_by(eligible_rows.c.created_at.desc(), eligible_rows.c.message_id.desc())
+        .limit(MAX_CANDIDATES)
+    )
+    bounded = candidate_ids.subquery()
+    statement_rows = (
+        select(LearningExample, Message)
+        .join(Message, Message.id == LearningExample.message_id)
+        .join(bounded, bounded.c.message_id == LearningExample.message_id)
+        .order_by(LearningExample.created_at.desc(), Message.id.desc())
+    )
+    rows = list((await db.execute(statement_rows)).all())
     ids = [message.id for _, message in rows]
     receipts: dict[int, set[int]] = {}
     for mid, iid in await db.execute(

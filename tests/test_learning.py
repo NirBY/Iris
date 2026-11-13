@@ -794,3 +794,59 @@ async def test_private_evaluation_job_saves_progress_and_removes_completed_check
     # Crash between final report commit and queue acknowledgement: no new inference.
     await evaluate_job(claimed, SimpleNamespace(session_factory=factory))
     assert len(route.calls) == 2
+
+
+@pytest.mark.parametrize("strategy", ["lexical", "semantic"])
+@pytest.mark.parametrize("conflicting", [False, True])
+async def test_repeated_examples_cannot_hide_diverse_or_conflicting_labels(
+    app_learning_db, monkeypatch, strategy, conflicting
+):
+    from unittest.mock import AsyncMock
+
+    from app.classify import learning
+
+    db = app_learning_db
+    source, target = await samples(db)
+    (await db.get(LearningExample, source.id)).created_at = T0
+    for index in range(3):
+        # Newer identical copies used to consume the entire candidate window.
+        duplicate = Message(
+            chat_id=source.chat_id,
+            wa_message_id=f"copy-{index}",
+            type="text",
+            text=source.text if conflicting else "אני אהרוג אותך ביום אחר",
+            sent_at=T0 + timedelta(hours=index + 1),
+        )
+        db.add(duplicate)
+        await db.flush()
+        verdict = "safe" if conflicting else "harmful"
+        db.add_all(
+            [
+                MessageReceipt(message_id=duplicate.id, instance_id=1),
+                ReviewFeedback(message_id=duplicate.id, verdict=verdict),
+            ]
+        )
+        await capture(db, duplicate, verdict)
+        (await db.get(LearningExample, duplicate.id)).created_at = T0 + timedelta(hours=index + 1)
+    await db.commit()
+    monkeypatch.setattr(learning, "MAX_CANDIDATES", 2)
+    embedder = AsyncMock()
+    embedder.embed.return_value = [[1.0, 0.0]] * 3
+    await set_setting(db, "classification.learning_embedding_model", "embed-model")
+    selected = await select_examples(db, target, strategy=strategy, embedder=embedder)
+    if conflicting:
+        assert selected.examples == []
+        embedder.embed.assert_not_awaited()
+    else:
+        assert len(selected.examples) == 2
+        assert source.id in [e["message_id"] for e in selected.examples]
+        assert selected.metadata["candidates"] == 2
+        if strategy == "semantic":
+            assert len(embedder.embed.call_args.args[1]) == 3
+
+
+@pytest.fixture
+async def app_learning_db(app_client):
+    """Exercise the configured CI database, including PostgreSQL and MySQL."""
+    async with app_client.app.state.session_factory() as session:
+        yield session
