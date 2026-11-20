@@ -43,7 +43,9 @@ export function QRFrame() {
         <p role="status" className="text-sm text-muted-foreground">
           {qr.data?.status === 'expired' || brokenImage
             ? t('This QR code is no longer valid. Request a new code.')
-            : t('No QR code is available yet. You can request a new code.')}
+            : qr.data?.status === 'waiting'
+              ? t('WhatsApp is starting. The QR code appears here within a minute.')
+              : t('No QR code is available yet. You can request a new code.')}
         </p>
       )}
       {image && (

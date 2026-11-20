@@ -14,7 +14,8 @@ from app.metrics import LIVE_CLIENTS
 
 TOPICS = ("messages", "alerts", "review", "jobs", "stats", "instances", "chats")
 MAX_CLIENTS = 20
-COALESCE_SECONDS = 0.3  # changes this close together become one event
+# Changes this close together become one event. Each event makes every open tab refetch.
+COALESCE_SECONDS = 1.5
 QUEUE_SIZE = 16
 
 

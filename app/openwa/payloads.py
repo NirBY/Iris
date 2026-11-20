@@ -96,7 +96,10 @@ def poll_text(data: dict[str, Any]) -> tuple[str | None, bool]:
     text = body if isinstance(body, str) and body else None
     if not isinstance(poll, dict):
         return text, False
+    # The local OpenWA patch sent "question"; upstream OpenWA (0.26+) sends "name".
     question = poll.get("question")
+    if not (isinstance(question, str) and question):
+        question = poll.get("name")
     if isinstance(question, str) and question:
         text = question
     options = poll.get("options")

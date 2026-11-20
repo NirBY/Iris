@@ -305,3 +305,14 @@ test('connected phone keeps failed monitoring setup visible on its card', async 
   expect(screen.getByRole('alert')).toHaveTextContent('Destination address is not allowed')
   expect(screen.queryByRole('button', { name: 'Re-pair WhatsApp' })).not.toBeInTheDocument()
 })
+
+test('start all phones starts stopped sessions and reports the result', async () => {
+  const calls = renderWithApp(<Instances />, {
+    '/api/instances/start-all': { started: 2, already_running: 1, failed: 0 },
+    '/api/instances': [phone],
+    '/api/settings': {},
+  })
+  await userEvent.click(await screen.findByRole('button', { name: 'Start all phones' }))
+  expect(calls.some((c) => c.method === 'POST' && c.url === '/api/instances/start-all')).toBe(true)
+  expect(await screen.findByText('Starting phones: 2, already running: 1')).toBeInTheDocument()
+})

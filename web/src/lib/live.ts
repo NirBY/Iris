@@ -16,7 +16,10 @@ const KEYS: Record<string, string[]> = {
 
 export function invalidateTopics(qc: QueryClient, topics: string[]) {
   for (const t of topics) {
-    for (const key of KEYS[t] ?? []) void qc.invalidateQueries({ queryKey: [key] })
+    // Keep a request that is already running instead of cancelling and restarting it: during a
+    // burst of changes, restarts pile abandoned work on the server and exhaust its database pool.
+    for (const key of KEYS[t] ?? [])
+      void qc.invalidateQueries({ queryKey: [key] }, { cancelRefetch: false })
   }
 }
 
@@ -48,7 +51,7 @@ export function useLiveUpdates(onAlert: (id: number | null) => void): LiveStatus
     let source: EventSource | null = null
     let retry: ReturnType<typeof setTimeout> | undefined
     let delay = 5_000
-    const everything = () => void qc.invalidateQueries()
+    const everything = () => void qc.invalidateQueries(undefined, { cancelRefetch: false })
     const connect = () => {
       const es = new EventSource('/api/events')
       source = es

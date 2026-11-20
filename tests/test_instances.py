@@ -388,10 +388,31 @@ async def test_new_qr_refreshes_only_disconnected_session_and_never_logs_out(app
     url = f"/api/instances/{out['id']}/qr/refresh"
     assert (await app_client.post(url)).json()["status"] == "ready"
     assert not stop.called and not start.called
-    session.mock(return_value=httpx.Response(200, json={"status": "qr_ready"}))
+    # A live QR (or one still being prepared) is kept: restarting would throw it away.
+    for status in ("qr_ready", "initializing", "authenticating"):
+        session.mock(return_value=httpx.Response(200, json={"status": status}))
+        assert (await app_client.post(url)).json()["status"] == status
+    assert not stop.called and not start.called
+    session.mock(return_value=httpx.Response(200, json={"status": "disconnected"}))
     assert (await app_client.post(url)).json()["status"] == "waiting"
     assert stop.called and start.called
     assert (await app_client.get(f"/api/instances/{out['id']}")).status_code == 200
+
+
+@respx.mock
+async def test_qr_refresh_ignores_stop_of_a_session_that_is_not_running(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(200, json={"status": "failed"})
+    )
+    respx.post("https://wa.example.com/api/sessions/sess-1/stop").mock(
+        return_value=httpx.Response(400, json={"message": "Session is not running"})
+    )
+    start = respx.post("https://wa.example.com/api/sessions/sess-1/start").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    r = await app_client.post(f"/api/instances/{out['id']}/qr/refresh")
+    assert r.status_code == 200 and r.json()["status"] == "waiting" and start.called
 
 
 @respx.mock
@@ -404,3 +425,41 @@ async def test_repair_reports_timeout_cause_without_leaking_sender_key(app_clien
     assert result.status_code == 502 and "did not respond in time" in result.json()["detail"]
     assert "private upstream" not in result.text and "super-secret" not in result.text
     assert (await app_client.get(f"/api/instances/{out['id']}")).status_code == 200
+
+
+@respx.mock
+async def test_start_all_starts_only_stopped_sessions(app_client) -> None:  # type: ignore[no-untyped-def]
+    await app_client.post("/api/instances", json=BODY)
+    await app_client.post("/api/instances", json={**BODY, "openwa_instance_id": "sess-2"})
+    await app_client.post("/api/instances", json={**BODY, "openwa_instance_id": "sess-3"})
+    respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(200, json={"status": "failed"})
+    )
+    respx.get("https://wa.example.com/api/sessions/sess-2").mock(
+        return_value=httpx.Response(200, json={"status": "ready"})
+    )
+    respx.get("https://wa.example.com/api/sessions/sess-3").mock(
+        return_value=httpx.Response(500, json={"message": "down"})
+    )
+    start1 = respx.post("https://wa.example.com/api/sessions/sess-1/start").mock(
+        side_effect=httpx.ReadTimeout("slow boot")
+    )
+    start2 = respx.post("https://wa.example.com/api/sessions/sess-2/start")
+    r = await app_client.post("/api/instances/start-all")
+    assert r.status_code == 200
+    assert r.json() == {"started": 1, "already_running": 1, "failed": 1}
+    assert start1.called and not start2.called
+
+
+@respx.mock
+async def test_re_pair_slow_openwa_start_does_not_time_out(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(200, json={"status": "disconnected"})
+    )
+    start = respx.post("https://wa.example.com/api/sessions/sess-1/start").mock(
+        side_effect=httpx.ReadTimeout("browser still booting")
+    )
+    r = await app_client.post(f"/api/instances/{out['id']}/re-pair")
+    assert r.status_code == 200 and r.json() == {"status": "initializing", "qr": None}
+    assert start.called

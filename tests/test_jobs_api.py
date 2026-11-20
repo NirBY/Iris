@@ -40,3 +40,17 @@ async def test_reprocess_enqueues_and_blocks_redacted(app_client: Any) -> None:
 async def test_jobs_require_auth(app_client: Any) -> None:
     app_client.cookies.clear()
     assert (await app_client.get("/api/jobs")).status_code == 401
+
+
+async def test_retry_all_requeues_every_failed_job(app_client: Any) -> None:
+    _, token = await make_instance(app_client)
+    await post(app_client, token, fx("text_received_mixed"))
+    async with app_client.app.state.session_factory() as s:
+        await s.execute(update(Job).values(status="dead", last_error="boom"))
+        await s.commit()
+    r = await app_client.post("/api/jobs/retry-all")
+    assert r.status_code == 200 and r.json() == {"retried": 1, "skipped": 0}
+    assert (await app_client.get("/api/jobs")).json() == []
+    assert (await app_client.post("/api/jobs/retry-all")).json() == {"retried": 0, "skipped": 0}
+    app_client.cookies.clear()
+    assert (await app_client.post("/api/jobs/retry-all")).status_code == 401

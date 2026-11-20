@@ -165,3 +165,14 @@ def test_poll_question_and_options_are_preserved_for_search_and_safety_checks():
     raw["data"]["poll"]["options"] = ["valid", None]
     with pytest.raises(PayloadError):
         parse_event(raw)
+
+
+def test_upstream_openwa_poll_name_is_the_question():
+    raw = load("text_received_mixed")
+    raw["data"]["type"] = "poll"
+    raw["data"]["body"] = ""
+    raw["data"]["poll"] = {"name": "מה אוכלים?", "options": ["פיצה", "סושי"]}
+    m = parse_event(raw)
+    assert m and m.type == "poll"
+    assert m.text == "מה אוכלים?\n• פיצה\n• סושי"
+    assert m.diagnostics["has_poll_options"] is True

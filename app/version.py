@@ -2,4 +2,4 @@
 
 import os
 
-VERSION = os.environ.get("IRIS_VERSION", "2026.11.0-beta.76")
+VERSION = os.environ.get("IRIS_VERSION", "2026.11.0-beta.77")

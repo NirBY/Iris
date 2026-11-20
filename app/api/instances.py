@@ -1,5 +1,6 @@
 """/api/instances: CRUD for the kids' WhatsApp numbers. API keys are write-only."""
 
+import asyncio
 import base64
 import binascii
 import hashlib
@@ -132,12 +133,21 @@ async def refresh_qr(
         if status == "ready":
             return {"status": "ready", "qr": None}
         if status in ("authenticating", "initializing"):
+            # Still starting: a restart now would only throw away the QR that is coming.
             return {"status": status, "qr": None}
         key = (instance_id, inst.openwa_instance_id)
-        if key in _qr_seen:
-            _qr_seen[key] = (_qr_seen[key][0], time.monotonic() - QR_VALID_SECONDS)
-        await client._request("POST", f"/api/sessions/{sid}/stop")
-        await client._request("POST", f"/api/sessions/{sid}/start")
+        seen = _qr_seen.get(key)
+        if status == "qr_ready" and (seen is None or time.monotonic() - seen[1] < QR_VALID_SECONDS):
+            # OpenWA rotates a live QR by itself; keep it so the phone can still scan it.
+            return {"status": "qr_ready", "qr": None}
+        if seen is not None:
+            _qr_seen[key] = (seen[0], time.monotonic() - QR_VALID_SECONDS)
+        try:
+            await client._request("POST", f"/api/sessions/{sid}/stop")
+        except OpenWAError as exc:
+            if exc.status != 400:  # 400: nothing running to stop, which is fine here
+                raise
+        await start_session_quick(client, sid)
         return {"status": "waiting", "qr": None}
     except OpenWAError as exc:
         raise _repair_error(instance_id, exc) from None
@@ -262,6 +272,75 @@ async def _get(db: AsyncSession, instance_id: int) -> Instance:
 async def list_instances(db: DB, settings: Cfg) -> list[InstanceOut]:
     rows = (await db.execute(select(Instance).order_by(Instance.id))).scalars().all()
     return [await instance_out(db, i, settings) for i in rows]
+
+
+START_ALL_STATUSES = ("created", "disconnected", "failed", "action_required")
+START_ALL_TIMEOUT = 5.0
+
+
+async def start_session_quick(client: OpenWAClient, sid: str) -> None:
+    """Ask OpenWA to start a session without waiting for the browser to boot.
+
+    OpenWA answers /start only once its browser is up, which can take minutes, and it keeps booting
+    after the request is dropped. Waiting would hold this request (and its database connection)
+    and end in a timeout error, so a slow start counts as started.
+    """
+    try:
+        await asyncio.wait_for(
+            client._request("POST", f"/api/sessions/{sid}/start"), START_ALL_TIMEOUT
+        )
+    except TimeoutError:
+        return
+    except OpenWAError as exc:
+        if exc.status is None and "Timeout" in exc.message:
+            return
+        raise
+
+
+class StartAllOut(BaseModel):
+    started: int
+    already_running: int
+    failed: int
+
+
+StartResult = Literal["started", "running", "failed"]
+
+
+async def _start_session(inst: Instance, key_bytes: bytes) -> StartResult:
+    """Start one stopped OpenWA session. A slow start (the browser is booting) counts as started."""
+    if not inst.openwa_api_key_enc or not inst.openwa_instance_id:
+        return "failed"
+    client = OpenWAClient(inst.openwa_base_url, decrypt(key_bytes, inst.openwa_api_key_enc))
+    sid = quote(inst.openwa_instance_id, safe="")
+    try:
+        value = await client._request("GET", f"/api/sessions/{sid}")
+        body = value.get("data", value) if isinstance(value, dict) else {}
+        status = str(body.get("status", "unknown")) if isinstance(body, dict) else "unknown"
+        if status not in START_ALL_STATUSES:
+            return "running"
+        await start_session_quick(client, sid)
+        return "started"
+    except OpenWAError as exc:
+        logger.warning("start-all: instance {} failed to start: {}", inst.id, exc.message)
+        return "failed"
+    finally:
+        await client.aclose()
+
+
+@router.post("/start-all")
+async def start_all(db: DB, settings: Cfg) -> StartAllOut:
+    """Start every enabled phone whose OpenWA session is stopped, failed or disconnected."""
+    rows = (
+        (await db.execute(select(Instance).where(Instance.enabled.is_(True)).order_by(Instance.id)))
+        .scalars()
+        .all()
+    )
+    results = await asyncio.gather(*(_start_session(i, settings.key_bytes) for i in rows))
+    return StartAllOut(
+        started=results.count("started"),
+        already_running=results.count("running"),
+        failed=results.count("failed"),
+    )
 
 
 async def clear_missing_sender(db: AsyncSession) -> None:
@@ -549,7 +628,7 @@ async def re_pair(instance_id: int, db: DB, settings: Cfg, response: Response) -
                     await db.commit()
             return {"status": "ready", "qr": None}
         if status in ("created", "disconnected", "failed", "action_required"):
-            await client._request("POST", f"/api/sessions/{sid}/start")
+            await start_session_quick(client, sid)
             return {"status": "initializing", "qr": None}
         if status in ("initializing", "authenticating"):
             return {"status": status, "qr": None}

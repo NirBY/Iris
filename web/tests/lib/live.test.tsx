@@ -48,7 +48,7 @@ test('connects to the stream and shows live once the server says hello', () => {
   expect(result.current).toBe('reconnecting')
   act(() => source().emit('hello'))
   expect(result.current).toBe('live')
-  expect(spy).toHaveBeenCalledWith() // catch-up: everything is refetched
+  expect(spy).toHaveBeenCalledWith(undefined, { cancelRefetch: false }) // catch-up: everything is refetched
 })
 
 test('a change refetches only the queries of the topics that changed', () => {
@@ -81,7 +81,7 @@ test('a dropped connection says reconnecting and the next hello catches up', () 
   spy.mockClear()
   act(() => source().emit('hello'))
   expect(result.current).toBe('live')
-  expect(spy).toHaveBeenCalledWith()
+  expect(spy).toHaveBeenCalledWith(undefined, { cancelRefetch: false })
 })
 
 test('coming back to the tab refetches everything', () => {
@@ -90,7 +90,7 @@ test('coming back to the tab refetches everything', () => {
   act(() => {
     document.dispatchEvent(new Event('visibilitychange'))
   })
-  expect(spy).toHaveBeenCalledWith()
+  expect(spy).toHaveBeenCalledWith(undefined, { cancelRefetch: false })
 })
 
 test('leaving the page closes the stream', () => {

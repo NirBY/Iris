@@ -43,6 +43,19 @@ export function Jobs() {
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not retry the job.'),
   })
+  const retryAll = useMutation({
+    mutationFn: () =>
+      api<{ retried: number; skipped: number }>('/api/jobs/retry-all', { method: 'POST' }),
+    onSuccess: (r) => {
+      toast.success(
+        `${t('Retrying failed jobs:')} ${r.retried}` +
+          (r.skipped ? ` (${t('skipped')} ${r.skipped})` : ''),
+      )
+      return qc.invalidateQueries()
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.message : t('Could not retry the jobs.')),
+  })
+  const hasFailed = data?.some((j) => ['failed', 'dead'].includes(j.status)) ?? false
   return (
     <div className="flex max-w-4xl flex-col gap-5">
       <PageHeader
@@ -51,6 +64,11 @@ export function Jobs() {
           'Track queued work and delivery results. Failed jobs can be retried after checking the cause.',
         )}
       />
+      {hasFailed && (
+        <Button className="w-fit" disabled={retryAll.isPending} onClick={() => retryAll.mutate()}>
+          <RotateCw /> {t('Retry all failed jobs')}
+        </Button>
+      )}
       <Field label={t('Job status')}>
         <Select value={status} onChange={(e) => update({ status: e.target.value })}>
           <option value="">{t('Needs attention')}</option>

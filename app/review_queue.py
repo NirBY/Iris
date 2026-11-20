@@ -74,13 +74,13 @@ def unavailable_content() -> ColumnElement[bool]:
 
 
 def ai_pending() -> ColumnElement[bool]:
-    active = (
-        select(Job.id)
-        .where(
-            Job.type == "process_message",
-            Job.status.in_(("queued", "running")),
-            Job.payload["message_id"].as_integer() == Message.id,
-        )
-        .exists()
+    # Uncorrelated on purpose: the active jobs' message ids are read once per query. A correlated
+    # EXISTS parsed every active job's JSON payload once per message (seconds on a small NAS).
+    # NULL ids are excluded so `~ai_pending()` stays a plain true/false, never SQL NULL.
+    message_id = Job.payload["message_id"].as_integer()
+    active_ids = select(message_id).where(
+        Job.type == "process_message",
+        Job.status.in_(("queued", "running")),
+        message_id.is_not(None),
     )
-    return or_(Message.status.in_(("pending", "processing")), active)
+    return or_(Message.status.in_(("pending", "processing")), Message.id.in_(active_ids))

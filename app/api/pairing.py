@@ -24,6 +24,7 @@ from app.api.instances import (
     InstanceOut,
     clear_missing_sender,
     instance_out,
+    start_session_quick,
     validate_base_url,
     webhook_secret,
 )
@@ -207,9 +208,7 @@ async def begin(
                 )
                 data["session_id"] = session["id"]
                 await _save(db, row, data, cfg)
-                await client._request(
-                    "POST", f"/api/sessions/{quote(session['id'], safe='')}/start"
-                )
+                await start_session_quick(client, quote(session["id"], safe=""))
         except (OpenWAError, KeyError, TypeError) as exc:
             if (
                 not data.get("session_id")
@@ -271,7 +270,7 @@ async def _status(
                 return {"status": status, "qr": None, "session_id": data["session_id"]}
             if refresh or status in ("created", "disconnected", "failed", "action_required"):
                 await client._request("POST", f"/api/sessions/{sid}/stop")
-                await client._request("POST", f"/api/sessions/{sid}/start")
+                await start_session_quick(client, sid)
                 data.pop("qr_hash", None)
                 data.pop("qr_since", None)
                 await _save(db, row, data, cfg)
@@ -295,7 +294,7 @@ async def _status(
                 )
             ):
                 await client._request("POST", f"/api/sessions/{sid}/stop")
-                await client._request("POST", f"/api/sessions/{sid}/start")
+                await start_session_quick(client, sid)
                 data.pop("qr_hash", None)
                 data.pop("qr_since", None)
                 await _save(db, row, data, cfg)
@@ -304,7 +303,7 @@ async def _status(
                 digest = hashlib.sha256(qr.encode()).hexdigest()
                 if digest == data.get("qr_hash") and now - data.get("qr_since", now) >= QR_SECONDS:
                     await client._request("POST", f"/api/sessions/{sid}/stop")
-                    await client._request("POST", f"/api/sessions/{sid}/start")
+                    await start_session_quick(client, sid)
                     data.pop("qr_hash", None)
                     data.pop("qr_since", None)
                     await _save(db, row, data, cfg)

@@ -110,3 +110,23 @@ test('queued jobs show their next attempt and do not offer a duplicate retry', a
   expect(screen.getByText(/Next attempt:/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
 })
+
+test('retry all re-queues every failed job and reports the count', async () => {
+  const calls = renderWithApp(<Jobs />, {
+    '/api/jobs/retry-all': { retried: 2, skipped: 1 },
+    '/api/jobs': [
+      {
+        id: 7,
+        type: 'process_message',
+        status: 'dead',
+        attempts: 5,
+        max_attempts: 5,
+        last_error: 'boom',
+        created_at: '2026-10-06T10:00:00Z',
+      },
+    ],
+  })
+  await userEvent.click(await screen.findByRole('button', { name: 'Retry all failed jobs' }))
+  expect(calls.some((c) => c.method === 'POST' && c.url === '/api/jobs/retry-all')).toBe(true)
+  expect(await screen.findByText('Retrying failed jobs: 2 (skipped 1)')).toBeInTheDocument()
+})

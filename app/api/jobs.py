@@ -56,6 +56,30 @@ async def list_jobs(db: DB, status: str | None = None, limit: int = 100) -> list
     ]
 
 
+class RetryAllOut(BaseModel):
+    retried: int
+    skipped: int
+
+
+@router.post("/retry-all")
+async def retry_all(db: DB) -> RetryAllOut:
+    """Retry every failed or dead job, oldest first. Jobs that cannot be retried are skipped."""
+    ids = (
+        (
+            await db.execute(
+                select(Job.id).where(Job.status.in_(["failed", "dead"])).order_by(Job.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    retried = 0
+    for job_id in ids:
+        if await retry_job(db, job_id, manual=True):
+            retried += 1
+    return RetryAllOut(retried=retried, skipped=len(ids) - retried)
+
+
 @router.post("/{job_id}/retry")
 async def retry(job_id: int, db: DB) -> dict[str, bool]:
     if not await retry_job(db, job_id, manual=True):
