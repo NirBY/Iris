@@ -485,6 +485,18 @@ async def update_instance(
     return await instance_out(db, inst, settings)
 
 
+REMOVE_TIMEOUT = 90.0
+
+
+async def _session_gone(client: OpenWAClient, sid: str) -> bool:
+    """A delete that timed out or errored may still have finished; only OpenWA's 404 proves it."""
+    try:
+        await client._request("GET", f"/api/sessions/{sid}")
+    except OpenWAError as exc:
+        return exc.status == 404
+    return False
+
+
 async def _remove_openwa(
     inst: Instance,
     db: AsyncSession,
@@ -510,15 +522,16 @@ async def _remove_openwa(
     try:
         if stage in ("all", "deactivate"):
             try:
-                await client._request("POST", f"/api/sessions/{sid}/logout")
+                await client._request("POST", f"/api/sessions/{sid}/logout", timeout=REMOVE_TIMEOUT)
             except OpenWAError as exc:
                 if exc.status not in (400, 404):
                     raise
         if stage in ("all", "delete"):
             try:
-                await client._request("DELETE", f"/api/sessions/{sid}")
+                # Deleting closes the session's browser, which can take longer than a normal call.
+                await client._request("DELETE", f"/api/sessions/{sid}", timeout=REMOVE_TIMEOUT)
             except OpenWAError as exc:
-                if exc.status != 404:
+                if exc.status != 404 and not await _session_gone(client, sid):
                     raise
     except OpenWAError:
         raise HTTPException(

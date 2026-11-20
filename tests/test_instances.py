@@ -178,6 +178,9 @@ async def test_openwa_delete_failure_keeps_iris_phone_for_retry(app_client) -> N
     respx.delete("https://wa.example.com/api/sessions/sess-1").mock(
         return_value=httpx.Response(503)
     )
+    respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(200, json={"id": "sess-1", "status": "disconnected"})
+    )
     assert (
         await app_client.delete(f"/api/instances/{out['id']}?delete_openwa=true")
     ).status_code == 502
@@ -196,6 +199,20 @@ async def test_openwa_already_deleted_allows_iris_removal(app_client) -> None:  
     assert (
         await app_client.delete(f"/api/instances/{out['id']}?delete_openwa=true")
     ).status_code == 204
+
+
+@respx.mock
+async def test_slow_openwa_delete_that_finished_counts_as_removed(app_client) -> None:  # type: ignore[no-untyped-def]
+    out = (await app_client.post("/api/instances", json=BODY)).json()
+    delete = respx.delete("https://wa.example.com/api/sessions/sess-1").mock(
+        side_effect=httpx.ReadTimeout("slow browser shutdown")
+    )
+    respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(404, json={"message": "Session not found"})
+    )
+    path = f"/api/instances/{out['id']}"
+    assert (await app_client.post(path + "/remove-openwa?stage=delete")).status_code == 204
+    assert delete.calls.last.request.extensions["timeout"]["read"] == 90.0
 
 
 @respx.mock
@@ -225,6 +242,9 @@ async def test_staged_removal_keeps_iris_until_both_stages_finish(app_client) ->
     )
     delete = respx.delete("https://wa.example.com/api/sessions/sess-1").mock(
         return_value=httpx.Response(503)
+    )
+    respx.get("https://wa.example.com/api/sessions/sess-1").mock(
+        return_value=httpx.Response(200, json={"id": "sess-1", "status": "disconnected"})
     )
     path = f"/api/instances/{out['id']}"
     assert (await app_client.post(path + "/remove-openwa?stage=deactivate")).status_code == 204
