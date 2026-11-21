@@ -1,6 +1,6 @@
 import { t } from '../lib/i18n'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, CircleAlert, RotateCw } from 'lucide-react'
+import { CheckCircle2, CircleAlert, RotateCw, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from '../lib/notify'
 import { EmptyState } from '../components/EmptyState'
@@ -14,6 +14,7 @@ import type { Job, JobNote } from '../lib/types'
 import { QueryError } from '../components/QueryError'
 import { useUrlState } from '../lib/urlState'
 import { Field, Select } from '../components/ui/field'
+import { ConfirmDialog } from '../components/ui/dialog'
 
 const WHAT: Record<string, string> = {
   process_message: 'Checking a message',
@@ -60,6 +61,15 @@ export function Jobs() {
       return qc.invalidateQueries()
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not retry the job.'),
+  })
+  const dismiss = useMutation({
+    mutationFn: (id: number) => api(`/api/jobs/${id}/dismiss`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success(t('Job dismissed.'))
+      return qc.invalidateQueries()
+    },
+    onError: (e) =>
+      toast.error(e instanceof ApiError ? e.message : t('Could not dismiss the job.')),
   })
   const retryAll = useMutation({
     mutationFn: () =>
@@ -154,15 +164,33 @@ export function Jobs() {
               )}
             </span>
             {['failed', 'dead'].includes(j.status) && (
-              <Button
-                variant="outline"
-                size="sm"
-                title={j.can_retry === false ? t('Retrying cannot complete this job.') : undefined}
-                disabled={retry.isPending || j.can_retry === false}
-                onClick={() => retry.mutate(j.id)}
-              >
-                <RotateCw /> {t('Retry')}
-              </Button>
+              <span className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  title={
+                    j.can_retry === false ? t('Retrying cannot complete this job.') : undefined
+                  }
+                  disabled={retry.isPending || j.can_retry === false}
+                  onClick={() => retry.mutate(j.id)}
+                >
+                  <RotateCw /> {t('Retry')}
+                </Button>
+                <ConfirmDialog
+                  trigger={
+                    <Button variant="ghost" size="sm" disabled={dismiss.isPending}>
+                      <X /> {t('Dismiss')}
+                    </Button>
+                  }
+                  title={t('Dismiss this job?')}
+                  description={t(
+                    'It is removed from this list and will not run again. Nothing is sent.',
+                  )}
+                  confirmLabel={t('Dismiss')}
+                  tone="primary"
+                  onConfirm={() => dismiss.mutateAsync(j.id).then(() => undefined)}
+                />
+              </span>
             )}
           </li>
         ))}

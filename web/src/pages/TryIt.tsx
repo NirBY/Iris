@@ -29,6 +29,30 @@ interface Result {
 
 const EMPTY_DRAFT: Draft = {}
 
+/** Made-up examples that show what each field is for; translated with the rest of the UI. */
+const EXAMPLES: { label: string; text: string; context: string[] }[] = [
+  {
+    label: 'Game talk (with earlier messages)',
+    text: "I'm going to kill you in the next round 😂",
+    context: ['Want to play FIFA tonight?', "Yes! I'm online at 8"],
+  },
+  {
+    label: 'Same words, no earlier messages',
+    text: "I'm going to kill you in the next round 😂",
+    context: [],
+  },
+  {
+    label: 'Bullying',
+    text: "Nobody wants you in our group, you're a loser",
+    context: [],
+  },
+  {
+    label: 'Friendly message',
+    text: 'See you at football practice tomorrow!',
+    context: [],
+  },
+]
+
 const BAND: Record<Band, { label: string; tone: 'success' | 'warning' | 'danger' }> = {
   safe: { label: 'Fine', tone: 'success' },
   inconclusive: { label: 'Unclear', tone: 'warning' },
@@ -165,6 +189,56 @@ export function TryIt() {
           'Type a message to see how Iris would classify it, then adjust the thresholds and watch the result change.',
         )}
       />
+      <section
+        aria-labelledby="how"
+        className="flex flex-col gap-3 rounded-lg border bg-surface-2/40 p-4 text-sm"
+      >
+        <h2 id="how" className="font-semibold">
+          {t('How to use this page')}
+        </h2>
+        <ol className="flex list-decimal flex-col gap-1 ps-5">
+          <li>
+            {t(
+              'Write the message you want to test in “Message to check”, or pick an example below.',
+            )}
+          </li>
+          <li>
+            {t(
+              'Optionally, add what was written just before it in “Earlier messages in the chat” to see how context changes the decision.',
+            )}
+          </li>
+          <li>
+            {t(
+              'Select Check. Then move the thresholds to see when Iris would ask you to review or would alert you. Nothing is saved unless you select Save.',
+            )}
+          </li>
+        </ol>
+        <div className="flex flex-col gap-2">
+          <p className="font-medium">{t('Examples (fill the fields; then select Check):')}</p>
+          <div className="flex flex-wrap gap-2">
+            {EXAMPLES.map((example) => (
+              <Button
+                key={example.label}
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={checking}
+                onClick={() => {
+                  setText(t(example.text))
+                  setContext(example.context.map((line) => t(line)).join('\n'))
+                }}
+              >
+                {t(example.label)}
+              </Button>
+            ))}
+          </div>
+          <p className="text-muted-foreground">
+            {t(
+              'Try the first two examples: the same words can be harmless in a game chat and worrying on their own.',
+            )}
+          </p>
+        </div>
+      </section>
       <form
         className="flex flex-col gap-4 rounded-lg border bg-surface p-4"
         onSubmit={(e) => {
@@ -178,7 +252,12 @@ export function TryIt() {
           check.mutate({ text, context })
         }}
       >
-        <Field label={t('Message to check')}>
+        <Field
+          label={t('Message to check')}
+          hint={t(
+            'The one new message Iris decides about: Fine, Needs a look or Harmful. Example: “I’m going to kill you in the next round 😂”.',
+          )}
+        >
           <Textarea
             dir="auto"
             rows={3}
@@ -190,7 +269,7 @@ export function TryIt() {
         <Field
           label={t('Earlier messages in the chat (optional)')}
           hint={t(
-            'One per line, oldest first (up to 20). Iris uses them for the second look when the first check is unclear.',
+            'Optional. What was written just before it in the same chat, one message per line, oldest first (up to 20). These are not judged themselves: Iris reads them only when the message alone is unclear, to understand the situation. Example: “Want to play FIFA tonight?”.',
           )}
         >
           <Textarea

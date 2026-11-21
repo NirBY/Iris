@@ -91,11 +91,17 @@ async def _delete_finished_jobs(factory: async_sessionmaker[AsyncSession], now: 
     removed = 0
     while True:
         async with factory() as db:
-            ids = select(Job.id).where(_expired_job(now)).limit(JOB_DELETE_BATCH)
-            count = int((await db.execute(delete(Job).where(Job.id.in_(ids)))).rowcount)  # type: ignore[attr-defined]
-            await db.commit()
-        removed += count
-        if count < JOB_DELETE_BATCH:
+            # Ids are read first: MySQL rejects LIMIT inside an IN subquery.
+            ids = list(
+                await db.scalars(
+                    select(Job.id).where(_expired_job(now)).order_by(Job.id).limit(JOB_DELETE_BATCH)
+                )
+            )
+            if ids:
+                await db.execute(delete(Job).where(Job.id.in_(ids)))
+                await db.commit()
+        removed += len(ids)
+        if len(ids) < JOB_DELETE_BATCH:
             return removed
         await asyncio.sleep(0)  # let queued writers in between batches
 

@@ -162,3 +162,18 @@ async def retry(job_id: int, db: DB) -> dict[str, bool]:
     if not await retry_job(db, job_id, manual=True):
         raise HTTPException(status_code=409, detail="Only failed or dead jobs can be retried")
     return {"ok": True}
+
+
+@router.post("/{job_id}/dismiss")
+async def dismiss(job_id: int, db: DB) -> dict[str, bool]:
+    """Remove a failed or dead job from the list without running it again.
+
+    The job is marked cancelled (kept briefly for the record, then deleted by retention); it
+    never sends anything, so dismissing an unconfirmed delivery cannot duplicate a message.
+    """
+    job = await db.get(Job, job_id)
+    if job is None or job.status not in ("failed", "dead"):
+        raise HTTPException(status_code=409, detail="Only failed or dead jobs can be dismissed")
+    job.status = "cancelled"
+    await db.commit()
+    return {"ok": True}

@@ -25,7 +25,7 @@ beforeEach(() => sessionStorage.clear())
 
 async function check(routes: Record<string, unknown> = { '/api/classify/test': response }) {
   const calls = renderWithApp(<TryIt />, routes)
-  await userEvent.type(screen.getByLabelText('Message to check'), 'hello there')
+  await userEvent.type(screen.getByLabelText(/^Message to check/), 'hello there')
   await userEvent.click(screen.getByRole('button', { name: /Check/ }))
   await screen.findByText('Thresholds')
   return calls
@@ -38,7 +38,7 @@ test('the check button needs text', () => {
 
 test('sends the text and the context lines, one per line', async () => {
   const calls = renderWithApp(<TryIt />, { '/api/classify/test': response })
-  await userEvent.type(screen.getByLabelText('Message to check'), 'final')
+  await userEvent.type(screen.getByLabelText(/^Message to check/), 'final')
   await userEvent.type(screen.getByLabelText(/Earlier messages/), 'one{enter}{enter}two')
   await userEvent.click(screen.getByRole('button', { name: /Check/ }))
   await screen.findByText('Thresholds')
@@ -104,7 +104,7 @@ test('threshold edits survive checking another phrase', async () => {
 
 test('too many context lines are refused before sending', async () => {
   const calls = renderWithApp(<TryIt />, { '/api/classify/test': response })
-  await userEvent.type(screen.getByLabelText('Message to check'), 'x')
+  await userEvent.type(screen.getByLabelText(/^Message to check/), 'x')
   await userEvent.type(
     screen.getByLabelText(/Earlier messages/),
     Array.from({ length: 21 }, (_, i) => `l${i}`).join('{enter}'),
@@ -154,16 +154,30 @@ test('leaving the page and coming back keeps the text and the result', async () 
   await check()
   cleanup()
   renderWithApp(<TryIt />, { '/api/classify/test': response })
-  expect(screen.getByLabelText('Message to check')).toHaveValue('hello there')
+  expect(screen.getByLabelText(/^Message to check/)).toHaveValue('hello there')
   expect(screen.getByRole('heading', { name: 'Needs a look' })).toBeInTheDocument()
 })
 
 test('a result for different text says so, and Clear empties the page', async () => {
   await check()
-  await userEvent.type(screen.getByLabelText('Message to check'), ' again')
+  await userEvent.type(screen.getByLabelText(/^Message to check/), ' again')
   expect(screen.getByText(/This result is for the previous text/)).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /Clear/ }))
-  expect(screen.getByLabelText('Message to check')).toHaveValue('')
+  expect(screen.getByLabelText(/^Message to check/)).toHaveValue('')
   expect(screen.queryByText('Thresholds')).not.toBeInTheDocument()
   expect(sessionStorage.getItem('iris.try.result')).toBeNull()
+})
+
+test('examples explain the two fields by filling them', async () => {
+  renderWithApp(<TryIt />, {})
+  expect(screen.getByText('How to use this page')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Game talk (with earlier messages)' }))
+  expect(screen.getByLabelText(/^Message to check/)).toHaveValue(
+    "I'm going to kill you in the next round 😂",
+  )
+  expect(screen.getByLabelText(/Earlier messages/)).toHaveValue(
+    "Want to play FIFA tonight?\nYes! I'm online at 8",
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Same words, no earlier messages' }))
+  expect(screen.getByLabelText(/Earlier messages/)).toHaveValue('')
 })

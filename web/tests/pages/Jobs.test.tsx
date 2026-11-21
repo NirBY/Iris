@@ -158,3 +158,28 @@ test('a stuck delivery explains why and cannot be retried', async () => {
   ).toBeVisible()
   expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
 })
+
+test('a failed job can be dismissed after confirming', async () => {
+  const calls = renderWithApp(<Jobs />, {
+    '/api/jobs': [
+      {
+        id: 9,
+        type: 'run_schedule',
+        status: 'failed',
+        attempts: 1,
+        max_attempts: 3,
+        created_at: '2026-10-23T20:00:00Z',
+        last_error: 'alert delivery failed: provider status unavailable',
+        can_retry: false,
+        notes: [{ code: 'uncertain_delivery', delivered: 1, uncertain: 1 }],
+      },
+    ],
+  })
+  await userEvent.click(await screen.findByRole('button', { name: 'Dismiss' }))
+  expect(screen.getByText(/Nothing is sent/)).toBeInTheDocument()
+  const buttons = screen.getAllByRole('button', { name: 'Dismiss' })
+  await userEvent.click(buttons[buttons.length - 1])
+  await vi.waitFor(() =>
+    expect(calls.some((c) => c.method === 'POST' && c.url === '/api/jobs/9/dismiss')).toBe(true),
+  )
+})

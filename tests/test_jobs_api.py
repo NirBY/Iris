@@ -108,3 +108,24 @@ async def test_failed_jobs_explain_unconfirmed_delivery_removed_sender_and_disab
     assert jobs[plain]["notes"] == [] and jobs[plain]["can_retry"] is True
     assert (await app_client.post(f"/api/jobs/{stuck}/retry")).status_code == 409
     assert (await app_client.post(f"/api/jobs/{plain}/retry")).status_code == 200
+
+
+async def test_dismiss_removes_a_failed_job_from_the_list_without_running_it(
+    app_client: Any,
+) -> None:
+    async with app_client.app.state.session_factory() as s:
+        job = Job(
+            type="run_schedule",
+            status="failed",
+            payload={"schedule_key": "daily_summary", "delivery_uncertain": True},
+        )
+        s.add(job)
+        await s.commit()
+        job_id = job.id
+    assert (await app_client.post(f"/api/jobs/{job_id}/dismiss")).json() == {"ok": True}
+    assert (await app_client.get("/api/jobs")).json() == []
+    async with app_client.app.state.session_factory() as s:
+        assert (await s.get(Job, job_id)).status == "cancelled"
+    assert (await app_client.post(f"/api/jobs/{job_id}/dismiss")).status_code == 409
+    app_client.cookies.clear()
+    assert (await app_client.post(f"/api/jobs/{job_id}/dismiss")).status_code == 401

@@ -995,6 +995,34 @@ export const hebrew: Record<string, string> = {
     'המודלים שאותרו מגיעים מכתובת השירות שהוזנה. הבחירה הנוכחית נשארת מסומנת; השינויים חלים בשמירה. אפשר גם להזין שם מודל מותאם.',
   'Media hidden — use Show content to view.': 'המדיה מוסתרת — השתמשו בהצגת תוכן כדי לצפות בה.',
   'Retry media': 'ניסיון נוסף לטעינת מדיה',
+  'Job dismissed.': 'המשימה הוסרה.',
+  'Could not dismiss the job.': 'לא ניתן היה להסיר את המשימה.',
+  'Dismiss this job?': 'להסיר את המשימה?',
+  'It is removed from this list and will not run again. Nothing is sent.':
+    'היא תוסר מהרשימה ולא תרוץ שוב. שום דבר לא נשלח.',
+  'How to use this page': 'איך משתמשים בעמוד',
+  'Write the message you want to test in “Message to check”, or pick an example below.':
+    'כתבו את ההודעה שתרצו לבדוק ב״הודעה לבדיקה״, או בחרו דוגמה למטה.',
+  'Optionally, add what was written just before it in “Earlier messages in the chat” to see how context changes the decision.':
+    'אפשר גם להוסיף ב״הודעות קודמות בצ׳אט״ את מה שנכתב ממש לפניה, כדי לראות איך ההקשר משנה את ההחלטה.',
+  'Select Check. Then move the thresholds to see when Iris would ask you to review or would alert you. Nothing is saved unless you select Save.':
+    'בחרו בדיקה. אחר כך הזיזו את הספים כדי לראות מתי Iris תבקש מכם לבדוק או תשלח התראה. שום דבר לא נשמר אלא אם תבחרו שמירה.',
+  'Examples (fill the fields; then select Check):': 'דוגמאות (ממלאות את השדות; אחר כך בחרו בדיקה):',
+  'Try the first two examples: the same words can be harmless in a game chat and worrying on their own.':
+    'נסו את שתי הדוגמאות הראשונות: אותן מילים יכולות להיות תמימות בשיחה על משחק ומדאיגות בלי הקשר.',
+  'Game talk (with earlier messages)': 'שיחה על משחק (עם הודעות קודמות)',
+  'Same words, no earlier messages': 'אותן מילים, בלי הודעות קודמות',
+  Bullying: 'בריונות',
+  'Friendly message': 'הודעה ידידותית',
+  "I'm going to kill you in the next round 😂": 'אני הולך לחסל אותך בסיבוב הבא 😂',
+  'Want to play FIFA tonight?': 'רוצה לשחק פיפ״א הערב?',
+  "Yes! I'm online at 8": 'כן! אני מחובר בשמונה',
+  "Nobody wants you in our group, you're a loser": 'אף אחד לא רוצה אותך בקבוצה שלנו, אתה לוזר',
+  'See you at football practice tomorrow!': 'נתראה מחר באימון כדורגל!',
+  'The one new message Iris decides about: Fine, Needs a look or Harmful. Example: “I’m going to kill you in the next round 😂”.':
+    'ההודעה החדשה האחת ש־Iris מחליטה לגביה: תקין, צריך בדיקה או מזיק. לדוגמה: ״אני הולך לחסל אותך בסיבוב הבא 😂״.',
+  'Optional. What was written just before it in the same chat, one message per line, oldest first (up to 20). These are not judged themselves: Iris reads them only when the message alone is unclear, to understand the situation. Example: “Want to play FIFA tonight?”.':
+    'רשות. מה שנכתב ממש לפניה באותו צ׳אט, הודעה אחת בכל שורה, מהישנה לחדשה (עד 20). הן עצמן לא נבדקות: Iris קוראת אותן רק כשההודעה לבדה לא ברורה, כדי להבין את המצב. לדוגמה: ״רוצה לשחק פיפ״א הערב?״.',
   'Checking can take up to a minute when the AI server is busy. You can open other pages; the result will be here when you come back.':
     'הבדיקה עשויה להימשך עד דקה כששרת ה־AI עמוס. אפשר לפתוח עמודים אחרים; התוצאה תחכה כאן כשתחזרו.',
   'This result is for the previous text. Select Check to update it.':
