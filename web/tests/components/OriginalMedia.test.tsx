@@ -48,3 +48,29 @@ test('a previous media failure does not hide a different message', async () => {
   expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
   fetch.mockRestore()
 })
+
+test('an animated (Lottie) sticker is played with the light player from its animation JSON', async () => {
+  const loadAnimation = vi.fn(() => ({ destroy: vi.fn() }))
+  vi.doMock('lottie-web/build/player/lottie_light', () => ({ default: { loadAnimation } }))
+  const animation = { v: '5.12.1', layers: [] }
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockImplementation(async (input) =>
+      String(input).endsWith('/animation')
+        ? new Response(JSON.stringify(animation), { status: 200 })
+        : new Response(
+            JSON.stringify({ detail: 'Animated sticker: shown with the built-in sticker player.' }),
+            { status: 415 },
+          ),
+    )
+  render(<OriginalMedia id={8} type="sticker" revealed />, { wrapper: MemoryRouter })
+  fireEvent.error(screen.getByRole('img', { name: 'Sticker' }))
+  expect(await screen.findByRole('img', { name: 'Animated sticker' })).toBeInTheDocument()
+  await vi.waitFor(() => expect(loadAnimation).toHaveBeenCalled())
+  expect(loadAnimation.mock.calls[0]).toEqual([
+    expect.objectContaining({ renderer: 'svg', animationData: animation }),
+  ])
+  expect(fetch).toHaveBeenCalledWith('/api/media/message/8/animation', expect.anything())
+  fetch.mockRestore()
+  vi.doUnmock('lottie-web/build/player/lottie_light')
+})

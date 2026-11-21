@@ -84,6 +84,21 @@ async def test_video_samples_include_start_and_end_and_are_bounded(tmp_path):
     assert all(p.read_bytes().startswith(b"\xff\xd8\xff") for p in frames)
 
 
+async def test_samples_stay_inside_a_video_track_shorter_than_its_audio(tmp_path):
+    clip = tmp_path / "short-video-long-audio.mp4"
+    make = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-nostdin", "-y", "-loglevel", "error",
+        "-f", "lavfi", "-i", "color=c=gray:s=64x64:r=30:d=1",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(clip),
+    )  # fmt: skip
+    assert await make.wait() == 0
+    info, frames, times = await ffmpeg.video_frames(clip, tmp_path)
+    assert info.duration and info.video_duration and info.video_duration < info.duration - 0.5
+    assert times[-1] == pytest.approx(info.video_duration - 0.1)
+    assert all(p.read_bytes().startswith(b"\xff\xd8\xff") for p in frames)
+
+
 @pytest.mark.parametrize("duration", [None, float("nan"), float("inf"), 0, 61])
 async def test_unsupported_duration_never_decodes_a_misleading_prefix(
     tmp_path, monkeypatch, duration

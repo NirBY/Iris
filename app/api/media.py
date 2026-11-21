@@ -1,6 +1,7 @@
 """/api/media: kept media, shown only to a signed-in owner and always streamed by Iris."""
 
 import asyncio
+import json
 import re
 import secrets
 from collections.abc import AsyncIterator
@@ -19,6 +20,7 @@ from app.deps import get_db
 from app.jobs.queue import PermanentError, TransientError
 from app.media.factory import build_store, overrides_for
 from app.media.fetch import MediaSkipped, fetch_original, job_tmpdir
+from app.media.lottie import NotLottie, is_lottie_zip, read_animation
 from app.media.records import stored_for
 from app.media.sniff import INLINE_TYPES, sniff_file
 from app.media.store import MediaStore, MediaStoreError
@@ -158,6 +160,53 @@ async def delete_all_media(db: DB) -> dict[str, int]:
     return {"scheduled": int(result.rowcount)}  # type: ignore[attr-defined]
 
 
+ANIMATED_STICKER = "Animated sticker: shown with the built-in sticker player."
+
+
+def _fetch_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, MediaSkipped):
+        return HTTPException(413, "Media exceeds the 250 MB viewing limit")
+    if isinstance(exc, TransientError):
+        return HTTPException(503, "OpenWA media is temporarily unavailable")
+    reason = str(exc)
+    if "API key" in reason:
+        return HTTPException(503, "The OpenWA media connection needs its API key checked.")
+    if "media reference" in reason:
+        return HTTPException(
+            404, "Only message metadata is available; no original media reference was saved."
+        )
+    return HTTPException(
+        404,
+        "OpenWA has no saved copy of this media. It was omitted or removed. "
+        "Open the original WhatsApp chat to view it.",
+    )
+
+
+@router.get("/message/{message_id}/animation")
+async def sticker_animation(message_id: int, db: DB, cfg: Cfg) -> Response:
+    """The Lottie JSON of a WhatsApp animated sticker, for the in-app player only."""
+    message = await db.get(Message, message_id)
+    if message is None or message.redacted or message.revoked_at or message.type != "sticker":
+        raise HTTPException(404, "Media unavailable")
+    async with job_tmpdir(cfg.data_dir, "view-" + secrets.token_hex(16)) as tmp:
+        path = tmp / "media.bin"
+        try:
+            await fetch_original(
+                db, message, cfg.key_bytes, path, max_bytes=8 * 1024 * 1024, recover=True
+            )
+        except (PermanentError, MediaSkipped, TransientError) as exc:
+            raise _fetch_error(exc) from exc
+        try:
+            data = await asyncio.to_thread(read_animation, path)
+        except NotLottie as exc:
+            raise HTTPException(415, "This sticker is not an animation Iris can play") from exc
+    return Response(
+        json.dumps(data, separators=(",", ":")),
+        media_type="application/json",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
 @router.get("/message/{message_id}")
 async def original_media(
     message_id: int,
@@ -192,29 +241,15 @@ async def original_media(
             found = await asyncio.to_thread(sniff_file, path)
             if found is None and message.type == "document":
                 found = ("application/octet-stream", "bin", False)
+            if found is None and message.type == "sticker" and is_lottie_zip(path):
+                raise HTTPException(415, ANIMATED_STICKER)
             if found is None:
                 raise HTTPException(415, "This media format cannot be displayed safely")
         except BaseException:
             await cleanup()
             raise
-    except PermanentError as exc:
-        reason = str(exc)
-        if "API key" in reason:
-            raise HTTPException(
-                503, "The OpenWA media connection needs its API key checked."
-            ) from exc
-        if "media reference" in reason:
-            detail = "Only message metadata is available; no original media reference was saved."
-        else:
-            detail = (
-                "OpenWA has no saved copy of this media. It was omitted or removed. "
-                "Open the original WhatsApp chat to view it."
-            )
-        raise HTTPException(404, detail) from exc
-    except MediaSkipped as exc:
-        raise HTTPException(413, "Media exceeds the 250 MB viewing limit") from exc
-    except TransientError as exc:
-        raise HTTPException(503, "OpenWA media is temporarily unavailable") from exc
+    except (PermanentError, MediaSkipped, TransientError) as exc:
+        raise _fetch_error(exc) from exc
     headers = {
         "Cache-Control": "private, no-store",
         "Accept-Ranges": "bytes",

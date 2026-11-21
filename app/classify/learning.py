@@ -28,9 +28,12 @@ from app.settings_store import get_setting
 MAX_EXAMPLE_CHARS = 1200
 MAX_CANDIDATES = 200
 MAX_EXAMPLES = 4
-RETRIEVAL_VERSION = "lexical-v6"
-SEMANTIC_VERSION = "semantic-v5"
+RETRIEVAL_VERSION = "lexical-v7"
+SEMANTIC_VERSION = "semantic-v6"
 TEXT_TYPES = {"text", "chat"}
+# Media is learnable through what was said: its caption and, for voice/video, the transcript.
+# The human label covers the whole message, so examples say which kind of message they were.
+LEARNABLE_TYPES = TEXT_TYPES | {"image", "video", "voice", "audio"}
 
 
 def content_hash(message: Message) -> str:
@@ -51,7 +54,7 @@ def tokens(text: str) -> set[str]:
 def eligible(message: Message) -> bool:
     body = message_body(message)
     return bool(
-        message.type in TEXT_TYPES
+        message.type in LEARNABLE_TYPES
         and not message.redacted
         and message.revoked_at is None
         and body
@@ -139,7 +142,7 @@ async def select_examples(
             Message.id != target.id,
             Message.redacted.is_(False),
             Message.revoked_at.is_(None),
-            Message.type.in_(TEXT_TYPES),
+            Message.type.in_(LEARNABLE_TYPES),
             or_(
                 Message.sent_at < target.sent_at,
                 (Message.sent_at == target.sent_at) & (Message.id < target.id),
@@ -272,6 +275,7 @@ async def select_examples(
             {
                 "message_id": message.id,
                 "content": message_body(message),
+                "message_type": "text" if message.type in TEXT_TYPES else message.type,
                 "verdict": example.verdict,
                 "similarity": round(similarity, 4),
             }
@@ -303,6 +307,23 @@ async def retrieve(
             strategy=strategy,
         )
     ).examples
+
+
+SAFE_SUPPORT_SIMILARITY = 0.6
+
+
+def human_safe_support(examples: list[dict[str, Any]]) -> bool:
+    """A close parent-reviewed safe example, and no harmful example among those retrieved.
+
+    Public synthetic examples (no message_id) never clear a review on their own."""
+    if any(e.get("verdict") == "harmful" for e in examples):
+        return False
+    return any(
+        "message_id" in e
+        and e.get("verdict") == "safe"
+        and float(e.get("similarity") or 0) >= SAFE_SUPPORT_SIMILARITY
+        for e in examples
+    )
 
 
 async def compare(
@@ -377,8 +398,14 @@ async def compare(
                 baseline.verdict = "review"
             return baseline
         # Preserve stronger baseline evidence, including redaction-triggering categories.
+        # One exception: an uncertain baseline may become safe when a parent already judged a
+        # closely matching message safe and no retrieved example was harmful.
         rank = {"safe": 0, "review": 1, "harmful": 2}
-        if rank[baseline.verdict] > rank[candidate.verdict]:
+        if rank[baseline.verdict] > rank[candidate.verdict] and not (
+            baseline.verdict == "review"
+            and candidate.verdict == "safe"
+            and human_safe_support(examples)
+        ):
             return baseline
         for result in candidate.results:
             result.stage = "learning_" + result.stage

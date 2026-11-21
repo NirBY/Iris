@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.jobs.queue import PermanentError
+from app.media.lottie import is_lottie_zip
 
 _TIMEOUT = 120.0
 _MAX_CONCURRENT = 2  # decoders are CPU/memory heavy: never more than this at once
@@ -38,6 +39,8 @@ class MediaInfo:
     has_audio: bool
     has_video: bool
     cover_art_count: int = 0
+    # The visual track can end before the container (e.g. audio runs longer); None if unknown.
+    video_duration: float | None = None
 
 
 def _sniff(path: Path) -> None:
@@ -45,6 +48,11 @@ def _sniff(path: Path) -> None:
         head = fh.read(16)
     is_mpeg_frames = len(head) > 1 and head[0] == 0xFF and head[1] & 0xE0 == 0xE0  # mp3/aac
     if not is_mpeg_frames and not any(head[o : o + len(sig)] == sig for o, sig in _SIGNATURES):
+        if head.startswith(b"PK\x03\x04") and is_lottie_zip(path):
+            raise PermanentError(
+                "Animated (Lottie) sticker: automatic analysis is not available; "
+                "review it in the original view"
+            )
         raise PermanentError("unsupported media format")
 
 
@@ -82,7 +90,8 @@ async def probe(path: Path) -> MediaInfo:
     await _check(path)
     out, _ = await _run(
         "ffprobe", "-v", "error", *_SAFE_INPUT,
-        "-show_entries", "format=duration:stream=codec_type:stream_disposition=attached_pic",
+        "-show_entries",
+        "format=duration:stream=codec_type,duration:stream_disposition=attached_pic",
         "-of", "json", str(path),
     )  # fmt: skip
     data = json.loads(out or b"{}")
@@ -93,11 +102,20 @@ async def probe(path: Path) -> MediaInfo:
         duration: float | None = float(data["format"]["duration"])
     except (KeyError, TypeError, ValueError):
         duration = None
+    video_durations = []
+    for stream in visual_streams:
+        if stream.get("disposition", {}).get("attached_pic") == 1:
+            continue
+        try:
+            video_durations.append(float(stream["duration"]))
+        except (KeyError, TypeError, ValueError):
+            continue
     return MediaInfo(
         duration=duration,
         has_audio="audio" in kinds,
         has_video=len(visual_streams) > len(cover_art),
         cover_art_count=len(cover_art),
+        video_duration=video_durations[0] if video_durations else None,
     )
 
 
@@ -126,8 +144,13 @@ async def video_frames(src: Path, directory: Path) -> tuple[MediaInfo, list[Path
         raise PermanentError(
             "Video exceeds the 60-second local visual analysis limit; manual review required"
         )
+    # Sample within the visual track: seeking past its last frame yields no packets.
+    visual = info.video_duration
+    if visual is not None and math.isfinite(visual) and 0 < visual < duration:
+        duration = visual
     count = min(MAX_VIDEO_FRAMES, max(2, min(6, math.ceil(duration)), math.ceil(duration / 5)))
-    timestamps = [round(max(0.0, duration - 0.1) * i / max(1, count - 1), 3) for i in range(count)]
+    last = max(0.0, duration - 0.1)
+    timestamps = [round(last * i / max(1, count - 1), 3) for i in range(count)]
     frames = []
     for index, timestamp in enumerate(timestamps):
         dst = directory / f"video-frame-{index}.jpg"

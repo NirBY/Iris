@@ -54,3 +54,23 @@ async def test_retry_all_requeues_every_failed_job(app_client: Any) -> None:
     assert (await app_client.post("/api/jobs/retry-all")).json() == {"retried": 0, "skipped": 0}
     app_client.cookies.clear()
     assert (await app_client.post("/api/jobs/retry-all")).status_code == 401
+
+
+async def test_retry_all_leaves_jobs_with_uncertain_delivery_for_a_manual_decision(
+    app_client: Any,
+) -> None:
+    async with app_client.app.state.session_factory() as s:
+        s.add(Job(type="run_schedule", status="failed", payload={"schedule_key": "daily_summary"}))
+        s.add(
+            Job(
+                type="run_schedule",
+                status="failed",
+                payload={"schedule_key": "daily_summary", "delivery_uncertain": True},
+            )
+        )
+        await s.commit()
+    r = await app_client.post("/api/jobs/retry-all")
+    assert r.json() == {"retried": 1, "skipped": 1}
+    async with app_client.app.state.session_factory() as s:
+        statuses = (await s.execute(select(Job.status).order_by(Job.id))).scalars().all()
+    assert statuses == ["queued", "failed"]

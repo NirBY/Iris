@@ -37,7 +37,7 @@ const reviewKinds: Record<string, string> = {
   uncertain: 'Uncertain classification',
   attachment: 'Attachment check',
   technical: 'Technical issue',
-  unavailable: 'Unavailable content',
+  unavailable: 'Cannot be reviewed',
 }
 
 export function Review() {
@@ -132,7 +132,7 @@ export function Review() {
       <PageHeader
         title={t('Review')}
         description={t(
-          'Human review: messages ready for your Safe or Harmful decision. Messages still being checked by AI are in IrisReview. Reviewed text can guide future Ollama checks when learning is enabled.',
+          'Human review: messages ready for your Safe or Harmful decision. Messages still being checked by AI are in IrisReview. Your decisions on text, captions and voice or video transcripts can guide future AI checks when learning is enabled.',
         )}
       />
       <Link to="/iris-review" className="text-sm text-primary">
@@ -164,7 +164,7 @@ export function Review() {
           variant={view === 'missing_data' ? 'primary' : 'outline'}
           onClick={() => update({ view: 'missing_data' })}
         >
-          {t('Unavailable content')}
+          {t('Cannot be reviewed')}
         </Button>
         <Button
           variant={view === 'responses' ? 'primary' : 'outline'}
@@ -176,7 +176,7 @@ export function Review() {
       {view === 'missing_data' && (
         <p className="text-sm text-muted-foreground">
           {t(
-            'Unavailable content is kept here for recovery. These messages have not been marked safe.',
+            'These messages cannot be reviewed: WhatsApp or OpenWA did not keep their content. No decision is needed, and they are not marked safe.',
           )}
         </p>
       )}
@@ -214,7 +214,7 @@ export function Review() {
             view === 'responses'
               ? 'with parent responses'
               : view === 'missing_data'
-                ? 'with unavailable content'
+                ? 'that cannot be reviewed'
                 : 'awaiting review',
           )}
           ; {data.reviewed_total ?? 0}{' '}
@@ -227,11 +227,13 @@ export function Review() {
         <div className="rounded-lg border bg-surface">
           <EmptyState
             icon={ListChecks}
-            title={view === 'missing_data' ? t('No unavailable content') : t('Nothing to review')}
+            title={
+              view === 'missing_data' ? t('No messages without content') : t('Nothing to review')
+            }
           >
             {view === 'missing_data'
               ? t(
-                  'Unavailable content is kept here for recovery. These messages have not been marked safe.',
+                  'These messages cannot be reviewed: WhatsApp or OpenWA did not keep their content. No decision is needed, and they are not marked safe.',
                 )
               : t('When Iris cannot tell whether a message is harmful, it waits here for you.')}
           </EmptyState>
@@ -321,7 +323,7 @@ export function Review() {
                     )}
                   </section>
                 )}
-                {view !== 'responses' &&
+                {view === 'pending' &&
                   ['admin', 'parent'].includes(me?.role || '') &&
                   !m.redacted && (
                     <ReviewDetails
@@ -344,7 +346,7 @@ export function Review() {
                   </details>
                 ))}
                 <div className="flex flex-wrap items-center gap-2 border-t pt-3 [&>button]:min-w-0 [&>button]:whitespace-normal">
-                  {view !== 'responses' && (
+                  {view === 'pending' && (
                     <>
                       <Button
                         variant="success"

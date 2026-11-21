@@ -126,6 +126,30 @@ async def test_old_alerts_and_old_done_jobs_are_deleted(app_client: Any) -> None
         )  # nothing older than 7 days remains
 
 
+async def test_finished_schedule_jobs_expire_after_an_hour_in_small_batches(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.retention.JOB_DELETE_BATCH", 2)
+    now = datetime(2026, 10, 6, 12)
+    old, recent = now - timedelta(hours=2), now - timedelta(minutes=10)
+    async with app_client.app.state.session_factory() as s:
+        await s.execute(text("DELETE FROM jobs"))
+        for status in ("done", "done", "cancelled", "failed"):
+            s.add(Job(type="run_schedule", status=status, payload={}, created_at=old))
+        s.add(Job(type="run_schedule", status="done", payload={}, created_at=recent))
+        s.add(Job(type="process_message", status="done", payload={}, created_at=old))
+        await s.commit()
+    res = await run_retention(app_client.app.state.session_factory, now)
+    assert res["jobs"] == 3
+    async with app_client.app.state.session_factory() as s:
+        left = (await s.execute(select(Job.type, Job.status).order_by(Job.id))).all()
+    assert left == [
+        ("run_schedule", "failed"),
+        ("run_schedule", "done"),
+        ("process_message", "done"),
+    ]
+
+
 async def test_retention_windows_come_from_settings(app_client: Any) -> None:
     _, token = await make_instance(app_client)
     await seed(app_client, token, ["S1", "S2"], [20, 5])

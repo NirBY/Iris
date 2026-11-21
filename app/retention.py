@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 from loguru import logger
-from sqlalchemy import delete, select
+from sqlalchemy import ColumnElement, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import Alert, Chat, Job, Message, SkippedGroup
@@ -13,6 +13,9 @@ from app.settings_store import get_setting
 
 JOB_RETENTION = timedelta(days=7)  # finished jobs
 FAILED_JOB_RETENTION = timedelta(days=30)  # failed/dead jobs keep their error visible longer
+# Finished schedule runs are recorded in schedule_runs; their job rows only add load (~12k a day).
+SCHEDULE_JOB_RETENTION = timedelta(hours=1)
+JOB_DELETE_BATCH = 500  # short write transactions, so other writers are not blocked for seconds
 INTERVAL_SECONDS = 3600
 
 
@@ -55,15 +58,6 @@ async def run_retention(
             ]
         )
         messages = await db.execute(delete(Message).where(*message_filters))
-        jobs = await db.execute(
-            delete(Job).where(
-                ((Job.status == "done") & (Job.created_at < now - JOB_RETENTION))
-                | (
-                    Job.status.in_(["failed", "dead"])
-                    & (Job.created_at < now - FAILED_JOB_RETENTION)
-                )
-            )
-        )
         chats = await db.execute(
             delete(Chat).where(
                 Chat.id.not_in(select(Message.chat_id)),
@@ -71,16 +65,39 @@ async def run_retention(
             )
         )
         await db.commit()
+    jobs = await _delete_finished_jobs(factory, now)
     result = {
         "alerts": int(alerts.rowcount),  # type: ignore[attr-defined]
         "messages": int(messages.rowcount),  # type: ignore[attr-defined]
-        "jobs": int(jobs.rowcount),  # type: ignore[attr-defined]
+        "jobs": jobs,
         "chats": int(chats.rowcount),  # type: ignore[attr-defined]
     }
     if any(result.values()):
         logger.info("retention removed {}", result)
         bus.publish("messages", "alerts", "jobs", "chats", "stats", "review")
     return result
+
+
+def _expired_job(now: datetime) -> ColumnElement[bool]:
+    finished = Job.status.in_(("done", "cancelled"))
+    return or_(
+        finished & (Job.type == "run_schedule") & (Job.created_at < now - SCHEDULE_JOB_RETENTION),
+        finished & (Job.created_at < now - JOB_RETENTION),
+        Job.status.in_(("failed", "dead")) & (Job.created_at < now - FAILED_JOB_RETENTION),
+    )
+
+
+async def _delete_finished_jobs(factory: async_sessionmaker[AsyncSession], now: datetime) -> int:
+    removed = 0
+    while True:
+        async with factory() as db:
+            ids = select(Job.id).where(_expired_job(now)).limit(JOB_DELETE_BATCH)
+            count = int((await db.execute(delete(Job).where(Job.id.in_(ids)))).rowcount)  # type: ignore[attr-defined]
+            await db.commit()
+        removed += count
+        if count < JOB_DELETE_BATCH:
+            return removed
+        await asyncio.sleep(0)  # let queued writers in between batches
 
 
 async def retention_loop(factory: async_sessionmaker[AsyncSession]) -> None:

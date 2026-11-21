@@ -995,6 +995,17 @@ export const hebrew: Record<string, string> = {
     'המודלים שאותרו מגיעים מכתובת השירות שהוזנה. הבחירה הנוכחית נשארת מסומנת; השינויים חלים בשמירה. אפשר גם להזין שם מודל מותאם.',
   'Media hidden — use Show content to view.': 'המדיה מוסתרת — השתמשו בהצגת תוכן כדי לצפות בה.',
   'Retry media': 'ניסיון נוסף לטעינת מדיה',
+  'Human review: messages ready for your Safe or Harmful decision. Messages still being checked by AI are in IrisReview. Your decisions on text, captions and voice or video transcripts can guide future AI checks when learning is enabled.':
+    'בדיקה אנושית: הודעות המוכנות להחלטת תקין או מזיק שלכם. הודעות שעדיין נבדקות ב־AI נמצאות בבדיקת Iris. ההחלטות שלכם על טקסט, כיתובים ותמלולי הודעות קוליות או וידאו יכולות להנחות בדיקות AI עתידיות כאשר הלמידה מופעלת.',
+  'Cannot be reviewed': 'לא ניתן לבדיקה',
+  'These messages cannot be reviewed: WhatsApp or OpenWA did not keep their content. No decision is needed, and they are not marked safe.':
+    'לא ניתן לבדוק הודעות אלה: WhatsApp או OpenWA לא שמרו את התוכן שלהן. אין צורך בהחלטה, והן לא סומנו כתקינות.',
+  'that cannot be reviewed': 'שלא ניתן לבדוק',
+  'No messages without content': 'אין הודעות ללא תוכן',
+  'Animated sticker': 'מדבקה מונפשת',
+  'Could not play this animated sticker. Try again.':
+    'לא ניתן היה להפעיל את המדבקה המונפשת. נסו שוב.',
+  'This sticker is not an animation Iris can play': 'המדבקה הזו אינה אנימציה ש-Iris יכולה להציג',
   'Open original': 'פתיחת המקור',
   'This page could not load': 'לא ניתן לטעון דף זה',
   'Iris may have been updated while this tab was open. Reload to get the current version.':

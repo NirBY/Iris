@@ -148,3 +148,95 @@ async def test_document_pdf_preview_and_unknown_format_download(
     assert "sandbox" in response.headers["content-security-policy"]
     assert response.headers["x-content-type-options"] == "nosniff"
     assert all(not path.exists() for path in paths)
+
+
+def _sticker_zip(path: Path, animation: dict[str, Any]) -> None:
+    import json
+    import zipfile
+
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("animation/animation.json", json.dumps(animation))
+        archive.writestr("animation/animation.json.trust_token", "token")
+
+
+ANIMATION = {
+    "v": "5.12.1",
+    "fr": 60,
+    "ip": 0,
+    "op": 60,
+    "w": 512,
+    "h": 512,
+    "layers": [{"ty": 4}],
+    "assets": [
+        {"id": "comp_0", "layers": []},
+        {"id": "image_0", "u": "https://example.com/", "p": "tracker.png"},
+        {"id": "image_1", "u": "", "p": "data:image/png;base64,iVBORw0KGgo="},
+    ],
+}
+
+
+async def _sticker(app_client: Any) -> int:
+    await seed(app_client)
+    async with app_client.app.state.session_factory() as db:
+        message = (await db.scalars(select(Message).where(Message.type == "image"))).one()
+        message.type = "sticker"
+        await db.commit()
+        return message.id
+
+
+async def test_animated_sticker_plays_from_its_lottie_json_without_external_assets(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mid = await _sticker(app_client)
+
+    async def fetch(db: Any, message: Any, key: bytes, path: Path, **kwargs: Any) -> str:
+        await asyncio.to_thread(_sticker_zip, path, ANIMATION)
+        return "application/was"
+
+    monkeypatch.setattr("app.api.media.fetch_original", fetch)
+    original = await app_client.get(f"/api/media/message/{mid}")
+    assert original.status_code == 415 and "Animated sticker" in original.json()["detail"]
+    response = await app_client.get(f"/api/media/message/{mid}/animation")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    data = response.json()
+    assert data["layers"] == [{"ty": 4}]
+    assert [a["id"] for a in data["assets"]] == ["comp_0", "image_1"]
+
+
+async def test_animation_rejects_non_stickers_and_oversized_or_invalid_archives(
+    app_client: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from app.media.lottie import NotLottie, read_animation
+
+    mid = await _sticker(app_client)
+    payload: dict[str, Any] = {"body": b"not a zip"}
+
+    async def fetch(db: Any, message: Any, key: bytes, path: Path, **kwargs: Any) -> str:
+        await asyncio.to_thread(path.write_bytes, payload["body"])
+        return "application/was"
+
+    monkeypatch.setattr("app.api.media.fetch_original", fetch)
+    assert (await app_client.get(f"/api/media/message/{mid}/animation")).status_code == 415
+
+    bomb = tmp_path / "bomb.was"
+    _sticker_zip(bomb, {"layers": [], "pad": "0" * (5 * 1024 * 1024)})
+    with pytest.raises(NotLottie, match="too large"):
+        read_animation(bomb)
+
+    async with app_client.app.state.session_factory() as db:
+        message = await db.get(Message, mid)
+        assert message
+        message.type = "image"
+        await db.commit()
+    assert (await app_client.get(f"/api/media/message/{mid}/animation")).status_code == 404
+
+
+async def test_lottie_sticker_gets_a_clear_review_reason(tmp_path: Path) -> None:
+    from app.jobs.queue import PermanentError
+    from app.media import ffmpeg
+
+    sticker = tmp_path / "sticker.was"
+    _sticker_zip(sticker, ANIMATION)
+    with pytest.raises(PermanentError, match=r"Animated \(Lottie\) sticker"):
+        await ffmpeg.image_to_jpeg(sticker, tmp_path / "out.jpg")

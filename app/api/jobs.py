@@ -63,18 +63,21 @@ class RetryAllOut(BaseModel):
 
 @router.post("/retry-all")
 async def retry_all(db: DB) -> RetryAllOut:
-    """Retry every failed or dead job, oldest first. Jobs that cannot be retried are skipped."""
-    ids = (
-        (
-            await db.execute(
-                select(Job.id).where(Job.status.in_(["failed", "dead"])).order_by(Job.id)
-            )
+    """Retry every failed or dead job, oldest first. Jobs that cannot be retried are skipped.
+
+    A job whose delivery is uncertain may already have reached someone; retrying it in bulk
+    could send the same alert or summary twice, so it is left for an individual decision.
+    """
+    rows = (
+        await db.execute(
+            select(Job.id, Job.payload).where(Job.status.in_(["failed", "dead"])).order_by(Job.id)
         )
-        .scalars()
-        .all()
-    )
+    ).all()
+    ids = [job_id for job_id, payload in rows]
     retried = 0
-    for job_id in ids:
+    for job_id, payload in rows:
+        if isinstance(payload, dict) and payload.get("delivery_uncertain"):
+            continue
         if await retry_job(db, job_id, manual=True):
             retried += 1
     return RetryAllOut(retried=retried, skipped=len(ids) - retried)

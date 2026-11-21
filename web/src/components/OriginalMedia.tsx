@@ -1,6 +1,7 @@
 import { t } from '../lib/i18n'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from './ui/button'
+import { AnimatedSticker } from './AnimatedSticker'
 import { DocumentViewer } from './DocumentViewer'
 import { Link } from 'react-router-dom'
 
@@ -17,10 +18,12 @@ export function OriginalMedia({
   standalone?: boolean
 }) {
   const [failed, setFailed] = useState('')
+  const [animated, setAnimated] = useState(false)
   const pending = useRef<AbortController | null>(null)
   useEffect(() => {
     pending.current?.abort()
     setFailed('')
+    setAnimated(false)
     return () => pending.current?.abort()
   }, [id, revealed])
   async function explainFailure() {
@@ -41,6 +44,18 @@ export function OriginalMedia({
           )
       } else {
         const data = await response.json()
+        if (
+          type === 'sticker' &&
+          response.status === 415 &&
+          typeof data.detail === 'string' &&
+          data.detail.startsWith('Animated sticker')
+        ) {
+          if (!controller.signal.aborted) {
+            setFailed('')
+            setAnimated(true)
+          }
+          return
+        }
         if (!controller.signal.aborted)
           setFailed(
             typeof data.detail === 'string'
@@ -60,6 +75,7 @@ export function OriginalMedia({
       </span>
     )
   if (type === 'document') return <DocumentViewer key={id} id={id} />
+  if (animated) return <AnimatedSticker id={id} />
   if (failed)
     return (
       <div className="flex flex-col gap-2 text-sm">

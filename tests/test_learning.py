@@ -275,10 +275,15 @@ async def test_wrong_child_scope_cannot_crowd_out_valid_examples(db, monkeypatch
         embedder.embed.assert_awaited_once_with("embed-model", [target.text, source.text])
 
 
-@pytest.mark.parametrize("kind,verdict", [("image", "safe"), ("text", "ignored")])
-async def test_media_and_ignore_never_become_examples(db, kind, verdict):
+@pytest.mark.parametrize(
+    "kind,verdict,caption",
+    [("sticker", "safe", True), ("image", "safe", False), ("text", "ignored", True)],
+)
+async def test_unreadable_media_and_ignore_never_become_examples(db, kind, verdict, caption):
     _, target = await samples(db)
     target.type = kind
+    if not caption:
+        target.text = ""
     await capture(db, target, verdict)
     await db.commit()
     assert await db.get(LearningExample, target.id) is None
@@ -850,3 +855,82 @@ async def app_learning_db(app_client):
     """Exercise the configured CI database, including PostgreSQL and MySQL."""
     async with app_client.app.state.session_factory() as session:
         yield session
+
+
+async def _safe_reviewed(db: AsyncSession, *, kind: str, text: str, transcript: str | None):
+    """A parent-reviewed safe example and a later, similar target for the same child."""
+    chat = Chat(wa_chat_id="safe@g.us")
+    child = Instance(
+        kid_name="Child", openwa_base_url="http://wa", openwa_instance_id="1", webhook_token="t"
+    )
+    db.add_all([chat, child])
+    await db.flush()
+    rows = []
+    for i in range(2):
+        message = Message(
+            chat_id=chat.id,
+            wa_message_id=f"s{i}",
+            type=kind,
+            text=text,
+            transcript=transcript,
+            sent_at=T0 + timedelta(days=i),
+            verdict="review",
+            status="done",
+        )
+        db.add(message)
+        await db.flush()
+        db.add(MessageReceipt(message_id=message.id, instance_id=child.id))
+        rows.append(message)
+    db.add(ReviewFeedback(message_id=rows[0].id, verdict="safe"))
+    await capture(db, rows[0], "safe")
+    await db.commit()
+    return rows[0], rows[1]
+
+
+async def test_voice_transcript_and_media_caption_are_learnable(db):
+    source, target = await _safe_reviewed(
+        db, kind="voice", text="", transcript="we lost the football game, you killed it today"
+    )
+    assert await db.get(LearningExample, source.id) is not None
+    found = await retrieve(db, target)
+    assert [e["message_id"] for e in found] == [source.id]
+    assert found[0]["message_type"] == "voice"
+    sticker = Message(
+        chat_id=source.chat_id, wa_message_id="x", type="sticker", text="", sent_at=T0
+    )
+    db.add(sticker)
+    await db.flush()
+    await capture(db, sticker, "safe")
+    assert await db.get(LearningExample, sticker.id) is None
+
+
+@respx.mock
+async def test_active_close_parent_safe_example_clears_an_uncertain_review(db):
+    _, target = await _safe_reviewed(
+        db, kind="video", text="you killed it in the game today", transcript=None
+    )
+    await set_setting(db, "classification.learning_mode", "active")
+    route = respx.post("http://ollama/api/chat").mock(side_effect=[response(0.4), response(0.05)])
+    client = OllamaModerator("http://ollama", "model")
+    ctx = StageContext(db, client, "model", dict(DEFAULT_THRESHOLDS), 8, timedelta(hours=6))
+    try:
+        baseline = await run_pipeline(target, ctx)
+        assert baseline.verdict == "review"
+        outcome = await compare(target, ctx, baseline)
+        assert outcome.verdict == "safe"
+        prompt = json.loads(route.calls[1].request.content)["messages"][1]["content"]
+        assert '"message_type": "video"' in prompt
+    finally:
+        await client.aclose()
+
+
+def test_safe_support_needs_a_close_private_safe_example_and_no_harmful_one():
+    from app.classify.learning import human_safe_support
+
+    close = {"message_id": 1, "verdict": "safe", "similarity": 0.8}
+    assert human_safe_support([close])
+    assert not human_safe_support([{**close, "similarity": 0.3}])
+    assert not human_safe_support([{"community_id": "c1", "verdict": "safe", "similarity": 1}])
+    assert not human_safe_support(
+        [close, {"message_id": 2, "verdict": "harmful", "similarity": 0.2}]
+    )

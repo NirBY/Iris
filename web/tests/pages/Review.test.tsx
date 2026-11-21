@@ -296,7 +296,24 @@ test('ignored view can be selected separately from the active queue', async () =
   const calls = renderWithApp(<Review />, {
     '/api/review': { items: [], total: 0, page: 1, page_size: 25 },
   })
-  await userEvent.click(await screen.findByRole('button', { name: 'Unavailable content' }))
-  expect(await screen.findByText('No unavailable content')).toBeInTheDocument()
+  await userEvent.click(await screen.findByRole('button', { name: 'Cannot be reviewed' }))
+  expect(await screen.findByText('No messages without content')).toBeInTheDocument()
   expect(calls.some((c) => c.url.includes('view=missing_data'))).toBe(true)
+})
+
+test('messages that cannot be reviewed offer no Safe or Harmful decision', async () => {
+  renderWithApp(<Review />, {
+    '/api/review': {
+      items: [{ ...item, missing_data: true, review_kind: 'unavailable' }],
+      total: 1,
+      reviewed_total: 0,
+      page: 1,
+      page_size: 25,
+    },
+  })
+  await userEvent.click(await screen.findByRole('button', { name: 'Cannot be reviewed' }))
+  expect(await screen.findByText(/No decision is needed/)).toBeInTheDocument()
+  expect(await screen.findByText('1 that cannot be reviewed', { exact: false })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Mark safe/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Mark harmful/ })).not.toBeInTheDocument()
 })
