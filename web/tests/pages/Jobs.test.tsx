@@ -130,3 +130,31 @@ test('retry all re-queues every failed job and reports the count', async () => {
   expect(calls.some((c) => c.method === 'POST' && c.url === '/api/jobs/retry-all')).toBe(true)
   expect(await screen.findByText('Retrying failed jobs: 2 (skipped 1)')).toBeInTheDocument()
 })
+
+test('a stuck delivery explains why and cannot be retried', async () => {
+  renderWithApp(<Jobs />, {
+    '/api/jobs': [
+      {
+        id: 7,
+        type: 'run_schedule',
+        status: 'failed',
+        attempts: 1,
+        max_attempts: 3,
+        created_at: '2026-10-23T20:00:00Z',
+        last_error: 'alert delivery failed: provider status unavailable',
+        can_retry: false,
+        notes: [
+          { code: 'uncertain_delivery', delivered: 1, uncertain: 1 },
+          { code: 'sender_removed' },
+          { code: 'schedule_off', detail: 'Daily summary' },
+        ],
+      },
+    ],
+  })
+  expect(await screen.findByText(/delivery to 1 could not be confirmed/)).toBeVisible()
+  expect(screen.getByText('The phone that sent this was removed from Iris.')).toBeVisible()
+  expect(
+    screen.getByText('"Daily summary" is turned off now, so this job will not run again.'),
+  ).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled()
+})

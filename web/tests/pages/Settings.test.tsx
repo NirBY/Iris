@@ -235,7 +235,7 @@ test.each([false, true])('review buttons save a boolean when initially %s', asyn
 test('learning defaults to Off and saves Shadow explicitly', async () => {
   const calls = renderPage()
   await userEvent.click(await screen.findByRole('tab', { name: 'Classification' }))
-  const mode = screen.getByLabelText('Ollama learning from reviewed text')
+  const mode = screen.getByLabelText('Ollama learning from your review decisions')
   expect(mode).toHaveValue('off')
   await userEvent.selectOptions(mode, 'shadow')
   await userEvent.click(screen.getByRole('button', { name: 'Save' }))

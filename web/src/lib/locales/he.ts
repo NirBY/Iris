@@ -995,6 +995,23 @@ export const hebrew: Record<string, string> = {
     'המודלים שאותרו מגיעים מכתובת השירות שהוזנה. הבחירה הנוכחית נשארת מסומנת; השינויים חלים בשמירה. אפשר גם להזין שם מודל מותאם.',
   'Media hidden — use Show content to view.': 'המדיה מוסתרת — השתמשו בהצגת תוכן כדי לצפות בה.',
   'Retry media': 'ניסיון נוסף לטעינת מדיה',
+  'Checking can take up to a minute when the AI server is busy. You can open other pages; the result will be here when you come back.':
+    'הבדיקה עשויה להימשך עד דקה כששרת ה־AI עמוס. אפשר לפתוח עמודים אחרים; התוצאה תחכה כאן כשתחזרו.',
+  'This result is for the previous text. Select Check to update it.':
+    'התוצאה הזו מתייחסת לטקסט הקודם. בחרו בדיקה כדי לעדכן אותה.',
+  'Ollama learning from your review decisions': 'למידת Ollama מהחלטות הבדיקה שלכם',
+  'Active: your decisions can change AI results': 'פעיל: ההחלטות שלכם יכולות לשנות את תוצאות ה־AI',
+  'Shadow only records how your past decisions would change results. Active can make a decision stricter, or mark an uncertain message safe when it closely matches one you marked safe and no matching example was harmful. Uses text, captions and voice or video transcripts; it does not retrain the model.':
+    'מצב צל רק מתעד איך ההחלטות הקודמות שלכם היו משנות את התוצאות. במצב פעיל ההחלטות יכולות להחמיר תוצאה, או לסמן הודעה לא ודאית כתקינה כאשר היא דומה מאוד להודעה שסימנתם כתקינה ואף דוגמה תואמת לא סומנה כמזיקה. משתמש בטקסט, בכיתובים ובתמלולי הודעות קוליות ווידאו; המודל עצמו אינו מאומן מחדש.',
+  'Why this job is stuck': 'למה המשימה תקועה',
+  'Retrying cannot complete this job.': 'ניסיון חוזר לא יוכל להשלים את המשימה.',
+  'Delivered to {delivered}; delivery to {uncertain} could not be confirmed. Iris never resends to an unconfirmed recipient, so retrying cannot complete this job. It is removed automatically 30 days after it was created.':
+    'נמסר ל־{delivered}; לא ניתן היה לאשר מסירה ל־{uncertain}. Iris אף פעם לא שולחת שוב לנמען שהמסירה אליו לא אושרה, ולכן ניסיון חוזר לא יוכל להשלים את המשימה. היא תימחק אוטומטית 30 יום לאחר יצירתה.',
+  'The phone that sent this was removed from Iris.': 'הטלפון ששלח את זה הוסר מ־Iris.',
+  'Alert sending is not set up now. Choose a sender and recipients in Settings.':
+    'שליחת התראות אינה מוגדרת כעת. בחרו שולח ונמענים בהגדרות.',
+  '"{name}" is turned off now, so this job will not run again.':
+    '"{name}" כבוי כעת, ולכן המשימה הזו לא תרוץ שוב.',
   'Human review: messages ready for your Safe or Harmful decision. Messages still being checked by AI are in IrisReview. Your decisions on text, captions and voice or video transcripts can guide future AI checks when learning is enabled.':
     'בדיקה אנושית: הודעות המוכנות להחלטת תקין או מזיק שלכם. הודעות שעדיין נבדקות ב־AI נמצאות בבדיקת Iris. ההחלטות שלכם על טקסט, כיתובים ותמלולי הודעות קוליות או וידאו יכולות להנחות בדיקות AI עתידיות כאשר הלמידה מופעלת.',
   'Cannot be reviewed': 'לא ניתן לבדיקה',

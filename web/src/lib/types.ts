@@ -254,6 +254,15 @@ export interface Job {
   last_error: string | null
   message_id: number | null
   created_at: string
+  notes?: JobNote[]
+  can_retry?: boolean
+}
+
+export interface JobNote {
+  code: 'uncertain_delivery' | 'sender_removed' | 'sending_not_ready' | 'schedule_off'
+  delivered?: number | null
+  uncertain?: number | null
+  detail?: string | null
 }
 
 export interface ThresholdRow {

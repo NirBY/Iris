@@ -129,6 +129,9 @@ async def send_to_parents(
         raise PermanentError("Alert delivery not configured: " + readiness.error)
     completed = list(payload.get("delivered_recipients", []))
     payload["recipients"] = targets
+    if sender is not None:
+        # Lets the Jobs page explain a later failure if this phone is removed.
+        payload["sender_instance_id"] = sender.id
     if stored is not None:
         stored.payload = dict(payload)
         await db.commit()

@@ -1,7 +1,7 @@
 import { t } from '../lib/i18n'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FlaskConical, RotateCcw, Save } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Eraser, FlaskConical, RotateCcw, Save } from 'lucide-react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from '../lib/notify'
 import { PageHeader } from '../components/PageHeader'
@@ -13,6 +13,7 @@ import { bandFor, verdictFor, type Band, type Pair, type Verdict } from '../lib/
 import { cn } from '../lib/cn'
 import { draftPair, overridesFrom, validPair, type Draft } from '../lib/thresholds'
 import type { ThresholdRow } from '../lib/types'
+import { useSessionState } from '../lib/useSessionState'
 
 interface Stage {
   stage: string
@@ -22,7 +23,11 @@ interface Result {
   model: string
   stages: Stage[]
   thresholds: ThresholdRow[]
+  /** What was checked, so an edited box is not mistaken for the result's input. */
+  checked?: { text: string; context: string }
 }
+
+const EMPTY_DRAFT: Draft = {}
 
 const BAND: Record<Band, { label: string; tone: 'success' | 'warning' | 'danger' }> = {
   safe: { label: 'Fine', tone: 'success' },
@@ -60,27 +65,32 @@ export function TryIt() {
   const classifier =
     providers.data?.['runtime.classification_provider'] ??
     providers.data?.local_providers?.classification
-  const [text, setText] = useState('')
-  const [context, setContext] = useState('')
-  const [draft, setDraft] = useState<Draft>({})
-  const [result, setResult] = useState<Result | null>(null)
+  // Kept for this browser tab: opening another page while a check runs keeps the text, and the
+  // result is stored when it arrives even if this page is not open.
+  const [text, setText] = useSessionState('try.text', '')
+  const [context, setContext] = useSessionState('try.context', '')
+  const [draft, setDraft] = useSessionState<Draft>('try.draft', EMPTY_DRAFT)
+  const [result, setResult] = useSessionState<Result | null>('try.result', null)
 
   const check = useMutation({
-    mutationFn: () =>
+    mutationKey: ['try-check'],
+    mutationFn: (input: { text: string; context: string }) =>
       api<Result>('/api/classify/test', {
         method: 'POST',
         body: JSON.stringify({
-          text: text.trim(),
-          context: context
+          text: input.text.trim(),
+          context: input.context
             .split('\n')
             .map((l) => l.trim())
             .filter(Boolean),
         }),
       }),
     // The draft stays: re-checking another phrase should run against the same tuning.
-    onSuccess: setResult,
+    onSuccess: (data, input) => setResult({ ...data, checked: input }),
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not check the text.'),
   })
+  // A check started before leaving the page is still running after coming back.
+  const checking = useIsMutating({ mutationKey: ['try-check'] }) > 0 || check.isPending
 
   const save = useMutation({
     mutationFn: (overrides: Record<string, Pair>) =>
@@ -99,7 +109,7 @@ export function TryIt() {
             }
           : r,
       )
-      setDraft({})
+      setDraft(EMPTY_DRAFT)
       await qc.invalidateQueries()
     },
     onError: (e) => toast.error(e instanceof ApiError ? e.message : 'Could not save thresholds.'),
@@ -131,6 +141,9 @@ export function TryIt() {
   )
   const overrides = overridesFrom(result?.thresholds, draft)
   const invalid = overrides === 'invalid'
+  const stale =
+    !!result?.checked &&
+    (result.checked.text.trim() !== text.trim() || result.checked.context !== context)
   const changedFromSaved =
     result?.thresholds.some((r) => {
       const p = draftPair(r, draft)
@@ -162,7 +175,7 @@ export function TryIt() {
             toast.error('Use at most 20 earlier messages of up to 1,000 characters each.')
             return
           }
-          check.mutate()
+          check.mutate({ text, context })
         }}
       >
         <Field label={t('Message to check')}>
@@ -188,9 +201,29 @@ export function TryIt() {
           />
         </Field>
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" disabled={!text.trim() || check.isPending}>
-            <FlaskConical /> {check.isPending ? t('Checking…') : t('Check')}
+          <Button type="submit" disabled={!text.trim() || checking}>
+            <FlaskConical /> {checking ? t('Checking…') : t('Check')}
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={checking || (!text && !context && !result && !changedFromSaved)}
+            onClick={() => {
+              setText('')
+              setContext('')
+              setResult(null)
+              setDraft(EMPTY_DRAFT)
+            }}
+          >
+            <Eraser /> {t('Clear')}
+          </Button>
+          {checking && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {t(
+                'Checking can take up to a minute when the AI server is busy. You can open other pages; the result will be here when you come back.',
+              )}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             {classifier === 'ollama'
               ? t(
@@ -205,7 +238,12 @@ export function TryIt() {
         </div>
       </form>
 
-      <div aria-live="polite">
+      <div aria-live="polite" className="flex flex-col gap-2">
+        {result && verdict && stale && (
+          <p role="status" className="text-sm text-warning">
+            {t('This result is for the previous text. Select Check to update it.')}
+          </p>
+        )}
         {result && verdict && (
           <section
             className={cn('flex flex-col gap-1 rounded-lg border p-4', VERDICT[verdict].tone)}
@@ -243,7 +281,7 @@ export function TryIt() {
                   variant="outline"
                   type="button"
                   disabled={!changedFromSaved}
-                  onClick={() => setDraft({})}
+                  onClick={() => setDraft(EMPTY_DRAFT)}
                 >
                   <RotateCcw /> {t('Reset to saved')}
                 </Button>
@@ -285,7 +323,7 @@ export function TryIt() {
                 const ok = validPair(p.low, p.high)
                 return (
                   <li
-                    key={t(r.category)}
+                    key={r.category}
                     className="grid grid-cols-1 items-center gap-2 p-3 sm:grid-cols-[11rem_1fr_9rem_9rem]"
                   >
                     <span className="text-sm font-medium">{t(r.category)}</span>

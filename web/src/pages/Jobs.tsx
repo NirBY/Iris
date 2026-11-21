@@ -10,7 +10,7 @@ import { Button } from '../components/ui/button'
 import { Skeleton } from '../components/ui/skeleton'
 import { api, ApiError } from '../lib/api'
 import { relativeTime } from '../lib/format'
-import type { Job } from '../lib/types'
+import type { Job, JobNote } from '../lib/types'
 import { QueryError } from '../components/QueryError'
 import { useUrlState } from '../lib/urlState'
 import { Field, Select } from '../components/ui/field'
@@ -24,6 +24,24 @@ const WHAT: Record<string, string> = {
   evaluate_learning: 'Evaluating learning',
   provider_notice: 'Sending a provider notice',
   run_schedule: 'Running a scheduled task',
+}
+
+function jobNote(note: JobNote): string {
+  switch (note.code) {
+    case 'uncertain_delivery':
+      return t(
+        'Delivered to {delivered}; delivery to {uncertain} could not be confirmed. Iris never resends to an unconfirmed recipient, so retrying cannot complete this job. It is removed automatically 30 days after it was created.',
+        { delivered: note.delivered ?? 0, uncertain: note.uncertain ?? 1 },
+      )
+    case 'sender_removed':
+      return t('The phone that sent this was removed from Iris.')
+    case 'sending_not_ready':
+      return `${t('Alert sending is not set up now. Choose a sender and recipients in Settings.')} ${t(note.detail ?? '')}`.trim()
+    case 'schedule_off':
+      return t('"{name}" is turned off now, so this job will not run again.', {
+        name: t(note.detail ?? ''),
+      })
+  }
 }
 
 export function Jobs() {
@@ -112,6 +130,15 @@ export function Jobs() {
                   {t(j.last_error)}
                 </span>
               )}
+              {!!j.notes?.length && (
+                <ul className="flex flex-col gap-1 text-sm" aria-label={t('Why this job is stuck')}>
+                  {j.notes.map((note) => (
+                    <li key={note.code} className="break-words">
+                      {jobNote(note)}
+                    </li>
+                  ))}
+                </ul>
+              )}
               {j.status === 'queued' && j.run_after && (
                 <span className="text-xs text-muted-foreground">
                   {t('Next attempt:')} {new Date(j.run_after).toLocaleString()}
@@ -130,7 +157,8 @@ export function Jobs() {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={retry.isPending}
+                title={j.can_retry === false ? t('Retrying cannot complete this job.') : undefined}
+                disabled={retry.isPending || j.can_retry === false}
                 onClick={() => retry.mutate(j.id)}
               >
                 <RotateCw /> {t('Retry')}

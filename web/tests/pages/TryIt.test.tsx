@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { cleanup, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithApp } from '../test-utils'
 import { TryIt } from '../../src/pages/TryIt'
@@ -20,6 +20,8 @@ const response = {
   thresholds: rows,
   stages: [{ stage: 'moderation', scores: { violence: 0.4, harassment: 0.01 } }],
 }
+
+beforeEach(() => sessionStorage.clear())
 
 async function check(routes: Record<string, unknown> = { '/api/classify/test': response }) {
   const calls = renderWithApp(<TryIt />, routes)
@@ -146,4 +148,22 @@ test('unknown provider does not claim text is sent to OpenAI', async () => {
     ),
   ).toBeInTheDocument()
   expect(screen.queryByText(/sent to OpenAI/)).not.toBeInTheDocument()
+})
+
+test('leaving the page and coming back keeps the text and the result', async () => {
+  await check()
+  cleanup()
+  renderWithApp(<TryIt />, { '/api/classify/test': response })
+  expect(screen.getByLabelText('Message to check')).toHaveValue('hello there')
+  expect(screen.getByRole('heading', { name: 'Needs a look' })).toBeInTheDocument()
+})
+
+test('a result for different text says so, and Clear empties the page', async () => {
+  await check()
+  await userEvent.type(screen.getByLabelText('Message to check'), ' again')
+  expect(screen.getByText(/This result is for the previous text/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /Clear/ }))
+  expect(screen.getByLabelText('Message to check')).toHaveValue('')
+  expect(screen.queryByText('Thresholds')).not.toBeInTheDocument()
+  expect(sessionStorage.getItem('iris.try.result')).toBeNull()
 })

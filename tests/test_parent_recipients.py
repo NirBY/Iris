@@ -57,6 +57,7 @@ async def test_retry_only_failed_parent_and_preserves_target_snapshot(app_client
     async with deps.session_factory() as db:
         job = (await db.scalars(select(Job).where(Job.type == "deliver_alert"))).one()
         assert job.payload["delivered_recipients"] == ["15550100101@c.us"]
+        assert isinstance(job.payload["sender_instance_id"], int)  # explains a later removal
         job.run_after = datetime.now(UTC) - timedelta(seconds=1)
         await db.commit()
     await advance_queue(deps)

@@ -60,7 +60,7 @@ async def test_retry_all_leaves_jobs_with_uncertain_delivery_for_a_manual_decisi
     app_client: Any,
 ) -> None:
     async with app_client.app.state.session_factory() as s:
-        s.add(Job(type="run_schedule", status="failed", payload={"schedule_key": "daily_summary"}))
+        s.add(Job(type="run_schedule", status="failed", payload={"schedule_key": "retention"}))
         s.add(
             Job(
                 type="run_schedule",
@@ -74,3 +74,37 @@ async def test_retry_all_leaves_jobs_with_uncertain_delivery_for_a_manual_decisi
     async with app_client.app.state.session_factory() as s:
         statuses = (await s.execute(select(Job.status).order_by(Job.id))).scalars().all()
     assert statuses == ["queued", "failed"]
+
+
+async def test_failed_jobs_explain_unconfirmed_delivery_removed_sender_and_disabled_schedule(
+    app_client: Any,
+) -> None:
+    async with app_client.app.state.session_factory() as s:
+        s.add(
+            Job(
+                type="run_schedule",
+                status="failed",
+                last_error="alert delivery failed: provider status unavailable",
+                payload={
+                    "schedule_key": "daily_summary",
+                    "recipients": ["a", "b"],
+                    "delivered_recipients": ["a"],
+                    "delivery_uncertain": True,
+                    "uncertain_recipients": ["b"],
+                    "sender_instance_id": 999,
+                },
+            )
+        )
+        s.add(Job(type="run_schedule", status="failed", payload={"schedule_key": "retention"}))
+        await s.commit()
+    jobs = {j["id"]: j for j in (await app_client.get("/api/jobs")).json()}
+    stuck, plain = sorted(jobs)
+    codes = [n["code"] for n in jobs[stuck]["notes"]]
+    assert codes[:2] == ["uncertain_delivery", "sender_removed"]
+    assert "schedule_off" in codes and "sending_not_ready" in codes
+    note = jobs[stuck]["notes"][0]
+    assert note["delivered"] == 1 and note["uncertain"] == 1
+    assert jobs[stuck]["can_retry"] is False
+    assert jobs[plain]["notes"] == [] and jobs[plain]["can_retry"] is True
+    assert (await app_client.post(f"/api/jobs/{stuck}/retry")).status_code == 409
+    assert (await app_client.post(f"/api/jobs/{plain}/retry")).status_code == 200

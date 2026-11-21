@@ -1175,7 +1175,7 @@ export function Settings() {
               </Field>
               {num('classification.context_window_size', 'Messages of context (1 to 20)', 1, 20)}
               {num('classification.context_max_age_hours', 'Context goes back (hours)', 1, 168)}
-              <Field label={translate('Ollama learning from reviewed text')}>
+              <Field label={translate('Ollama learning from your review decisions')}>
                 <Select
                   value={get('classification.learning_mode') || 'off'}
                   onChange={(e) => set('classification.learning_mode')(e.target.value)}
@@ -1185,13 +1185,13 @@ export function Settings() {
                     {translate('Shadow: compare without changing alerts')}
                   </option>
                   <option value="active">
-                    {translate('Active: use examples to detect additional harm')}
+                    {translate('Active: your decisions can change AI results')}
                   </option>
                 </Select>
               </Field>
               <p className="text-sm text-muted-foreground">
                 {translate(
-                  'Start with Shadow. Active keeps stronger baseline decisions and may add alerts or reviews. Applies to Ollama text messages; it does not train model weights.',
+                  'Shadow only records how your past decisions would change results. Active can make a decision stricter, or mark an uncertain message safe when it closely matches one you marked safe and no matching example was harmful. Uses text, captions and voice or video transcripts; it does not retrain the model.',
                 )}
               </p>
               <Toggle
